@@ -17,12 +17,23 @@ class PersonaConfig(BaseModel):
     tone: str
 
 
+class OfferConfig(BaseModel):
+    primary: str = ""
+    entry: str = ""
+    goal: str = "book_call"  # book_call, start_trial, get_reply
+    booking_method: str = "calendar_link"  # calendar_link, suggest_times, ask_preference
+    booking_url: str = ""
+    meeting_duration: str = "15 minutes"
+    meeting_owner: str = ""
+
+
 class ProductConfig(BaseModel):
     name: str
     description: str
     pricing: str
     key_benefits: list[str]
     objection_responses: dict[str, str]
+    offer: OfferConfig = OfferConfig()
 
 
 class ICPConfig(BaseModel):

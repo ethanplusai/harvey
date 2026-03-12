@@ -319,6 +319,46 @@ class SetupWizard:
         geography = _ask("Target geography", default="United States").split(",")
         geography = [g.strip() for g in geography if g.strip()]
 
+        _print_harvey("Now let's talk about your offer — what happens when someone's interested?\n")
+
+        primary_offer = _ask(
+            "What's your main offer? (e.g., 'SaaS subscription at $99/mo', 'Marketing retainer')",
+            required=False,
+        )
+        entry_offer = _ask(
+            "Any low-commitment entry offer? (e.g., 'Free trial', 'Free audit', 'Sample report')",
+            default="",
+            required=False,
+        )
+
+        print("\n  What's the goal when someone shows interest?")
+        print("    1. Book a call")
+        print("    2. Start a free trial")
+        print("    3. Just get a reply / start a conversation")
+        goal_choice = _ask("Goal (1/2/3)", default="1")
+        goal_map = {"1": "book_call", "2": "start_trial", "3": "get_reply"}
+        goal = goal_map.get(goal_choice, "book_call")
+
+        booking_method = "suggest_times"
+        booking_url = ""
+        meeting_duration = "15 minutes"
+        meeting_owner = ""
+
+        if goal == "book_call":
+            has_calendar = _ask_yes_no("Do you have a calendar booking link (Calendly, Cal.com, etc.)?")
+            if has_calendar:
+                booking_url = _ask("Booking URL")
+                booking_method = "calendar_link"
+            else:
+                print("\n  How should Harvey suggest meeting times?")
+                print("    1. Suggest specific times ('How about Thursday at 2pm?')")
+                print("    2. Ask for their preference ('What does your calendar look like?')")
+                method_choice = _ask("Method (1/2)", default="1")
+                booking_method = "suggest_times" if method_choice == "1" else "ask_preference"
+
+            meeting_duration = _ask("How long is the call?", default="15 minutes")
+            meeting_owner = _ask("Who takes the meeting? (your name or role)", required=False)
+
         _print_harvey("What persona should I use for outreach?\n")
 
         persona_name = _ask("My name (what prospects see)", default="Harvey")
@@ -340,6 +380,15 @@ class SetupWizard:
                 "pricing": pricing,
                 "key_benefits": benefits or ["Benefit 1"],
                 "objection_responses": {},
+                "offer": {
+                    "primary": primary_offer or "",
+                    "entry": entry_offer or "",
+                    "goal": goal,
+                    "booking_method": booking_method,
+                    "booking_url": booking_url,
+                    "meeting_duration": meeting_duration,
+                    "meeting_owner": meeting_owner or "",
+                },
             },
             "icp": {
                 "industries": industries or ["Technology"],

@@ -62,6 +62,15 @@ Ask the user these questions and build `harvey.yaml` and `skills/product_knowled
 - Target geography
 - Persona name and email (the "from" identity for outreach)
 - Common objections they hear and how to respond
+- **Offer & closing mechanics:**
+  - What's the primary offer? (subscription, service, etc.)
+  - Is there a low-commitment entry offer? (free trial, free audit, etc.)
+  - What's the goal when someone shows interest? (book a call, start a trial, get a reply)
+  - How should meetings be booked? (calendar link URL, suggest specific times, or ask for their preference)
+  - How long is the call? (default: 15 minutes)
+  - Who takes the meeting?
+
+These answers go into `harvey.yaml` under `product.offer`. Harvey uses the `skills/offer_strategy.md` skill to know WHEN to present offers (only after interest) and HOW to close based on these settings.
 
 ### 4. Behavior Settings
 

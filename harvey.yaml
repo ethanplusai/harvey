@@ -18,6 +18,14 @@ product:
     "too expensive": "I understand budget is important. Most of our clients see ROI within 30 days..."
     "already have a solution": "That makes sense. Curious — what's the one thing you wish it did better?"
     "not interested": "No worries at all. Mind if I ask what your current approach looks like?"
+  offer:
+    primary: ""                    # Main offer (e.g., "Monthly subscription starting at $99/mo")
+    entry: ""                      # Low-commitment entry (e.g., "14-day free trial", "Free audit")
+    goal: "book_call"              # Goal of outreach: book_call, start_trial, get_reply
+    booking_method: "calendar_link" # calendar_link, suggest_times, ask_preference
+    booking_url: ""                # Calendar link URL (if using calendar_link method)
+    meeting_duration: "15 minutes" # How long the call is
+    meeting_owner: ""              # Who takes the meeting (name or role)
 
 icp:
   industries:
