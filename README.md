@@ -139,17 +139,31 @@ Quiet hours are also configurable. Harvey won't run between 10pm and 7am (or wha
 ```bash
 git clone https://github.com/ethanplusai/harvey.git
 cd harvey
-pip install -r requirements.txt
-playwright install chromium
+pip install -e .
+harvey install
 ```
 
-### 2. Run Harvey
+### 2. Set Up Harvey
 
 ```bash
-python -m harvey
+harvey setup
 ```
 
-That's it. On first run, Harvey detects it's not configured and launches an interactive setup wizard. Harvey walks you through everything — you don't need to manually edit any config files.
+Harvey launches an interactive setup wizard that walks you through everything — you don't need to manually edit any config files.
+
+### 3. Start Closing
+
+```bash
+harvey run
+```
+
+Other commands:
+
+```bash
+harvey status              # Show pipeline summary
+harvey train <url>         # Re-train on a new product website
+harvey train <url> 500     # Crawl more pages for larger sites
+```
 
 ```
 ╔══════════════════════════════════════════════════════════╗
@@ -216,9 +230,11 @@ If you don't have a website (or prefer to do it manually), Harvey asks you the q
 
 **Step 6 — Behavior Settings.** Harvey asks how much of your daily Claude quota it can use, how often to check for work, quiet hours, send limits, and timezone.
 
-After setup, Harvey writes all config files for you and starts its heartbeat loop automatically on the next run. To re-run setup anytime: `python -m harvey.setup`
+After setup, Harvey writes all config files for you. Just run `harvey run` to start closing.
 
-### 3. Deploy (VPS)
+To re-run setup anytime: `harvey setup`
+
+### 4. Deploy (VPS)
 
 For always-on operation, deploy with Docker:
 
@@ -238,13 +254,13 @@ docker compose logs -f harvey
 You can re-train Harvey anytime by pointing it at a new website:
 
 ```bash
-python -m harvey.trainer https://newproduct.com
+harvey train https://newproduct.com
 ```
 
 Or crawl more pages for larger sites:
 
 ```bash
-python -m harvey.trainer https://yourcompany.com 500
+harvey train https://yourcompany.com 500
 ```
 
 #### Deep Crawling with Cloudflare
