@@ -129,40 +129,38 @@ Quiet hours are also configurable. Harvey won't run between 10pm and 7am (or wha
 
 ### Prerequisites
 
-- Python 3.11+
 - [Claude Code CLI](https://claude.ai/download) installed and authenticated (with a Max subscription)
+- Python 3.11+
 - An [Instantly](https://instantly.ai) account with API access (for cold email)
 - A LinkedIn account (for prospecting — optional)
 
-### 1. Clone and Install
+### 1. Clone and Open in Claude
 
 ```bash
 git clone https://github.com/ethanplusai/harvey.git
 cd harvey
-pip install -e .
-harvey install
+claude
 ```
 
-### 2. Set Up Harvey
+That's it. Claude reads the project, sees it's unconfigured, and walks you through everything — installs dependencies, connects your email platform, trains on your product, and gets Harvey running. Just follow along.
+
+### 2. Run Harvey (after setup)
+
+Once configured, start Harvey anytime:
 
 ```bash
-harvey setup
-```
-
-Harvey launches an interactive setup wizard that walks you through everything — you don't need to manually edit any config files.
-
-### 3. Start Closing
-
-```bash
+cd harvey
+source .venv/bin/activate
 harvey run
 ```
 
 Other commands:
 
 ```bash
-harvey status              # Show pipeline summary
-harvey train <url>         # Re-train on a new product website
-harvey train <url> 500     # Crawl more pages for larger sites
+harvey setup              # Re-run the setup wizard
+harvey status             # Show pipeline summary
+harvey train <url>        # Re-train on a new product website
+harvey train <url> 500    # Crawl more pages for larger sites
 ```
 
 ```
