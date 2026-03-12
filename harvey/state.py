@@ -7,6 +7,7 @@ from pathlib import Path
 
 import aiosqlite
 
+from harvey.models.company import Company
 from harvey.models.prospect import Prospect
 from harvey.models.campaign import Campaign, EmailStep
 from harvey.models.conversation import Conversation, Message
@@ -27,20 +28,43 @@ class StateManager:
         Path(self.db_path).parent.mkdir(parents=True, exist_ok=True)
         async with aiosqlite.connect(self.db_path) as db:
             await db.executescript("""
+                CREATE TABLE IF NOT EXISTS companies (
+                    id TEXT PRIMARY KEY,
+                    name TEXT DEFAULT '',
+                    domain TEXT DEFAULT '',
+                    website TEXT DEFAULT '',
+                    description TEXT DEFAULT '',
+                    industry TEXT DEFAULT '',
+                    company_size TEXT DEFAULT '',
+                    location TEXT DEFAULT '',
+                    source TEXT DEFAULT '',
+                    source_url TEXT DEFAULT '',
+                    notes TEXT DEFAULT '',
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                );
+
                 CREATE TABLE IF NOT EXISTS prospects (
                     id TEXT PRIMARY KEY,
+                    company_id TEXT DEFAULT '' REFERENCES companies(id),
                     first_name TEXT DEFAULT '',
                     last_name TEXT DEFAULT '',
                     email TEXT DEFAULT '',
+                    email_verified INTEGER DEFAULT 0,
+                    phone TEXT DEFAULT '',
+                    phone_verified INTEGER DEFAULT 0,
                     linkedin_url TEXT DEFAULT '',
-                    company TEXT DEFAULT '',
                     title TEXT DEFAULT '',
-                    industry TEXT DEFAULT '',
-                    company_size TEXT DEFAULT '',
+                    seniority TEXT DEFAULT '',
+                    department TEXT DEFAULT '',
                     source TEXT DEFAULT '',
+                    source_url TEXT DEFAULT '',
                     status TEXT DEFAULT 'new',
                     score INTEGER DEFAULT 0,
                     personalization_notes TEXT DEFAULT '',
+                    company TEXT DEFAULT '',
+                    industry TEXT DEFAULT '',
+                    company_size TEXT DEFAULT '',
                     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
                 );
@@ -68,6 +92,14 @@ class StateManager:
                     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
                 );
 
+                CREATE TABLE IF NOT EXISTS feedback (
+                    id TEXT PRIMARY KEY,
+                    entity_type TEXT DEFAULT '',
+                    entity_id TEXT DEFAULT '',
+                    comment TEXT DEFAULT '',
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                );
+
                 CREATE TABLE IF NOT EXISTS actions (
                     id TEXT PRIMARY KEY,
                     action_type TEXT,
@@ -84,13 +116,79 @@ class StateManager:
                     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
                 );
 
+                CREATE INDEX IF NOT EXISTS idx_companies_domain ON companies(domain);
+                CREATE INDEX IF NOT EXISTS idx_prospects_company_id ON prospects(company_id);
                 CREATE INDEX IF NOT EXISTS idx_prospects_status ON prospects(status);
                 CREATE INDEX IF NOT EXISTS idx_campaigns_status ON campaigns(status);
                 CREATE INDEX IF NOT EXISTS idx_conversations_status ON conversations(status);
+                CREATE INDEX IF NOT EXISTS idx_feedback_entity ON feedback(entity_type, entity_id);
                 CREATE INDEX IF NOT EXISTS idx_usage_date ON usage_log(date);
             """)
 
-    # ── Prospects ──
+    # ── Companies ──
+
+    async def add_company(self, company: Company) -> str:
+        if not company.id:
+            company.id = _new_id()
+        async with aiosqlite.connect(self.db_path) as db:
+            await db.execute(
+                """INSERT OR IGNORE INTO companies
+                   (id, name, domain, website, description, industry,
+                    company_size, location, source, source_url, notes,
+                    created_at, updated_at)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                (
+                    company.id, company.name, company.domain, company.website,
+                    company.description, company.industry, company.company_size,
+                    company.location, company.source, company.source_url,
+                    company.notes,
+                    company.created_at.isoformat(),
+                    company.updated_at.isoformat(),
+                ),
+            )
+            await db.commit()
+        return company.id
+
+    async def get_company(self, company_id: str) -> Company | None:
+        async with aiosqlite.connect(self.db_path) as db:
+            db.row_factory = aiosqlite.Row
+            async with db.execute(
+                "SELECT * FROM companies WHERE id = ?", (company_id,)
+            ) as cursor:
+                row = await cursor.fetchone()
+                if not row:
+                    return None
+                return Company(**dict(row))
+
+    async def get_company_by_domain(self, domain: str) -> Company | None:
+        async with aiosqlite.connect(self.db_path) as db:
+            db.row_factory = aiosqlite.Row
+            async with db.execute(
+                "SELECT * FROM companies WHERE domain = ?", (domain,)
+            ) as cursor:
+                row = await cursor.fetchone()
+                if not row:
+                    return None
+                return Company(**dict(row))
+
+    async def get_contacts_for_company(self, company_id: str) -> list[Prospect]:
+        async with aiosqlite.connect(self.db_path) as db:
+            db.row_factory = aiosqlite.Row
+            async with db.execute(
+                "SELECT * FROM prospects WHERE company_id = ? ORDER BY score DESC",
+                (company_id,),
+            ) as cursor:
+                rows = await cursor.fetchall()
+                return [Prospect(**dict(r)) for r in rows]
+
+    async def company_exists(self, domain: str) -> bool:
+        async with aiosqlite.connect(self.db_path) as db:
+            async with db.execute(
+                "SELECT 1 FROM companies WHERE domain = ?", (domain,)
+            ) as cursor:
+                return bool(await cursor.fetchone())
+
+    # ── Prospects (Contacts) ──
 
     async def add_prospect(self, prospect: Prospect) -> str:
         if not prospect.id:
@@ -98,16 +196,23 @@ class StateManager:
         async with aiosqlite.connect(self.db_path) as db:
             await db.execute(
                 """INSERT OR IGNORE INTO prospects
-                   (id, first_name, last_name, email, linkedin_url, company,
-                    title, industry, company_size, source, status, score,
-                    personalization_notes, created_at, updated_at)
-                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                   (id, company_id, first_name, last_name, email, email_verified,
+                    phone, phone_verified, linkedin_url, title, seniority,
+                    department, source, source_url, status, score,
+                    personalization_notes, company, industry, company_size,
+                    created_at, updated_at)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
                 (
-                    prospect.id, prospect.first_name, prospect.last_name,
-                    prospect.email, prospect.linkedin_url, prospect.company,
-                    prospect.title, prospect.industry, prospect.company_size,
-                    prospect.source, prospect.status, prospect.score,
+                    prospect.id, prospect.company_id,
+                    prospect.first_name, prospect.last_name,
+                    prospect.email, int(prospect.email_verified),
+                    prospect.phone, int(prospect.phone_verified),
+                    prospect.linkedin_url, prospect.title,
+                    prospect.seniority, prospect.department,
+                    prospect.source, prospect.source_url,
+                    prospect.status, prospect.score,
                     prospect.personalization_notes,
+                    prospect.company, prospect.industry, prospect.company_size,
                     prospect.created_at.isoformat(),
                     prospect.updated_at.isoformat(),
                 ),
@@ -124,7 +229,10 @@ class StateManager:
                 row = await cursor.fetchone()
                 if not row:
                     return None
-                return Prospect(**dict(row))
+                d = dict(row)
+                d["email_verified"] = bool(d.get("email_verified", 0))
+                d["phone_verified"] = bool(d.get("phone_verified", 0))
+                return Prospect(**d)
 
     async def get_prospects_by_status(self, status: str) -> list[Prospect]:
         async with aiosqlite.connect(self.db_path) as db:
@@ -134,7 +242,13 @@ class StateManager:
                 (status,),
             ) as cursor:
                 rows = await cursor.fetchall()
-                return [Prospect(**dict(r)) for r in rows]
+                results = []
+                for r in rows:
+                    d = dict(r)
+                    d["email_verified"] = bool(d.get("email_verified", 0))
+                    d["phone_verified"] = bool(d.get("phone_verified", 0))
+                    results.append(Prospect(**d))
+                return results
 
     async def update_prospect_status(self, prospect_id: str, status: str):
         async with aiosqlite.connect(self.db_path) as db:
@@ -145,7 +259,6 @@ class StateManager:
             await db.commit()
 
     async def prospect_exists(self, email: str = "", linkedin_url: str = "") -> bool:
-        """Check if a prospect already exists by email or LinkedIn URL."""
         async with aiosqlite.connect(self.db_path) as db:
             if email:
                 async with db.execute(
@@ -168,6 +281,44 @@ class StateManager:
             ) as cursor:
                 rows = await cursor.fetchall()
                 return {row[0]: row[1] for row in rows}
+
+    # ── Feedback ──
+
+    async def add_feedback(
+        self, entity_type: str, entity_id: str, comment: str
+    ) -> str:
+        feedback_id = _new_id()
+        async with aiosqlite.connect(self.db_path) as db:
+            await db.execute(
+                """INSERT INTO feedback (id, entity_type, entity_id, comment)
+                   VALUES (?, ?, ?, ?)""",
+                (feedback_id, entity_type, entity_id, comment),
+            )
+            await db.commit()
+        return feedback_id
+
+    async def get_feedback(
+        self, entity_type: str, entity_id: str
+    ) -> list[dict]:
+        async with aiosqlite.connect(self.db_path) as db:
+            db.row_factory = aiosqlite.Row
+            async with db.execute(
+                """SELECT * FROM feedback
+                   WHERE entity_type = ? AND entity_id = ?
+                   ORDER BY created_at DESC""",
+                (entity_type, entity_id),
+            ) as cursor:
+                rows = await cursor.fetchall()
+                return [dict(r) for r in rows]
+
+    async def get_all_feedback(self) -> list[dict]:
+        async with aiosqlite.connect(self.db_path) as db:
+            db.row_factory = aiosqlite.Row
+            async with db.execute(
+                "SELECT * FROM feedback ORDER BY created_at DESC LIMIT 100"
+            ) as cursor:
+                rows = await cursor.fetchall()
+                return [dict(r) for r in rows]
 
     # ── Campaigns ──
 
@@ -293,7 +444,6 @@ class StateManager:
     # ── Summary for Decision Making ──
 
     async def get_state_summary(self) -> dict:
-        """Get a high-level summary of current state for the decision engine."""
         prospect_counts = await self.count_prospects_by_status()
         async with aiosqlite.connect(self.db_path) as db:
             async with db.execute(

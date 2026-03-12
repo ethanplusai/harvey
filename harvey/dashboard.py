@@ -264,6 +264,64 @@ async def test_instantly(request: Request):
         return {"success": False, "message": f"Connection failed: {str(e)}"}
 
 
+# ── Companies ──
+
+
+@app.get("/api/companies")
+async def get_companies():
+    """All companies with contact counts."""
+    rows = await query_db("""
+        SELECT c.*,
+            (SELECT COUNT(*) FROM prospects p WHERE p.company_id = c.id) as contact_count
+        FROM companies c ORDER BY c.created_at DESC LIMIT 200
+    """)
+    return rows
+
+
+@app.get("/api/companies/{company_id}/contacts")
+async def get_company_contacts(company_id: str):
+    """Get all contacts for a specific company."""
+    rows = await query_db(
+        "SELECT * FROM prospects WHERE company_id = ? ORDER BY score DESC",
+        (company_id,),
+    )
+    return rows
+
+
+# ── Feedback ──
+
+
+@app.post("/api/feedback")
+async def add_feedback(request: Request):
+    """Add a comment/feedback on any entity."""
+    data = await request.json()
+    entity_type = data.get("entity_type", "")
+    entity_id = data.get("entity_id", "")
+    comment = data.get("comment", "")
+    if not comment:
+        return {"success": False, "message": "Comment is required."}
+    feedback_id = _new_id()
+    db_path = str(DB_PATH)
+    if DB_PATH.exists():
+        async with aiosqlite.connect(db_path) as db:
+            await db.execute(
+                "INSERT INTO feedback (id, entity_type, entity_id, comment) VALUES (?, ?, ?, ?)",
+                (feedback_id, entity_type, entity_id, comment),
+            )
+            await db.commit()
+    return {"success": True, "id": feedback_id}
+
+
+@app.get("/api/feedback/{entity_type}/{entity_id}")
+async def get_feedback(entity_type: str, entity_id: str):
+    """Get feedback for an entity."""
+    rows = await query_db(
+        "SELECT * FROM feedback WHERE entity_type = ? AND entity_id = ? ORDER BY created_at DESC",
+        (entity_type, entity_id),
+    )
+    return rows
+
+
 # ── Harvey Controls ──
 
 
@@ -716,7 +774,8 @@ DASHBOARD_HTML = """<!DOCTYPE html>
 <nav>
   <button class="active" onclick="showTab('setup', this)">Setup</button>
   <button onclick="showTab('overview', this)">Overview</button>
-  <button onclick="showTab('prospects', this)">Prospects</button>
+  <button onclick="showTab('companies', this)">Companies</button>
+  <button onclick="showTab('prospects', this)">Contacts</button>
   <button onclick="showTab('campaigns', this)">Campaigns</button>
   <button onclick="showTab('conversations', this)">Conversations</button>
   <button onclick="showTab('activity', this)">Activity</button>
@@ -741,7 +800,12 @@ DASHBOARD_HTML = """<!DOCTYPE html>
   <div class="stats-grid" id="stats-grid"></div>
 </div>
 
-<!-- ── Prospects ── -->
+<!-- ── Companies ── -->
+<div id="companies" class="section">
+  <div id="companies-list"></div>
+</div>
+
+<!-- ── Contacts ── -->
 <div id="prospects" class="section">
   <div id="prospects-table"></div>
 </div>
@@ -944,6 +1008,7 @@ function loadCurrentTab() {
   switch (currentTab) {
     case 'setup': loadSetupStatus(); break;
     case 'overview': loadStats(); break;
+    case 'companies': loadCompanies(); break;
     case 'prospects': loadProspects(); break;
     case 'campaigns': loadCampaigns(); break;
     case 'conversations': loadConversations(); break;
@@ -1173,6 +1238,51 @@ async function loadStats() {
     <div class="stat-card"><div class="label">Actions Today</div><div class="value">${data.actions_total||0}</div><div class="breakdown">Claude calls today: ${data.claude_calls_today||0}</div></div>`;
 }
 
+async function loadCompanies() {
+  const r = await fetch('/api/companies');
+  const data = await r.json();
+  if (!data.length) {
+    document.getElementById('companies-list').innerHTML = `<div class="empty"><div class="big">No companies yet</div>Harvey hasn't researched any companies yet.</div>`;
+    return;
+  }
+  let html = `<table><thead><tr><th>Company</th><th>Domain</th><th>Industry</th><th>Size</th><th>Location</th><th>Contacts</th><th>Source</th><th>Added</th></tr></thead><tbody>`;
+  for (const c of data) {
+    const website = c.website || (c.domain ? 'https://'+c.domain : '');
+    const nameLink = website ? `<a href="${escHtml(website)}" target="_blank" style="color:#4a9eff">${escHtml(c.name)}</a>` : escHtml(c.name);
+    html += `<tr style="cursor:pointer" onclick="showCompanyContacts('${c.id}', '${escHtml(c.name)}')">
+      <td>${nameLink}</td><td>${escHtml(c.domain)}</td><td>${escHtml(c.industry)}</td><td>${escHtml(c.company_size)}</td><td>${escHtml(c.location)}</td><td>${c.contact_count||0}</td><td>${escHtml(c.source)}</td><td>${formatDate(c.created_at)}</td></tr>`;
+  }
+  document.getElementById('companies-list').innerHTML = html + '</tbody></table>';
+}
+
+async function showCompanyContacts(companyId, companyName) {
+  const r = await fetch('/api/companies/' + companyId + '/contacts');
+  const data = await r.json();
+  let html = `<div class="card" style="margin-bottom:16px"><h2>${escHtml(companyName)} - Contacts</h2><button class="btn btn-secondary btn-sm" onclick="loadCompanies()" style="margin-bottom:16px">Back to Companies</button>`;
+  if (!data.length) {
+    html += '<p style="color:#888">No contacts found at this company.</p></div>';
+  } else {
+    html += '<table><thead><tr><th>Name</th><th>Title</th><th>Email</th><th>Phone</th><th>LinkedIn</th><th>Status</th><th>Source</th></tr></thead><tbody>';
+    for (const p of data) {
+      const emailIcon = p.email_verified ? ' &#10003;' : '';
+      const phoneIcon = p.phone_verified ? ' &#10003;' : '';
+      html += `<tr><td>${escHtml(p.first_name)} ${escHtml(p.last_name)}</td><td>${escHtml(p.title)}</td><td>${escHtml(p.email)}${emailIcon}</td><td>${escHtml(p.phone)}${phoneIcon}</td><td>${p.linkedin_url ? '<a href="'+escHtml(p.linkedin_url)+'" target="_blank" style="color:#4a9eff">Profile</a>' : ''}</td><td>${badge(p.status)}</td><td>${escHtml(p.source)}</td></tr>`;
+    }
+    html += '</tbody></table></div>';
+  }
+  document.getElementById('companies-list').innerHTML = html;
+}
+
+async function addFeedback(entityType, entityId, promptText) {
+  const comment = prompt(promptText || 'Add your feedback:');
+  if (!comment) return;
+  await fetch('/api/feedback', {
+    method: 'POST', headers: {'Content-Type':'application/json'},
+    body: JSON.stringify({entity_type: entityType, entity_id: entityId, comment: comment})
+  });
+  showToast('Feedback saved.', 'success');
+}
+
 async function loadProspects() {
   const r = await fetch('/api/prospects');
   const data = await r.json();
@@ -1180,9 +1290,11 @@ async function loadProspects() {
     document.getElementById('prospects-table').innerHTML = `<div class="empty"><div class="big">No prospects yet</div>Harvey hasn't found any prospects yet.</div>`;
     return;
   }
-  let html = `<table><thead><tr><th>Name</th><th>Title</th><th>Company</th><th>Email</th><th>Status</th><th>Score</th><th>Source</th><th>Added</th></tr></thead><tbody>`;
+  let html = `<table><thead><tr><th>Name</th><th>Title</th><th>Company</th><th>Email</th><th>Phone</th><th>Status</th><th>Source</th><th>Added</th><th></th></tr></thead><tbody>`;
   for (const p of data) {
-    html += `<tr><td>${escHtml(p.first_name)} ${escHtml(p.last_name)}</td><td>${escHtml(p.title)}</td><td>${escHtml(p.company)}</td><td>${escHtml(p.email)}</td><td>${badge(p.status)}</td><td>${p.score||0}</td><td>${escHtml(p.source)}</td><td>${formatDate(p.created_at)}</td></tr>`;
+    const emailV = p.email ? (escHtml(p.email) + (p.email_verified ? ' <span style="color:#40c060">&#10003;</span>' : '')) : '';
+    const phoneV = p.phone ? (escHtml(p.phone) + (p.phone_verified ? ' <span style="color:#40c060">&#10003;</span>' : '')) : '';
+    html += `<tr><td>${escHtml(p.first_name)} ${escHtml(p.last_name)}</td><td>${escHtml(p.title)}</td><td>${escHtml(p.company)}</td><td>${emailV}</td><td>${phoneV}</td><td>${badge(p.status)}</td><td>${escHtml(p.source)}</td><td>${formatDate(p.created_at)}</td><td><button class="btn btn-secondary btn-sm" onclick="addFeedback('contact','${p.id}','Feedback on this contact:')">Feedback</button></td></tr>`;
   }
   document.getElementById('prospects-table').innerHTML = html + '</tbody></table>';
 }
@@ -1201,7 +1313,7 @@ async function loadCampaigns() {
       stepsHtml += `<div class="email-step"><div class="step-num">Email ${step.step||'?'}${step.delay_days ? ` &middot; Send after ${step.delay_days} days`:''}</div><div class="subject">${escHtml(step.subject)}</div><div class="body">${escHtml(step.body)}</div></div>`;
     }
     const pc = (c.prospect_ids||[]).length;
-    html += `<div class="campaign-card"><h3>${escHtml(c.name||'Untitled Campaign')}</h3><div class="meta">${badge(c.status)}<span>${c.channel||'email'}</span><span>${pc} prospect${pc!==1?'s':''}</span><span>${formatDate(c.created_at)}</span></div>${stepsHtml||'<div class="empty">No email steps</div>'}</div>`;
+    html += `<div class="campaign-card"><h3>${escHtml(c.name||'Untitled Campaign')}</h3><div class="meta">${badge(c.status)}<span>${c.channel||'email'}</span><span>${pc} prospect${pc!==1?'s':''}</span><span>${formatDate(c.created_at)}</span><button class="btn btn-secondary btn-sm" onclick="event.stopPropagation();addFeedback('campaign','${c.id}','Leave feedback on this campaign:')">Feedback</button></div>${stepsHtml||'<div class="empty">No email steps</div>'}</div>`;
   }
   document.getElementById('campaigns-list').innerHTML = html;
 }
