@@ -132,7 +132,7 @@ Quiet hours are also configurable. Harvey won't run between 10pm and 7am (or wha
 - Python 3.11+
 - [Claude Code CLI](https://claude.ai/download) installed and authenticated (with a Max subscription)
 - An [Instantly](https://instantly.ai) account with API access (for cold email)
-- A LinkedIn account (for prospecting)
+- A LinkedIn account (for prospecting — optional)
 
 ### 1. Clone and Install
 
@@ -143,13 +143,13 @@ pip install -r requirements.txt
 playwright install chromium
 ```
 
-### 2. Run Harvey (First-Time Setup Wizard)
-
-Just run Harvey. On the first run, it detects that it's not configured yet and launches an interactive setup wizard that walks you through everything:
+### 2. Run Harvey
 
 ```bash
 python -m harvey
 ```
+
+That's it. On first run, Harvey detects it's not configured and launches an interactive setup wizard. Harvey walks you through everything — you don't need to manually edit any config files.
 
 ```
 ╔══════════════════════════════════════════════════════════╗
@@ -162,46 +162,25 @@ python -m harvey
   Harvey: Hey. I'm Harvey. Let's get me set up so I can start
   Harvey: closing deals for you. I'll walk you through everything.
   Harvey: This takes about 5 minutes.
-
-──────────────────────────────────────────────────────────
-  Step 1/6: Checking Prerequisites
-──────────────────────────────────────────────────────────
-
-  Checking Claude Code CLI... ✓ Found
-  Testing Claude headless mode... ✓ Working
-  Checking Python dependencies... ✓ All installed
-
-──────────────────────────────────────────────────────────
-  Step 2/6: Email Platform (Instantly)
-──────────────────────────────────────────────────────────
-  ...
 ```
 
-The wizard:
-1. **Checks prerequisites** — verifies Claude CLI, tests headless mode, checks dependencies
-2. **Connects your email platform** — Instantly API key, tests the connection
-3. **Sets up LinkedIn** (optional) — credentials for browser-based prospecting
-4. **Configures Cloudflare** (optional) — for deep JS-rendered website crawling
-5. **Trains on your product** — crawls your website or walks through manual entry
-6. **Sets behavior** — usage limits, quiet hours, send limits, timezone
+The wizard walks you through 6 steps:
 
-After setup, Harvey starts its heartbeat loop automatically on future runs. To re-run setup: `python -m harvey.setup`
+**Step 1 — Prerequisites Check.** Harvey verifies Claude Code CLI is installed, tests that headless mode works with your Max subscription, and checks all Python dependencies.
 
-### Alternative: Train Harvey on Your Product Manually
+**Step 2 — Email Platform.** Harvey asks for your Instantly API key and tests the connection live. If it doesn't work, Harvey tells you exactly what's wrong.
 
-Point Harvey at your website and it learns everything automatically:
+**Step 3 — LinkedIn (optional).** If you want Harvey to prospect on LinkedIn, give it your credentials. If not, Harvey will use Google and company websites instead.
 
-```bash
-python -m harvey.trainer https://yourcompany.com
-```
+**Step 4 — Cloudflare Crawling (optional).** For deep website crawling with JavaScript rendering. $5/month for ~12,000 pages. Harvey works without it — just uses its built-in crawler instead.
 
-Harvey will deep-crawl your entire website, analyze every page, and generate a complete configuration:
+**Step 5 — Product Training.** This is the big one. Harvey asks: *"Train from website URL or enter manually?"*
+
+If you give Harvey your website URL, it deep-crawls the entire site and teaches itself everything:
 
 ```
-============================================================
-  Harvey Training Mode
-  Learning from: https://yourcompany.com
-============================================================
+  Harvey: Give me a minute — I'm going to crawl https://yourcompany.com
+  Harvey: and learn everything I can about your product.
 
 [1/6] Deep crawling with Cloudflare (up to 100 pages)...
       Crawling... 47/47 pages (34s)
@@ -222,131 +201,24 @@ Harvey will deep-crawl your entire website, analyze every page, and generate a c
 [6/6] Building configuration and product knowledge...
       Generated: skills/product_knowledge.md
       Generated: skills/competitive_intel.md
-
-============================================================
-  Training complete!
-============================================================
-
-  Product:       AcmeWidget
-  Company:       Acme Corp
-  ICP titles:    VP Marketing, Head of Growth, E-commerce Director
-  Industries:    E-commerce, DTC Brands
-  Pages crawled: 47
-
-  Files generated:
-    - harvey.yaml
-    - skills/product_knowledge.md
-    - skills/competitive_intel.md
 ```
 
-#### Deep Crawling with Cloudflare
+From your website, Harvey extracts:
+- Product name, description, features, pricing, and value proposition
+- Key benefits and use cases
+- Ideal customer profile — industries, company sizes, decision-maker titles
+- Pain points and buying triggers
+- Competitor analysis with battle cards
+- Brand tone and voice
+- Objection handling responses specific to your product
 
-Harvey uses [Cloudflare's Browser Rendering /crawl API](https://developers.cloudflare.com/browser-rendering/rest-api/crawl-endpoint/) to crawl websites. This means:
+If you don't have a website (or prefer to do it manually), Harvey asks you the questions directly — company name, product description, target audience, etc.
 
-- **JavaScript rendering** — works on SPAs, React sites, dynamic content
-- **Automatic page discovery** — follows sitemaps and internal links
-- **Clean markdown output** — no HTML parsing needed
-- **Up to 100,000 pages** — crawl the entire site, not just key pages
-- **~$5/month** for ~12,000 pages on Cloudflare's paid Workers plan
+**Step 6 — Behavior Settings.** Harvey asks how much of your daily Claude quota it can use, how often to check for work, quiet hours, send limits, and timezone.
 
-Add your Cloudflare credentials to `.env`:
-```
-CLOUDFLARE_ACCOUNT_ID=your_account_id
-CLOUDFLARE_API_TOKEN=your_api_token
-```
+After setup, Harvey writes all config files for you and starts its heartbeat loop automatically on the next run. To re-run setup anytime: `python -m harvey.setup`
 
-Without Cloudflare credentials, Harvey falls back to basic HTTP scraping (still works, but no JS rendering and limited discovery).
-
-#### What the Trainer Generates
-
-| File | What's in it |
-|------|-------------|
-| `harvey.yaml` | Complete config — persona, product, ICP, channels, usage limits |
-| `skills/product_knowledge.md` | Everything about your product — features, benefits, use cases, pricing, social proof, pain points, buying triggers |
-| `skills/competitive_intel.md` | Battle cards for every competitor — how you win, their weaknesses, migration angles, ready-to-use responses |
-
-You can also crawl more pages for larger sites:
-```bash
-python -m harvey.trainer https://yourcompany.com 500
-```
-
-Review the generated files and tweak anything that needs adjusting. The trainer gets you 90% of the way there.
-
-### 3. Add Credentials
-
-Copy the example environment file and add your credentials:
-
-```bash
-cp .env.example .env
-```
-
-Edit `.env`:
-```
-INSTANTLY_API_KEY=your_key_here
-LINKEDIN_EMAIL=your_linkedin_email
-LINKEDIN_PASSWORD=your_linkedin_password
-```
-
-Edit `harvey.yaml` with your product, persona, and ICP:
-
-```yaml
-persona:
-  name: "Harvey"
-  company: "Acme Corp"
-  role: "Business Development"
-  email: "harvey@acmecorp.com"
-  linkedin: "linkedin.com/in/harvey-acme"
-  tone: "professional, consultative, confident"
-
-product:
-  name: "AcmeWidget"
-  description: "AI-powered widget optimization for e-commerce teams"
-  pricing: "Starting at $99/mo"
-  key_benefits:
-    - "Increases conversion rates by 30%"
-    - "Reduces manual work by 10 hours/week"
-    - "Integrates with Shopify, WooCommerce, BigCommerce"
-  objection_responses:
-    "too expensive": "Most clients see ROI within 30 days..."
-    "already have a solution": "What's the one thing you wish it did better?"
-
-icp:
-  industries: ["E-commerce", "DTC Brands"]
-  company_size: "10-200 employees"
-  titles: ["VP Marketing", "Head of Growth", "E-commerce Director"]
-  geography: ["United States"]
-
-channels:
-  email:
-    enabled: true
-    provider: "instantly"
-    max_daily_sends: 50
-  linkedin:
-    enabled: true
-    max_daily_connections: 20
-    max_daily_messages: 10
-
-usage:
-  max_daily_claude_percent: 80
-  heartbeat_interval_minutes: 15
-  quiet_hours:
-    start: "22:00"
-    end: "07:00"
-    timezone: "America/New_York"
-```
-
-### 4. Run
-
-```bash
-python -m harvey
-```
-
-Harvey will:
-1. Initialize the database
-2. Start the heartbeat loop
-3. Begin prospecting, writing campaigns, and handling outreach automatically
-
-### 5. Deploy (VPS)
+### 3. Deploy (VPS)
 
 For always-on operation, deploy with Docker:
 
@@ -360,6 +232,40 @@ docker compose up -d
 # Watch the logs
 docker compose logs -f harvey
 ```
+
+### Re-Training on a Different Product
+
+You can re-train Harvey anytime by pointing it at a new website:
+
+```bash
+python -m harvey.trainer https://newproduct.com
+```
+
+Or crawl more pages for larger sites:
+
+```bash
+python -m harvey.trainer https://yourcompany.com 500
+```
+
+#### Deep Crawling with Cloudflare
+
+Harvey can use [Cloudflare's Browser Rendering /crawl API](https://developers.cloudflare.com/browser-rendering/rest-api/crawl-endpoint/) for deep website crawling:
+
+- **JavaScript rendering** — works on SPAs, React sites, dynamic content
+- **Automatic page discovery** — follows sitemaps and internal links
+- **Clean markdown output** — no HTML parsing needed
+- **Up to 100,000 pages** — crawl the entire site, not just key pages
+- **~$5/month** for ~12,000 pages on Cloudflare's paid Workers plan
+
+This is optional. Without Cloudflare credentials, Harvey uses its built-in recursive crawler that follows every internal link it finds. It works great for most sites — just can't render JavaScript.
+
+#### What the Trainer Generates
+
+| File | What's in it |
+|------|-------------|
+| `harvey.yaml` | Complete config — persona, product, ICP, channels, usage limits |
+| `skills/product_knowledge.md` | Everything about your product — features, benefits, use cases, pricing, social proof, pain points, buying triggers, disqualifiers |
+| `skills/competitive_intel.md` | Battle cards for every competitor — how you win, their weaknesses, migration angles, ready-to-use responses |
 
 ---
 
@@ -481,6 +387,9 @@ Harvey stores everything in SQLite (`data/harvey.db`):
 - [x] Usage tracking and daily limits
 - [x] Docker deployment
 - [x] Website trainer — point Harvey at a URL and it learns the product automatically
+- [x] Deep crawling via Cloudflare Browser Rendering API (with built-in fallback)
+- [x] Competitive intelligence — auto-generated battle cards per competitor
+- [x] Interactive setup wizard — Harvey walks you through everything on first run
 - [ ] LinkedIn DM outreach
 - [ ] Calendar integration (Cal.com / Calendly) for auto-booking
 - [ ] AI voice cold calling (Bland.ai / Vapi)
