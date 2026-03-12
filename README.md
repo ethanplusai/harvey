@@ -151,13 +151,7 @@ Point Harvey at your website and it learns everything automatically:
 python -m harvey.trainer https://yourcompany.com
 ```
 
-Harvey will:
-1. Crawl up to 15 key pages (homepage, pricing, features, about, etc.)
-2. Extract your product info, benefits, pricing, and value proposition
-3. Identify your ideal customer profile (industries, titles, company size)
-4. Generate objection handling responses specific to your product
-5. Create a `product_knowledge.md` skill file with everything it learned
-6. Write a complete `harvey.yaml` config ready to use
+Harvey will deep-crawl your entire website, analyze every page, and generate a complete configuration:
 
 ```
 ============================================================
@@ -165,27 +159,74 @@ Harvey will:
   Learning from: https://yourcompany.com
 ============================================================
 
-[1/5] Crawling website...
-      Scraped 12 pages.
+[1/6] Deep crawling with Cloudflare (up to 100 pages)...
+      Crawling... 47/47 pages (34s)
+      Done! Crawled 47 pages.
 
-[2/5] Analyzing product information...
+[2/6] Analyzing product information...
       Found: AcmeWidget
 
-[3/5] Identifying ideal customer profile...
+[3/6] Identifying ideal customer profile...
       Target: E-commerce, DTC Brands
 
-[4/5] Generating objection handling playbook...
-      Prepared 7 objection responses.
+[4/6] Analyzing competitive landscape...
+      Identified 4 competitors.
 
-[5/5] Building configuration...
+[5/6] Generating objection handling playbook...
+      Prepared 10 objection responses.
+
+[6/6] Building configuration and product knowledge...
+      Generated: skills/product_knowledge.md
+      Generated: skills/competitive_intel.md
 
 ============================================================
   Training complete!
-  Config written to: harvey.yaml
 ============================================================
+
+  Product:       AcmeWidget
+  Company:       Acme Corp
+  ICP titles:    VP Marketing, Head of Growth, E-commerce Director
+  Industries:    E-commerce, DTC Brands
+  Pages crawled: 47
+
+  Files generated:
+    - harvey.yaml
+    - skills/product_knowledge.md
+    - skills/competitive_intel.md
 ```
 
-Review the generated `harvey.yaml` and tweak anything that needs adjusting. The trainer gets you 90% of the way there.
+#### Deep Crawling with Cloudflare
+
+Harvey uses [Cloudflare's Browser Rendering /crawl API](https://developers.cloudflare.com/browser-rendering/rest-api/crawl-endpoint/) to crawl websites. This means:
+
+- **JavaScript rendering** — works on SPAs, React sites, dynamic content
+- **Automatic page discovery** — follows sitemaps and internal links
+- **Clean markdown output** — no HTML parsing needed
+- **Up to 100,000 pages** — crawl the entire site, not just key pages
+- **~$5/month** for ~12,000 pages on Cloudflare's paid Workers plan
+
+Add your Cloudflare credentials to `.env`:
+```
+CLOUDFLARE_ACCOUNT_ID=your_account_id
+CLOUDFLARE_API_TOKEN=your_api_token
+```
+
+Without Cloudflare credentials, Harvey falls back to basic HTTP scraping (still works, but no JS rendering and limited discovery).
+
+#### What the Trainer Generates
+
+| File | What's in it |
+|------|-------------|
+| `harvey.yaml` | Complete config — persona, product, ICP, channels, usage limits |
+| `skills/product_knowledge.md` | Everything about your product — features, benefits, use cases, pricing, social proof, pain points, buying triggers |
+| `skills/competitive_intel.md` | Battle cards for every competitor — how you win, their weaknesses, migration angles, ready-to-use responses |
+
+You can also crawl more pages for larger sites:
+```bash
+python -m harvey.trainer https://yourcompany.com 500
+```
+
+Review the generated files and tweak anything that needs adjusting. The trainer gets you 90% of the way there.
 
 ### 3. Add Credentials
 
