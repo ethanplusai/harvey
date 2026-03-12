@@ -56,6 +56,13 @@ def cmd_train(args):
     asyncio.run(trainer.train_from_url(args.url, max_pages=args.max_pages))
 
 
+def cmd_dashboard(args):
+    """Launch the local web dashboard."""
+    from harvey.dashboard import start_dashboard
+
+    start_dashboard(host=args.host, port=args.port)
+
+
 def cmd_status(args):
     """Show current pipeline status."""
     from harvey.state import StateManager
@@ -112,6 +119,12 @@ def main():
     )
     sub.set_defaults(func=cmd_train)
 
+    # harvey dashboard
+    sub = subparsers.add_parser("dashboard", help="Open the web dashboard")
+    sub.add_argument("--host", default="127.0.0.1", help="Host (default: 127.0.0.1)")
+    sub.add_argument("--port", type=int, default=5555, help="Port (default: 5555)")
+    sub.set_defaults(func=cmd_dashboard)
+
     # harvey status
     sub = subparsers.add_parser("status", help="Show pipeline status")
     sub.set_defaults(func=cmd_status)
@@ -125,6 +138,7 @@ def main():
         print("    harvey install   — Install dependencies")
         print("    harvey setup     — Configure Harvey (first time)")
         print("    harvey run       — Start closing deals")
+        print("    harvey dashboard — Open the web dashboard")
         print()
         sys.exit(0)
 

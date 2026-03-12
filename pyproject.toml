@@ -20,6 +20,8 @@ dependencies = [
     "aiosqlite>=0.19",
     "pydantic>=2.5",
     "pytz>=2024.1",
+    "fastapi>=0.115",
+    "uvicorn>=0.34",
 ]
 
 [project.scripts]

@@ -135,6 +135,7 @@ Priority order: handle replies > send campaigns > write campaigns > prospect > i
 ```bash
 source .venv/bin/activate    # Always activate venv first
 harvey run                   # Start the heartbeat loop
+harvey dashboard             # Open the web dashboard at http://localhost:5555
 harvey setup                 # Re-run the setup wizard
 harvey train <url>           # Train on a new product website
 harvey train <url> 500       # Train with more pages
