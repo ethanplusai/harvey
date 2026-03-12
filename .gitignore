@@ -31,3 +31,6 @@ Thumbs.db
 
 # Claude
 .claude/
+
+# Internal context (not for public repo)
+.context.md
