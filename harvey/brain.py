@@ -1,0 +1,153 @@
+"""Brain — wraps Claude Code headless mode. Harvey's thinking engine."""
+
+import asyncio
+import json
+import logging
+import re
+from pathlib import Path
+
+from harvey.state import StateManager
+
+logger = logging.getLogger("harvey.brain")
+
+PROMPTS_DIR = Path(__file__).parent.parent / "prompts"
+SKILLS_DIR = Path(__file__).parent.parent / "skills"
+
+
+class Brain:
+    def __init__(self, state: StateManager):
+        self.state = state
+
+    async def think(
+        self,
+        prompt: str,
+        session_id: str | None = None,
+        expect_json: bool = False,
+    ) -> str:
+        """Send a prompt to Claude Code headless mode and return the response."""
+        cmd = ["claude", "-p", prompt, "--output-format", "text"]
+        if session_id:
+            cmd.extend(["--session-id", session_id])
+
+        logger.debug(f"Brain call (session={session_id}): {prompt[:100]}...")
+
+        try:
+            process = await asyncio.create_subprocess_exec(
+                *cmd,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE,
+            )
+            stdout, stderr = await process.communicate()
+
+            if process.returncode != 0:
+                error = stderr.decode().strip()
+                logger.error(f"Claude returned error: {error}")
+                return ""
+
+            response = stdout.decode().strip()
+            await self.state.increment_usage()
+            logger.debug(f"Brain response: {response[:200]}...")
+            return response
+
+        except FileNotFoundError:
+            logger.error(
+                "Claude CLI not found. Install it: https://claude.com/download"
+            )
+            return ""
+        except Exception as e:
+            logger.error(f"Brain error: {e}")
+            return ""
+
+    async def think_json(
+        self, prompt: str, session_id: str | None = None
+    ) -> dict | list | None:
+        """Send a prompt and parse the response as JSON."""
+        full_prompt = (
+            prompt
+            + "\n\nRespond ONLY with valid JSON. No markdown, no explanation."
+        )
+        response = await self.think(full_prompt, session_id=session_id)
+        if not response:
+            return None
+        # Strip markdown code fences if present
+        response = re.sub(r"^```(?:json)?\s*", "", response)
+        response = re.sub(r"\s*```$", "", response)
+        try:
+            return json.loads(response)
+        except json.JSONDecodeError:
+            logger.error(f"Failed to parse JSON from brain: {response[:200]}")
+            return None
+
+    async def check_usage(self) -> float:
+        """Check current Claude daily usage percentage.
+
+        Runs `claude` with a usage check prompt and parses the output.
+        Returns percentage as float (0.0 to 100.0).
+        """
+        # We track our own call count as a proxy.
+        # For more accurate tracking, we'd parse `claude /usage` output,
+        # but that requires interactive mode. Instead we use our DB counter
+        # and let the user set a max_calls_per_day in config.
+        calls_today = await self.state.get_usage_today()
+        return calls_today
+
+    async def is_within_budget(self, max_daily_calls: int = 200) -> bool:
+        """Check if we're under the daily usage limit.
+
+        The max_daily_claude_percent from config is mapped to a call count.
+        Default budget: 200 calls/day at 100%. So 80% = 160 calls.
+        """
+        calls = await self.check_usage()
+        return calls < max_daily_calls
+
+    def load_prompt(self, prompt_name: str, **kwargs) -> str:
+        """Load a prompt template from the prompts/ directory and fill in variables."""
+        prompt_file = PROMPTS_DIR / f"{prompt_name}.md"
+        if not prompt_file.exists():
+            logger.warning(f"Prompt file not found: {prompt_file}")
+            return ""
+        template = prompt_file.read_text()
+        for key, value in kwargs.items():
+            template = template.replace(f"{{{{{key}}}}}", str(value))
+        return template
+
+    def load_skill(self, skill_name: str) -> str:
+        """Load a skill knowledge file from the skills/ directory."""
+        skill_file = SKILLS_DIR / f"{skill_name}.md"
+        if not skill_file.exists():
+            logger.warning(f"Skill file not found: {skill_file}")
+            return ""
+        return skill_file.read_text()
+
+    def load_skills_for_agent(self, agent_name: str) -> str:
+        """Load all relevant skills for a specific sub-agent.
+
+        Returns concatenated skill content that should be injected
+        into the agent's prompts as foundational knowledge.
+        """
+        skill_map = {
+            "scout": ["prospecting_tactics", "lead_qualification"],
+            "writer": ["email_frameworks", "sales_methodology"],
+            "handler": ["objection_handling", "sales_methodology"],
+            "sender": ["email_frameworks"],
+            "linkedin": ["linkedin_outreach", "prospecting_tactics"],
+        }
+
+        skill_names = skill_map.get(agent_name, [])
+        if not skill_names:
+            return ""
+
+        sections = []
+        for name in skill_names:
+            content = self.load_skill(name)
+            if content:
+                sections.append(content)
+
+        if not sections:
+            return ""
+
+        return (
+            "\n\n---\n## FOUNDATIONAL KNOWLEDGE\n"
+            "Use the following frameworks and best practices to guide your work:\n\n"
+            + "\n\n---\n\n".join(sections)
+        )

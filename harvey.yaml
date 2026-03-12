@@ -1,0 +1,51 @@
+persona:
+  name: "Harvey"
+  company: "Your Company"
+  role: "Business Development"
+  email: "harvey@yourcompany.com"
+  linkedin: "linkedin.com/in/harvey-yourcompany"
+  tone: "professional, consultative, confident"
+
+product:
+  name: "Your Product"
+  description: "Describe what your product does and who it's for"
+  pricing: "Starting at $X/mo"
+  key_benefits:
+    - "Benefit 1"
+    - "Benefit 2"
+    - "Benefit 3"
+  objection_responses:
+    "too expensive": "I understand budget is important. Most of our clients see ROI within 30 days..."
+    "already have a solution": "That makes sense. Curious — what's the one thing you wish it did better?"
+    "not interested": "No worries at all. Mind if I ask what your current approach looks like?"
+
+icp:
+  industries:
+    - "SaaS"
+    - "Marketing Agency"
+  company_size: "10-200 employees"
+  titles:
+    - "VP Marketing"
+    - "Head of Growth"
+    - "CMO"
+    - "Director of Marketing"
+  geography:
+    - "United States"
+
+channels:
+  email:
+    enabled: true
+    provider: "instantly"
+    max_daily_sends: 50
+  linkedin:
+    enabled: true
+    max_daily_connections: 20
+    max_daily_messages: 10
+
+usage:
+  max_daily_claude_percent: 80
+  heartbeat_interval_minutes: 15
+  quiet_hours:
+    start: "22:00"
+    end: "07:00"
+    timezone: "America/New_York"

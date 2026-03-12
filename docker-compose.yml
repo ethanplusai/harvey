@@ -1,0 +1,18 @@
+services:
+  harvey:
+    build: .
+    env_file: .env
+    volumes:
+      # Persist database across restarts
+      - ./data:/app/data
+      # Mount config for easy editing without rebuild
+      - ./harvey.yaml:/app/harvey.yaml:ro
+      - ./prompts:/app/prompts:ro
+      # Mount Claude auth (required for Max plan usage)
+      - ~/.claude:/root/.claude:ro
+    restart: unless-stopped
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
