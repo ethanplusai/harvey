@@ -143,7 +143,51 @@ pip install -r requirements.txt
 playwright install chromium
 ```
 
-### 2. Train Harvey on Your Product
+### 2. Run Harvey (First-Time Setup Wizard)
+
+Just run Harvey. On the first run, it detects that it's not configured yet and launches an interactive setup wizard that walks you through everything:
+
+```bash
+python -m harvey
+```
+
+```
+╔══════════════════════════════════════════════════════════╗
+║                                                          ║
+║   Harvey Setup Wizard                                    ║
+║   Let's get you closing deals.                           ║
+║                                                          ║
+╚══════════════════════════════════════════════════════════╝
+
+  Harvey: Hey. I'm Harvey. Let's get me set up so I can start
+  Harvey: closing deals for you. I'll walk you through everything.
+  Harvey: This takes about 5 minutes.
+
+──────────────────────────────────────────────────────────
+  Step 1/6: Checking Prerequisites
+──────────────────────────────────────────────────────────
+
+  Checking Claude Code CLI... ✓ Found
+  Testing Claude headless mode... ✓ Working
+  Checking Python dependencies... ✓ All installed
+
+──────────────────────────────────────────────────────────
+  Step 2/6: Email Platform (Instantly)
+──────────────────────────────────────────────────────────
+  ...
+```
+
+The wizard:
+1. **Checks prerequisites** — verifies Claude CLI, tests headless mode, checks dependencies
+2. **Connects your email platform** — Instantly API key, tests the connection
+3. **Sets up LinkedIn** (optional) — credentials for browser-based prospecting
+4. **Configures Cloudflare** (optional) — for deep JS-rendered website crawling
+5. **Trains on your product** — crawls your website or walks through manual entry
+6. **Sets behavior** — usage limits, quiet hours, send limits, timezone
+
+After setup, Harvey starts its heartbeat loop automatically on future runs. To re-run setup: `python -m harvey.setup`
+
+### Alternative: Train Harvey on Your Product Manually
 
 Point Harvey at your website and it learns everything automatically:
 
@@ -334,6 +378,7 @@ harvey/
 │   ├── brain.py             # Claude Code headless wrapper + skills loader
 │   ├── state.py             # SQLite state manager
 │   ├── config.py            # Configuration loader + validation
+│   ├── setup.py             # Interactive first-run setup wizard
 │   ├── trainer.py           # Auto-train Harvey from a website URL
 │   │
 │   ├── agents/

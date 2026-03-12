@@ -169,8 +169,43 @@ async def heartbeat():
             await asyncio.sleep(60)
 
 
+def _needs_setup() -> bool:
+    """Check if Harvey needs first-time setup."""
+    from pathlib import Path
+    project_root = Path(__file__).parent.parent
+    env_file = project_root / ".env"
+    config_file = project_root / "harvey.yaml"
+
+    # If .env doesn't exist, definitely needs setup
+    if not env_file.exists():
+        return True
+
+    # If config still has placeholder values, needs setup
+    if config_file.exists():
+        try:
+            with open(config_file) as f:
+                import yaml
+                config = yaml.safe_load(f)
+            company = config.get("persona", {}).get("company", "")
+            if company in ("Your Company", ""):
+                return True
+        except Exception:
+            return True
+    else:
+        return True
+
+    return False
+
+
 def main():
     """Entry point."""
+    # Check for first-time setup
+    if _needs_setup():
+        print("\n  First time running Harvey? Let's get you set up.\n")
+        from harvey.setup import run_setup
+        asyncio.run(run_setup())
+        return
+
     # Graceful shutdown on SIGTERM (for Docker)
     loop = asyncio.new_event_loop()
 
