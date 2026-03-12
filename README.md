@@ -137,13 +137,57 @@ Quiet hours are also configurable. Harvey won't run between 10pm and 7am (or wha
 ### 1. Clone and Install
 
 ```bash
-git clone https://github.com/yourusername/harvey.git
+git clone https://github.com/ethanplusai/harvey.git
 cd harvey
 pip install -r requirements.txt
 playwright install chromium
 ```
 
-### 2. Configure
+### 2. Train Harvey on Your Product
+
+Point Harvey at your website and it learns everything automatically:
+
+```bash
+python -m harvey.trainer https://yourcompany.com
+```
+
+Harvey will:
+1. Crawl up to 15 key pages (homepage, pricing, features, about, etc.)
+2. Extract your product info, benefits, pricing, and value proposition
+3. Identify your ideal customer profile (industries, titles, company size)
+4. Generate objection handling responses specific to your product
+5. Create a `product_knowledge.md` skill file with everything it learned
+6. Write a complete `harvey.yaml` config ready to use
+
+```
+============================================================
+  Harvey Training Mode
+  Learning from: https://yourcompany.com
+============================================================
+
+[1/5] Crawling website...
+      Scraped 12 pages.
+
+[2/5] Analyzing product information...
+      Found: AcmeWidget
+
+[3/5] Identifying ideal customer profile...
+      Target: E-commerce, DTC Brands
+
+[4/5] Generating objection handling playbook...
+      Prepared 7 objection responses.
+
+[5/5] Building configuration...
+
+============================================================
+  Training complete!
+  Config written to: harvey.yaml
+============================================================
+```
+
+Review the generated `harvey.yaml` and tweak anything that needs adjusting. The trainer gets you 90% of the way there.
+
+### 3. Add Credentials
 
 Copy the example environment file and add your credentials:
 
@@ -206,7 +250,7 @@ usage:
     timezone: "America/New_York"
 ```
 
-### 3. Run
+### 4. Run
 
 ```bash
 python -m harvey
@@ -217,7 +261,7 @@ Harvey will:
 2. Start the heartbeat loop
 3. Begin prospecting, writing campaigns, and handling outreach automatically
 
-### 4. Deploy (VPS)
+### 5. Deploy (VPS)
 
 For always-on operation, deploy with Docker:
 
@@ -249,6 +293,7 @@ harvey/
 │   ├── brain.py             # Claude Code headless wrapper + skills loader
 │   ├── state.py             # SQLite state manager
 │   ├── config.py            # Configuration loader + validation
+│   ├── trainer.py           # Auto-train Harvey from a website URL
 │   │
 │   ├── agents/
 │   │   ├── scout.py         # DIY prospecting
@@ -349,6 +394,7 @@ Harvey stores everything in SQLite (`data/harvey.db`):
 - [x] Skills system for foundational sales knowledge
 - [x] Usage tracking and daily limits
 - [x] Docker deployment
+- [x] Website trainer — point Harvey at a URL and it learns the product automatically
 - [ ] LinkedIn DM outreach
 - [ ] Calendar integration (Cal.com / Calendly) for auto-booking
 - [ ] AI voice cold calling (Bland.ai / Vapi)
