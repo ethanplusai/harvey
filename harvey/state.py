@@ -24,6 +24,7 @@ class StateManager:
 
     async def init_db(self):
         """Create all tables if they don't exist."""
+        Path(self.db_path).parent.mkdir(parents=True, exist_ok=True)
         async with aiosqlite.connect(self.db_path) as db:
             await db.executescript("""
                 CREATE TABLE IF NOT EXISTS prospects (
