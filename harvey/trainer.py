@@ -186,11 +186,20 @@ class CloudflareCrawler:
 
 
 class FallbackCrawler:
-    """Simple HTTP crawler for when Cloudflare is not configured."""
+    """Recursive HTTP crawler for when Cloudflare is not configured.
 
-    async def crawl(self, base_url: str, max_pages: int = 20) -> dict[str, str]:
-        """Crawl key pages using plain HTTP requests."""
+    Starts with priority pages, then follows every internal link it finds
+    on each crawled page until it hits the max_pages limit.
+    """
+
+    async def crawl(self, base_url: str, max_pages: int = 100) -> dict[str, str]:
+        """Recursively crawl a website by following internal links."""
         pages: dict[str, str] = {}
+        visited: set[str] = set()
+        domain = urlparse(base_url).netloc
+
+        # Queue starts with priority paths, then discovered links
+        queue: list[str] = [urljoin(base_url, p) for p in FALLBACK_PATHS]
 
         async with httpx.AsyncClient(
             timeout=15,
@@ -203,45 +212,49 @@ class FallbackCrawler:
                 )
             },
         ) as client:
-            for path in FALLBACK_PATHS:
-                if len(pages) >= max_pages:
-                    break
+            while queue and len(pages) < max_pages:
+                url = queue.pop(0)
 
-                url = urljoin(base_url, path)
-                content = await self._fetch_page(client, url)
-                if content:
-                    pages[url] = content
-                    print(f"\r      Scraped {len(pages)} pages...", end="", flush=True)
+                # Normalize and skip if already visited
+                clean_url = self._normalize_url(url)
+                if clean_url in visited:
+                    continue
+                visited.add(clean_url)
 
-            # Discover more pages from homepage links
-            homepage_url = urljoin(base_url, "/")
-            if homepage_url in pages:
-                discovered = await self._discover_links(client, base_url)
-                for link_url in discovered:
-                    if len(pages) >= max_pages:
-                        break
-                    if link_url in pages:
-                        continue
-                    content = await self._fetch_page(client, link_url)
-                    if content:
-                        pages[link_url] = content
-                        print(f"\r      Scraped {len(pages)} pages...", end="", flush=True)
+                # Fetch the page
+                html, text = await self._fetch_page(client, url)
+                if not text:
+                    continue
+
+                pages[url] = text
+                print(f"\r      Scraped {len(pages)} pages...", end="", flush=True)
+
+                # Discover new links from this page and add to queue
+                if html:
+                    new_links = self._extract_links(html, base_url, domain)
+                    for link in new_links:
+                        norm = self._normalize_url(link)
+                        if norm not in visited and link not in queue:
+                            queue.append(link)
 
         print()  # newline after progress
         return pages
 
-    async def _fetch_page(self, client: httpx.AsyncClient, url: str) -> str:
-        """Fetch a page and convert to clean text."""
+    async def _fetch_page(
+        self, client: httpx.AsyncClient, url: str
+    ) -> tuple[str, str]:
+        """Fetch a page. Returns (raw_html, clean_text)."""
         try:
             resp = await client.get(url)
             if resp.status_code != 200:
-                return ""
+                return "", ""
 
             content_type = resp.headers.get("content-type", "")
             if "text/html" not in content_type:
-                return ""
+                return "", ""
 
-            soup = BeautifulSoup(resp.text, "html.parser")
+            raw_html = resp.text
+            soup = BeautifulSoup(raw_html, "html.parser")
 
             # Remove noise elements
             for tag in soup(["script", "style", "nav", "footer", "noscript", "iframe"]):
@@ -249,38 +262,43 @@ class FallbackCrawler:
 
             text = soup.get_text(separator="\n", strip=True)
             lines = [line.strip() for line in text.splitlines() if line.strip()]
-            return "\n".join(lines)
+            return raw_html, "\n".join(lines)
 
         except Exception as e:
             logger.debug(f"Failed to fetch {url}: {e}")
-            return ""
+            return "", ""
 
-    async def _discover_links(self, client: httpx.AsyncClient, base_url: str) -> list[str]:
-        """Find internal links from the homepage."""
-        try:
-            resp = await client.get(base_url)
-            if resp.status_code != 200:
-                return []
+    def _extract_links(self, html: str, base_url: str, domain: str) -> list[str]:
+        """Extract all internal links from an HTML page."""
+        soup = BeautifulSoup(html, "html.parser")
+        links = []
 
-            soup = BeautifulSoup(resp.text, "html.parser")
-            domain = urlparse(base_url).netloc
-            links = []
+        for a in soup.find_all("a", href=True):
+            href = a["href"]
 
-            for a in soup.find_all("a", href=True):
-                href = a["href"]
-                full_url = urljoin(base_url, href)
-                parsed = urlparse(full_url)
+            # Skip anchors, mailto, tel, javascript
+            if href.startswith(("#", "mailto:", "tel:", "javascript:")):
+                continue
 
-                # Only internal links, no anchors/mailto/tel
-                if parsed.netloc == domain and parsed.scheme in ("http", "https"):
-                    clean = f"{parsed.scheme}://{parsed.netloc}{parsed.path}"
+            full_url = urljoin(base_url, href)
+            parsed = urlparse(full_url)
+
+            # Only internal links
+            if parsed.netloc == domain and parsed.scheme in ("http", "https"):
+                # Strip query params and fragments for cleaner crawling
+                clean = f"{parsed.scheme}://{parsed.netloc}{parsed.path}"
+                # Skip file downloads
+                if not any(clean.endswith(ext) for ext in (".pdf", ".zip", ".png", ".jpg", ".svg", ".css", ".js")):
                     if clean not in links:
                         links.append(clean)
 
-            return links[:30]  # cap discovery
+        return links
 
-        except Exception:
-            return []
+    def _normalize_url(self, url: str) -> str:
+        """Normalize a URL for dedup (strip trailing slash, query, fragment)."""
+        parsed = urlparse(url)
+        path = parsed.path.rstrip("/") or "/"
+        return f"{parsed.scheme}://{parsed.netloc}{path}"
 
 
 class Trainer:
@@ -329,7 +347,7 @@ class Trainer:
             print("[1/6] Crawling website (add CLOUDFLARE_ACCOUNT_ID and")
             print("      CLOUDFLARE_API_TOKEN to .env for deep JS-rendered crawling)...")
             crawler = FallbackCrawler()
-            self.scraped_pages = await crawler.crawl(base_url, max_pages=min(max_pages, 30))
+            self.scraped_pages = await crawler.crawl(base_url, max_pages=max_pages)
 
         if not self.scraped_pages:
             print("\nERROR: Could not scrape any pages. Check the URL.")
