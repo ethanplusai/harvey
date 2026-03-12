@@ -85,6 +85,7 @@ class EnvConfig(BaseModel):
     linkedin_email: str = ""
     linkedin_password: str = ""
     hunter_api_key: str = ""
+    serper_api_key: str = ""
 
 
 def load_config(config_path: str | None = None) -> HarveyConfig:
@@ -104,6 +105,7 @@ def load_env() -> EnvConfig:
         linkedin_email=os.getenv("LINKEDIN_EMAIL", ""),
         linkedin_password=os.getenv("LINKEDIN_PASSWORD", ""),
         hunter_api_key=os.getenv("HUNTER_API_KEY", ""),
+        serper_api_key=os.getenv("SERPER_API_KEY", ""),
     )
 
 

@@ -4,10 +4,21 @@ Architecture: Python does ALL web searching/scraping. Claude only
 analyzes, scores, and personalizes data that Python already found.
 This avoids model-level refusals when asking Claude to research
 real people/companies.
+
+Search backends (in priority order):
+1. SERP API (Serper.dev) — if SERPER_API_KEY is set, reliable and fast
+2. DuckDuckGo HTML — free, no rate limiting, good fallback
+3. Bing — free, less aggressive than Google
+4. Google — aggressive rate limiting, used last
+
+Each cycle runs 2-3 queries max to avoid rate limits. Queries are
+tracked in the DB so they spread across heartbeat cycles.
 """
 
+import asyncio
 import json
 import logging
+import random
 import re
 from urllib.parse import quote_plus, urlparse
 
@@ -24,6 +35,11 @@ from harvey.state import StateManager
 
 logger = logging.getLogger("harvey.scout")
 
+# Max queries per cycle to avoid rate limits
+MAX_QUERIES_PER_CYCLE = 3
+# Delay between search requests (seconds)
+SEARCH_DELAY = (2, 5)
+
 
 class Scout:
     def __init__(
@@ -38,12 +54,14 @@ class Scout:
         self.config = config
         self.env = env
         self.skills = ""
+        self._queries_this_cycle = 0
 
     async def run(self):
         """Main prospecting flow: find leads matching ICP."""
         logger.info("Scout: Starting prospecting cycle...")
 
         self.skills = self.brain.load_skills_for_agent("scout")
+        self._queries_this_cycle = 0
 
         prospects_found = 0
 
@@ -51,10 +69,10 @@ class Scout:
         if self.config.channels.linkedin.enabled and self.env.linkedin_email:
             prospects_found += await self._prospect_via_linkedin()
 
-        # Strategy 2: Google dorking for LinkedIn profiles
-        prospects_found += await self._prospect_via_google_profiles()
+        # Strategy 2: Search for LinkedIn profiles via web search
+        prospects_found += await self._prospect_via_profile_search()
 
-        # Strategy 3: Google dorking for companies, then scrape team pages
+        # Strategy 3: Discover companies, then scrape team pages
         prospects_found += await self._prospect_via_company_discovery()
 
         await self.state.log_action(
@@ -63,6 +81,210 @@ class Scout:
             details={"prospects_found": prospects_found},
         )
         logger.info(f"Scout: Found {prospects_found} new prospects this cycle.")
+
+    # ── Search backend abstraction ──
+
+    async def _web_search(self, query: str) -> list[tuple[str, str]]:
+        """Search the web using the best available backend.
+
+        Returns list of (url, snippet) tuples.
+        Tries backends in order: Serper API → DuckDuckGo → Bing → Google.
+        """
+        if self._queries_this_cycle >= MAX_QUERIES_PER_CYCLE:
+            logger.info("Scout: Query limit reached for this cycle. Will continue next cycle.")
+            return []
+
+        self._queries_this_cycle += 1
+
+        # Add a random delay between searches to be polite
+        if self._queries_this_cycle > 1:
+            delay = random.uniform(*SEARCH_DELAY)
+            await asyncio.sleep(delay)
+
+        # Try each backend in order
+        serper_key = getattr(self.env, "serper_api_key", "")
+        if serper_key:
+            results = await self._search_serper(query, serper_key)
+            if results:
+                return results
+
+        results = await self._search_duckduckgo(query)
+        if results:
+            return results
+
+        results = await self._search_bing(query)
+        if results:
+            return results
+
+        results = await self._search_google(query)
+        if results:
+            return results
+
+        logger.warning(f"Scout: All search backends failed for: {query[:80]}")
+        return []
+
+    async def _search_serper(self, query: str, api_key: str) -> list[tuple[str, str]]:
+        """Search via Serper.dev API — most reliable, $5/mo for 2.5k searches."""
+        try:
+            async with httpx.AsyncClient(timeout=15) as client:
+                resp = await client.post(
+                    "https://google.serper.dev/search",
+                    json={"q": query, "num": 20},
+                    headers={
+                        "X-API-KEY": api_key,
+                        "Content-Type": "application/json",
+                    },
+                )
+                if resp.status_code != 200:
+                    logger.debug(f"Serper returned {resp.status_code}")
+                    return []
+
+                data = resp.json()
+                results = []
+                for item in data.get("organic", []):
+                    url = item.get("link", "")
+                    snippet = item.get("snippet", "")
+                    if url:
+                        results.append((url, snippet))
+                return results[:20]
+
+        except Exception as e:
+            logger.debug(f"Serper search failed: {e}")
+            return []
+
+    async def _search_duckduckgo(self, query: str) -> list[tuple[str, str]]:
+        """Search via DuckDuckGo HTML — free, no rate limiting."""
+        encoded = quote_plus(query)
+        url = f"https://html.duckduckgo.com/html/?q={encoded}"
+
+        try:
+            async with httpx.AsyncClient(timeout=15, follow_redirects=True) as client:
+                resp = await client.get(
+                    url,
+                    headers={
+                        "User-Agent": (
+                            "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
+                            "AppleWebKit/537.36 (KHTML, like Gecko) "
+                            "Chrome/120.0.0.0 Safari/537.36"
+                        ),
+                    },
+                )
+
+            if resp.status_code != 200:
+                logger.debug(f"DuckDuckGo returned {resp.status_code}")
+                return []
+
+            soup = BeautifulSoup(resp.text, "html.parser")
+            results = []
+
+            # DuckDuckGo HTML results use .result class with .result__a links
+            for result in soup.select(".result"):
+                link = result.select_one(".result__a")
+                snippet_el = result.select_one(".result__snippet")
+                if link and link.get("href"):
+                    href = link["href"]
+                    # DDG wraps URLs in a redirect — extract the real URL
+                    if "uddg=" in href:
+                        from urllib.parse import parse_qs, urlparse as _urlparse
+                        parsed = _urlparse(href)
+                        params = parse_qs(parsed.query)
+                        real_urls = params.get("uddg", [])
+                        href = real_urls[0] if real_urls else href
+                    snippet = snippet_el.get_text().strip() if snippet_el else ""
+                    results.append((href, snippet))
+
+            if results:
+                logger.debug(f"DuckDuckGo returned {len(results)} results")
+            return results[:20]
+
+        except Exception as e:
+            logger.debug(f"DuckDuckGo search failed: {e}")
+            return []
+
+    async def _search_bing(self, query: str) -> list[tuple[str, str]]:
+        """Search via Bing HTML scraping — less aggressive rate limiting than Google."""
+        encoded = quote_plus(query)
+        url = f"https://www.bing.com/search?q={encoded}&count=20"
+
+        try:
+            async with httpx.AsyncClient(timeout=15, follow_redirects=True) as client:
+                resp = await client.get(
+                    url,
+                    headers={
+                        "User-Agent": (
+                            "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
+                            "AppleWebKit/537.36 (KHTML, like Gecko) "
+                            "Chrome/120.0.0.0 Safari/537.36"
+                        ),
+                    },
+                )
+
+            if resp.status_code != 200:
+                logger.debug(f"Bing returned {resp.status_code}")
+                return []
+
+            soup = BeautifulSoup(resp.text, "html.parser")
+            results = []
+
+            # Bing uses <li class="b_algo"> for organic results
+            for item in soup.select("li.b_algo"):
+                link = item.select_one("h2 a")
+                snippet_el = item.select_one(".b_caption p")
+                if link and link.get("href"):
+                    href = link["href"]
+                    snippet = snippet_el.get_text().strip() if snippet_el else ""
+                    results.append((href, snippet))
+
+            if results:
+                logger.debug(f"Bing returned {len(results)} results")
+            return results[:20]
+
+        except Exception as e:
+            logger.debug(f"Bing search failed: {e}")
+            return []
+
+    async def _search_google(self, query: str) -> list[tuple[str, str]]:
+        """Search via Google HTML scraping — aggressive rate limiting, use as last resort."""
+        encoded = quote_plus(query)
+        url = f"https://www.google.com/search?q={encoded}&num=20"
+
+        try:
+            async with httpx.AsyncClient(timeout=15, follow_redirects=True) as client:
+                resp = await client.get(
+                    url,
+                    headers={
+                        "User-Agent": (
+                            "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
+                            "AppleWebKit/537.36 (KHTML, like Gecko) "
+                            "Chrome/120.0.0.0 Safari/537.36"
+                        ),
+                    },
+                )
+
+            if resp.status_code == 429:
+                logger.info("Scout: Google rate limited (429). Skipping Google.")
+                return []
+
+            if resp.status_code != 200:
+                return []
+
+            soup = BeautifulSoup(resp.text, "html.parser")
+            results = []
+            for div in soup.select("div.g"):
+                link = div.select_one("a")
+                snippet_el = div.select_one("div.VwiC3b")
+                if link and link.get("href"):
+                    href = link["href"]
+                    snippet = snippet_el.get_text() if snippet_el else ""
+                    results.append((href, snippet))
+
+            if results:
+                logger.debug(f"Google returned {len(results)} results")
+            return results[:20]
+
+        except Exception as e:
+            logger.debug(f"Google search failed: {e}")
+            return []
 
     # ── Strategy 1: LinkedIn ──
 
@@ -149,91 +371,110 @@ class Scout:
         finally:
             await linkedin.stop()
 
-    # ── Strategy 2: Google → LinkedIn profiles ──
+    # ── Strategy 2: Web search → LinkedIn profiles ──
 
-    async def _prospect_via_google_profiles(self) -> int:
-        """Use Google dorking to find LinkedIn profiles matching ICP."""
-        logger.info("Scout: Google dorking for LinkedIn profiles...")
+    async def _prospect_via_profile_search(self) -> int:
+        """Find LinkedIn profiles via web search (any backend)."""
+        logger.info("Scout: Searching for LinkedIn profiles...")
         count = 0
 
         for title in self.config.icp.titles:
-            for geo in self.config.icp.geography:
-                query = (
-                    f'site:linkedin.com/in "{title}" '
-                    f'"{self.config.icp.industries[0]}" "{geo}"'
+            if self._queries_this_cycle >= MAX_QUERIES_PER_CYCLE:
+                break
+
+            geo = self.config.icp.geography[0] if self.config.icp.geography else ""
+            industry = self.config.icp.industries[0] if self.config.icp.industries else ""
+
+            query = f'site:linkedin.com/in "{title}" "{industry}"'
+            if geo:
+                query += f' "{geo}"'
+
+            results = await self._web_search(query)
+
+            for url, snippet in results:
+                if "/in/" not in url:
+                    continue
+                if await self.state.prospect_exists(linkedin_url=url):
+                    continue
+
+                parsed = self._parse_linkedin_url(url, snippet)
+                if not parsed:
+                    continue
+
+                prospect = Prospect(
+                    first_name=parsed.get("first_name", ""),
+                    last_name=parsed.get("last_name", ""),
+                    linkedin_url=url,
+                    title=title,
+                    seniority=self._infer_seniority(title),
+                    source="web_search",
+                    source_url=url,
                 )
-                results = await self._google_search(query)
 
-                for url, snippet in results:
-                    if "/in/" not in url:
-                        continue
-                    if await self.state.prospect_exists(linkedin_url=url):
-                        continue
+                if not prospect.is_valid():
+                    continue
 
-                    parsed = self._parse_linkedin_url(url, snippet)
-                    if not parsed:
-                        continue
+                await self.state.add_prospect(prospect)
+                count += 1
 
-                    prospect = Prospect(
-                        first_name=parsed.get("first_name", ""),
-                        last_name=parsed.get("last_name", ""),
-                        linkedin_url=url,
-                        title=title,
-                        seniority=self._infer_seniority(title),
-                        source="google_dork",
-                        source_url=url,
-                    )
-
-                    if not prospect.is_valid():
-                        continue
-
-                    await self.state.add_prospect(prospect)
-                    count += 1
-
-                if count >= 20:
+                if count >= 15:
                     break
-            if count >= 20:
+
+            if count >= 15:
                 break
 
         return count
 
-    # ── Strategy 3: Find companies via Google, then scrape team pages ──
+    # ── Strategy 3: Find companies, then scrape team pages ──
 
     async def _prospect_via_company_discovery(self) -> int:
-        """Find companies via Google search, scrape their team pages for contacts.
+        """Find companies via multiple methods, scrape team pages for contacts.
 
         Python does ALL the searching and scraping. Claude only scores/personalizes
         the contacts that Python already found.
         """
-        logger.info("Scout: Discovering companies via Google...")
+        logger.info("Scout: Discovering companies...")
 
-        # Step 1: Python finds companies via Google dorking
-        companies = await self._find_companies_via_google()
+        # Gather companies from multiple sources
+        companies = []
+
+        # Source 1: Web search for companies
+        companies.extend(await self._find_companies_via_search())
+
+        # Source 2: Industry directories
+        companies.extend(await self._find_companies_via_directories())
+
         if not companies:
-            logger.info("Scout: No new companies found via Google.")
+            logger.info("Scout: No new companies found this cycle.")
             return 0
+
+        # Deduplicate by domain
+        seen = set()
+        unique = []
+        for c in companies:
+            if c["domain"] not in seen:
+                seen.add(c["domain"])
+                unique.append(c)
+        companies = unique[:10]
 
         logger.info(f"Scout: Found {len(companies)} candidate companies.")
 
-        # Step 2: For each company, scrape team page and find contacts
+        # For each company, scrape team page and find contacts
         all_contacts = []
         for company in companies:
-            # Save the company
             company_id = await self._ensure_company(
                 name=company["name"],
                 domain=company["domain"],
                 website=company.get("website", f"https://{company['domain']}"),
                 description=company.get("description", ""),
                 industry=company.get("industry", self.config.icp.industries[0] if self.config.icp.industries else ""),
-                source="google_dork",
+                source=company.get("source", "web_search"),
                 source_url=company.get("source_url", ""),
             )
 
-            # Scrape their team page for contacts
             team_members = await self._scrape_team_page(company["domain"])
             for member in team_members:
                 title = member.get("title", "")
-                # Filter to ICP-matching titles
                 if not self._title_matches_icp(title):
                     continue
 
@@ -242,7 +483,6 @@ class Scout:
                 if not first_name or not last_name:
                     continue
 
-                # Try to find and verify their email
                 email = ""
                 email_verified = False
                 found = await find_email(first_name, last_name, company["domain"])
@@ -274,10 +514,9 @@ class Scout:
             logger.info("Scout: No ICP-matching contacts found on team pages.")
             return 0
 
-        # Step 3: Use Claude ONLY to score and personalize the contacts we found
+        # Use Claude ONLY to score and personalize
         scored_contacts = await self._score_contacts(all_contacts)
 
-        # Step 4: Save contacts
         count = 0
         for prospect in scored_contacts:
             await self.state.add_prospect(prospect)
@@ -289,184 +528,217 @@ class Scout:
 
         return count
 
-    async def _find_companies_via_google(self) -> list[dict]:
-        """Find ICP-matching companies via Google dorking. Pure Python, no Claude."""
+    async def _find_companies_via_search(self) -> list[dict]:
+        """Find ICP-matching companies via web search."""
         companies = []
         seen_domains = set()
 
-        search_queries = self._build_company_search_queries()
+        queries = self._build_company_search_queries()
 
-        for query in search_queries:
-            results = await self._google_search(query)
+        for query in queries:
+            if self._queries_this_cycle >= MAX_QUERIES_PER_CYCLE:
+                break
+
+            results = await self._web_search(query)
 
             for url, snippet in results:
                 domain = self._extract_domain(url)
                 if not domain or domain in seen_domains:
                     continue
-
-                # Skip social media, directories, and other non-company sites
                 if self._is_noise_domain(domain):
                     continue
-
-                # Check if we already have this company
                 if await self.state.company_exists(domain):
                     seen_domains.add(domain)
                     continue
 
                 seen_domains.add(domain)
 
-                # Try to get company info from their homepage
                 company_info = await self._scrape_company_info(domain)
                 company_info["domain"] = domain
+                company_info["source"] = "web_search"
                 company_info["source_url"] = url
                 if not company_info.get("name"):
                     company_info["name"] = self._domain_to_name(domain)
 
                 companies.append(company_info)
 
-                if len(companies) >= 10:
+                if len(companies) >= 5:
                     break
 
-            if len(companies) >= 10:
+            if len(companies) >= 5:
                 break
 
         return companies
 
+    async def _find_companies_via_directories(self) -> list[dict]:
+        """Scrape industry directory sites for company names and domains.
+
+        These sites list companies by category and are much more reliable
+        than Google for finding ICP-matching companies.
+        """
+        companies = []
+        seen_domains = set()
+
+        industries = self.config.icp.industries or []
+        if not industries:
+            return []
+
+        # Build directory-specific queries
+        directory_queries = []
+        for industry in industries[:2]:
+            # G2, Capterra, Clutch etc. have category pages
+            directory_queries.extend([
+                f'site:g2.com/categories "{industry}"',
+                f'site:clutch.co "{industry}" companies',
+                f'"{industry}" company directory list',
+            ])
+
+        for query in directory_queries:
+            if self._queries_this_cycle >= MAX_QUERIES_PER_CYCLE:
+                break
+
+            results = await self._web_search(query)
+
+            for url, snippet in results:
+                # From directory results, try to extract mentioned company domains
+                domains = self._extract_company_domains_from_snippet(snippet, url)
+                for domain in domains:
+                    if domain in seen_domains or self._is_noise_domain(domain):
+                        continue
+                    if await self.state.company_exists(domain):
+                        seen_domains.add(domain)
+                        continue
+
+                    seen_domains.add(domain)
+                    company_info = await self._scrape_company_info(domain)
+                    company_info["domain"] = domain
+                    company_info["source"] = "directory"
+                    company_info["source_url"] = url
+                    if not company_info.get("name"):
+                        company_info["name"] = self._domain_to_name(domain)
+
+                    companies.append(company_info)
+
+                    if len(companies) >= 5:
+                        break
+
+                # Also scrape the directory page itself for company links
+                if len(companies) < 5:
+                    page_companies = await self._scrape_directory_page(url)
+                    for pc in page_companies:
+                        if pc["domain"] in seen_domains or self._is_noise_domain(pc["domain"]):
+                            continue
+                        if await self.state.company_exists(pc["domain"]):
+                            seen_domains.add(pc["domain"])
+                            continue
+                        seen_domains.add(pc["domain"])
+                        companies.append(pc)
+                        if len(companies) >= 5:
+                            break
+
+            if len(companies) >= 5:
+                break
+
+        return companies
+
+    async def _scrape_directory_page(self, url: str) -> list[dict]:
+        """Scrape a directory/list page for company links."""
+        companies = []
+
+        try:
+            async with httpx.AsyncClient(timeout=10, follow_redirects=True) as client:
+                resp = await client.get(
+                    url,
+                    headers={
+                        "User-Agent": (
+                            "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
+                            "AppleWebKit/537.36"
+                        ),
+                    },
+                )
+                if resp.status_code != 200:
+                    return []
+
+                soup = BeautifulSoup(resp.text, "html.parser")
+
+                # Look for external links that could be company websites
+                for link in soup.find_all("a", href=True):
+                    href = link["href"]
+                    if not href.startswith("http"):
+                        continue
+
+                    domain = self._extract_domain(href)
+                    if not domain or self._is_noise_domain(domain):
+                        continue
+
+                    # Skip links back to the directory itself
+                    page_domain = self._extract_domain(url)
+                    if domain == page_domain:
+                        continue
+
+                    link_text = link.get_text().strip()
+                    if len(link_text) > 3 and len(link_text) < 60:
+                        companies.append({
+                            "name": link_text,
+                            "domain": domain,
+                            "website": f"https://{domain}",
+                            "source": "directory",
+                            "source_url": url,
+                        })
+
+                    if len(companies) >= 10:
+                        break
+
+        except Exception as e:
+            logger.debug(f"Failed to scrape directory page {url}: {e}")
+
+        return companies
+
+    def _extract_company_domains_from_snippet(self, snippet: str, source_url: str) -> list[str]:
+        """Extract potential company domains mentioned in a search snippet."""
+        # Look for domain-like patterns in the snippet
+        domains = []
+        domain_pattern = re.findall(r'\b([a-zA-Z0-9-]+\.(?:com|io|co|net|org|ai))\b', snippet)
+        for d in domain_pattern:
+            d = d.lower()
+            if not self._is_noise_domain(d) and len(d) > 5:
+                domains.append(d)
+        return domains[:5]
+
     def _build_company_search_queries(self) -> list[str]:
-        """Build Google search queries to find ICP-matching companies."""
+        """Build search queries to find ICP-matching companies."""
         queries = []
         industries = self.config.icp.industries or [""]
         geos = self.config.icp.geography or [""]
         size = self.config.icp.company_size or ""
 
-        for industry in industries[:3]:
-            for geo in geos[:2]:
-                # Direct industry + geography search
-                parts = [f'"{industry}"']
-                if geo:
-                    parts.append(f'"{geo}"')
-                if size:
-                    parts.append(f'"{size}"')
-                parts.append("company")
-                queries.append(" ".join(parts))
+        for industry in industries[:2]:
+            geo = geos[0] if geos else ""
 
-                # Search for industry directories/lists
-                queries.append(f'"{industry}" companies {geo} list')
+            # Direct search
+            parts = [f'"{industry}"']
+            if geo:
+                parts.append(f'"{geo}"')
+            if size:
+                parts.append(f'"{size}"')
+            parts.append("company")
+            queries.append(" ".join(parts))
 
-        return queries[:6]  # Cap at 6 queries per cycle
+            # Industry list search
+            if geo:
+                queries.append(f'top "{industry}" companies {geo}')
 
-    def _extract_domain(self, url: str) -> str:
-        """Extract the root domain from a URL."""
-        try:
-            parsed = urlparse(url)
-            host = parsed.netloc or parsed.path.split("/")[0]
-            # Remove www prefix
-            host = re.sub(r"^www\.", "", host)
-            # Basic validation
-            if "." in host and len(host) > 3:
-                return host.lower()
-        except Exception:
-            pass
-        return ""
-
-    def _is_noise_domain(self, domain: str) -> bool:
-        """Filter out domains that aren't actual companies."""
-        noise = {
-            "linkedin.com", "facebook.com", "twitter.com", "x.com",
-            "instagram.com", "youtube.com", "tiktok.com",
-            "google.com", "bing.com", "yahoo.com",
-            "wikipedia.org", "reddit.com", "quora.com",
-            "yelp.com", "bbb.org", "glassdoor.com",
-            "crunchbase.com", "zoominfo.com", "apollo.io",
-            "indeed.com", "monster.com",
-            "github.com", "stackoverflow.com",
-            "medium.com", "substack.com",
-            "amazon.com", "apple.com", "microsoft.com",
-        }
-        return domain in noise or any(domain.endswith(f".{n}") for n in noise)
-
-    async def _scrape_company_info(self, domain: str) -> dict:
-        """Scrape a company's homepage for basic info. Pure Python."""
-        info = {"name": "", "description": "", "website": f"https://{domain}"}
-
-        try:
-            async with httpx.AsyncClient(timeout=10, follow_redirects=True) as client:
-                resp = await client.get(
-                    f"https://{domain}",
-                    headers={"User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36"},
-                )
-                if resp.status_code != 200:
-                    return info
-
-                soup = BeautifulSoup(resp.text, "html.parser")
-
-                # Get company name from <title> or <meta>
-                title_tag = soup.find("title")
-                if title_tag:
-                    title_text = title_tag.get_text().strip()
-                    # Clean up common title patterns: "Company - Tagline"
-                    info["name"] = title_text.split("|")[0].split("—")[0].split("-")[0].strip()
-
-                # Get description from meta
-                meta_desc = soup.find("meta", attrs={"name": "description"})
-                if meta_desc and meta_desc.get("content"):
-                    info["description"] = meta_desc["content"].strip()[:500]
-
-                # Try og:site_name for a cleaner company name
-                og_name = soup.find("meta", attrs={"property": "og:site_name"})
-                if og_name and og_name.get("content"):
-                    info["name"] = og_name["content"].strip()
-
-        except Exception as e:
-            logger.debug(f"Failed to scrape {domain}: {e}")
-
-        return info
-
-    def _domain_to_name(self, domain: str) -> str:
-        """Convert a domain to a rough company name."""
-        name = domain.split(".")[0]
-        return name.title()
-
-    def _title_matches_icp(self, title: str) -> bool:
-        """Check if a job title matches the ICP target titles."""
-        if not title:
-            return False
-        title_lower = title.lower()
-        for target in self.config.icp.titles:
-            if target.lower() in title_lower:
-                return True
-        # Also accept common senior titles if no specific titles configured
-        if not self.config.icp.titles:
-            senior_keywords = ["ceo", "cto", "cfo", "vp", "director", "head of", "founder"]
-            return any(kw in title_lower for kw in senior_keywords)
-        return False
-
-    def _infer_seniority(self, title: str) -> str:
-        """Infer seniority level from a job title."""
-        if not title:
-            return ""
-        t = title.lower()
-        if any(kw in t for kw in ["ceo", "cto", "cfo", "cmo", "coo", "cro", "chief", "founder", "co-founder"]):
-            return "c_suite"
-        if any(kw in t for kw in ["vp", "vice president", "svp", "evp", "head of"]):
-            return "vp"
-        if "director" in t:
-            return "director"
-        if any(kw in t for kw in ["manager", "team lead"]):
-            return "manager"
-        return "individual"
+        return queries[:3]  # Cap to stay within query budget
 
     async def _score_contacts(self, contacts: list[Prospect]) -> list[Prospect]:
         """Use Claude to score and add personalization notes to found contacts.
 
         This is the ONLY place Claude is used in the scout. It receives
-        already-found data and just scores/personalizes it. It never
-        searches for or researches people.
+        already-found data and just scores/personalizes it.
         """
         if not contacts:
             return contacts
 
-        # Build a summary of all contacts for Claude to score in one call
         contact_summaries = []
         for i, c in enumerate(contacts):
             contact_summaries.append(
@@ -500,20 +772,17 @@ Respond ONLY with the JSON array."""
         result = await self.brain.think_json(prompt, session_id="harvey-scout-score")
 
         if not result or not isinstance(result, list):
-            # If Claude fails, just return contacts with default scores
             logger.warning("Scout: Claude scoring failed, using default scores.")
             for c in contacts:
                 c.score = 50
             return contacts
 
-        # Apply scores and personalization
         for item in result:
             idx = item.get("index", 0) - 1
             if 0 <= idx < len(contacts):
                 contacts[idx].score = item.get("score", 50)
                 contacts[idx].personalization_notes = item.get("personalization", "")
 
-        # Sort by score descending, filter out very low scores
         contacts = [c for c in contacts if c.score >= 30]
         contacts.sort(key=lambda c: c.score, reverse=True)
 
@@ -551,43 +820,43 @@ Respond ONLY with the JSON array."""
         )
         return await self.state.add_company(company)
 
-    async def _google_search(self, query: str) -> list[tuple[str, str]]:
-        """Perform a Google search and return (url, snippet) pairs."""
-        encoded = quote_plus(query)
-        url = f"https://www.google.com/search?q={encoded}&num=20"
+    async def _scrape_company_info(self, domain: str) -> dict:
+        """Scrape a company's homepage for basic info. Pure Python."""
+        info = {"name": "", "description": "", "website": f"https://{domain}"}
 
         try:
-            async with httpx.AsyncClient() as client:
+            async with httpx.AsyncClient(timeout=10, follow_redirects=True) as client:
                 resp = await client.get(
-                    url,
+                    f"https://{domain}",
                     headers={
                         "User-Agent": (
                             "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
                             "AppleWebKit/537.36"
-                        )
+                        ),
                     },
-                    follow_redirects=True,
-                    timeout=15,
                 )
+                if resp.status_code != 200:
+                    return info
 
-            if resp.status_code != 200:
-                return []
+                soup = BeautifulSoup(resp.text, "html.parser")
 
-            soup = BeautifulSoup(resp.text, "html.parser")
-            results = []
-            for div in soup.select("div.g"):
-                link = div.select_one("a")
-                snippet_el = div.select_one("div.VwiC3b")
-                if link and link.get("href"):
-                    href = link["href"]
-                    snippet = snippet_el.get_text() if snippet_el else ""
-                    results.append((href, snippet))
+                title_tag = soup.find("title")
+                if title_tag:
+                    title_text = title_tag.get_text().strip()
+                    info["name"] = title_text.split("|")[0].split("—")[0].split("-")[0].strip()
 
-            return results[:20]
+                meta_desc = soup.find("meta", attrs={"name": "description"})
+                if meta_desc and meta_desc.get("content"):
+                    info["description"] = meta_desc["content"].strip()[:500]
+
+                og_name = soup.find("meta", attrs={"property": "og:site_name"})
+                if og_name and og_name.get("content"):
+                    info["name"] = og_name["content"].strip()
 
         except Exception as e:
-            logger.debug(f"Google search failed: {e}")
-            return []
+            logger.debug(f"Failed to scrape {domain}: {e}")
+
+        return info
 
     async def _scrape_team_page(self, domain: str) -> list[dict]:
         """Try to find and scrape a company's team/about page."""
@@ -608,7 +877,6 @@ Respond ONLY with the JSON array."""
 
                     soup = BeautifulSoup(resp.text, "html.parser")
 
-                    # Look for common team member patterns
                     for card in soup.select(
                         ".team-member, .person, .staff, [class*='team'], "
                         "[class*='leadership'], [class*='member'], [class*='person']"
@@ -623,7 +891,6 @@ Respond ONLY with the JSON array."""
                         if name_el:
                             name = name_el.get_text().strip()
                             title = title_el.get_text().strip() if title_el else ""
-                            # Skip if name looks like a section header
                             if len(name) > 50 or len(name) < 3:
                                 continue
                             parts = name.split(" ", 1)
@@ -662,9 +929,71 @@ Respond ONLY with the JSON array."""
 
         return ""
 
+    def _extract_domain(self, url: str) -> str:
+        """Extract the root domain from a URL."""
+        try:
+            parsed = urlparse(url)
+            host = parsed.netloc or parsed.path.split("/")[0]
+            host = re.sub(r"^www\.", "", host)
+            if "." in host and len(host) > 3:
+                return host.lower()
+        except Exception:
+            pass
+        return ""
+
+    def _is_noise_domain(self, domain: str) -> bool:
+        """Filter out domains that aren't actual companies."""
+        noise = {
+            "linkedin.com", "facebook.com", "twitter.com", "x.com",
+            "instagram.com", "youtube.com", "tiktok.com",
+            "google.com", "bing.com", "yahoo.com", "duckduckgo.com",
+            "wikipedia.org", "reddit.com", "quora.com",
+            "yelp.com", "bbb.org", "glassdoor.com",
+            "crunchbase.com", "zoominfo.com", "apollo.io",
+            "indeed.com", "monster.com",
+            "github.com", "stackoverflow.com",
+            "medium.com", "substack.com",
+            "amazon.com", "apple.com", "microsoft.com",
+            "g2.com", "capterra.com", "clutch.co",
+            "trustpilot.com", "getapp.com",
+        }
+        return domain in noise or any(domain.endswith(f".{n}") for n in noise)
+
+    def _domain_to_name(self, domain: str) -> str:
+        """Convert a domain to a rough company name."""
+        name = domain.split(".")[0]
+        return name.title()
+
+    def _title_matches_icp(self, title: str) -> bool:
+        """Check if a job title matches the ICP target titles."""
+        if not title:
+            return False
+        title_lower = title.lower()
+        for target in self.config.icp.titles:
+            if target.lower() in title_lower:
+                return True
+        if not self.config.icp.titles:
+            senior_keywords = ["ceo", "cto", "cfo", "vp", "director", "head of", "founder"]
+            return any(kw in title_lower for kw in senior_keywords)
+        return False
+
+    def _infer_seniority(self, title: str) -> str:
+        """Infer seniority level from a job title."""
+        if not title:
+            return ""
+        t = title.lower()
+        if any(kw in t for kw in ["ceo", "cto", "cfo", "cmo", "coo", "cro", "chief", "founder", "co-founder"]):
+            return "c_suite"
+        if any(kw in t for kw in ["vp", "vice president", "svp", "evp", "head of"]):
+            return "vp"
+        if "director" in t:
+            return "director"
+        if any(kw in t for kw in ["manager", "team lead"]):
+            return "manager"
+        return "individual"
+
     def _parse_linkedin_url(self, url: str, snippet: str) -> dict | None:
         """Parse a LinkedIn profile URL and snippet to extract name."""
-        # LinkedIn URLs: linkedin.com/in/first-last-abc123
         match = re.search(r"/in/([a-zA-Z]+-[a-zA-Z]+)", url)
         if match:
             parts = match.group(1).split("-")
@@ -674,7 +1003,6 @@ Respond ONLY with the JSON array."""
                     "last_name": parts[1].title(),
                 }
 
-        # Try to parse from snippet: "First Last - Title at Company"
         name_match = re.match(r"^([A-Z][a-z]+)\s+([A-Z][a-z]+)", snippet)
         if name_match:
             return {

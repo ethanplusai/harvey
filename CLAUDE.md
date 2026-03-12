@@ -25,6 +25,7 @@ LINKEDIN_PASSWORD=          # Optional — for LinkedIn prospecting
 CLOUDFLARE_ACCOUNT_ID=      # Optional — for deep JS-rendered website crawling
 CLOUDFLARE_API_TOKEN=       # Optional — for deep JS-rendered website crawling
 HUNTER_API_KEY=             # Optional — for email verification fallback
+SERPER_API_KEY=             # Optional — for reliable web search ($5/mo at serper.dev)
 ```
 
 After getting the Instantly API key, test it:
