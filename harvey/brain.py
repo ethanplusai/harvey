@@ -25,7 +25,11 @@ class Brain:
         expect_json: bool = False,
     ) -> str:
         """Send a prompt to Claude Code headless mode and return the response."""
-        cmd = ["claude", "-p", prompt, "--output-format", "text"]
+        cmd = [
+            "claude", "-p", prompt,
+            "--output-format", "text",
+            "--dangerously-skip-permissions",
+        ]
         if session_id:
             cmd.extend(["--session-id", session_id])
 
