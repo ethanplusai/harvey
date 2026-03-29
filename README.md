@@ -46,7 +46,7 @@ Harvey feels like one agent, but under the hood it coordinates five specialized 
 | **Writer** | Crafts personalized 3-email sequences using proven frameworks (AIDA, PAS, BAB). Every email is tailored to the prospect's role, company, and industry. |
 | **Sender** | Deploys campaigns to Instantly (or Woodpecker) via API. Adds leads, sets sequences, activates campaigns, and tracks delivery. |
 | **Handler** | Monitors all replies. Classifies intent (interested, objection, not interested, OOO, wrong person) and auto-responds with context-aware messages that move toward a meeting. |
-| **Analyst** | *(Coming soon)* Tracks what's working — which subject lines, frameworks, ICP segments, and send times produce the best results — and adjusts Harvey's approach automatically. |
+| **Analyst** | Tracks what's working — reply rates, campaign performance, intent distribution, ICP segment conversion — and generates actionable insights. Runs during idle cycles. |
 
 ### Skills System
 
@@ -306,7 +306,7 @@ harvey/
 │   │   ├── writer.py        # Email sequence generation
 │   │   ├── sender.py        # Campaign deployment via Instantly
 │   │   ├── handler.py       # Reply processing + auto-response
-│   │   └── analyst.py       # (Coming soon) Learning from outcomes
+│   │   └── analyst.py       # Pipeline analytics + performance insights
 │   │
 │   ├── integrations/
 │   │   ├── instantly.py     # Instantly API v2 client
@@ -323,8 +323,7 @@ harvey/
 │   ├── system.md            # Harvey's core persona
 │   ├── scout.md             # Prospecting instructions
 │   ├── writer.md            # Email writing guidelines
-│   ├── handler.md           # Reply handling rules
-│   └── qualifier.md         # Lead qualification criteria
+│   └── handler.md           # Reply handling rules
 │
 ├── skills/                  # Foundational sales knowledge (editable)
 │   ├── email_frameworks.md
@@ -382,11 +381,14 @@ Harvey stores everything in SQLite (`data/harvey.db`):
 
 | Table | What It Stores |
 |-------|---------------|
-| `prospects` | Everyone Harvey has found — name, email, company, title, status, score, personalization notes |
+| `companies` | Company profiles — name, domain, website, industry, size, how Harvey found them |
+| `prospects` | Contacts — name, email, title, seniority, company link, status, score, personalization notes |
 | `campaigns` | Email sequences — the emails, which prospects are in each campaign, deployment status |
-| `conversations` | Full conversation threads — every message sent and received, classified intent |
+| `conversations` | Full conversation threads — every message sent and received, intent classification, sales stage |
 | `actions` | Audit log — everything Harvey has done, when, and the result |
 | `usage_log` | Daily Claude usage tracking for budget control |
+| `feedback` | User comments and training feedback on Harvey's work |
+| `processed_replies` | Reply deduplication — prevents double-handling |
 
 ---
 
@@ -404,12 +406,17 @@ Harvey stores everything in SQLite (`data/harvey.db`):
 - [x] Deep crawling via Cloudflare Browser Rendering API (with built-in fallback)
 - [x] Competitive intelligence — auto-generated battle cards per competitor
 - [x] Interactive setup wizard — Harvey walks you through everything on first run
+- [x] Web dashboard — full control panel at localhost:5555 with setup, settings, pipeline, and controls
+- [x] Analyst agent — pipeline analytics, campaign performance, actionable insights
+- [x] Conversation stage tracking — 8-stage sales pipeline with auto-advancement
+- [x] Multi-backend search — DuckDuckGo, Bing, Serper API fallbacks (no Google dependency)
+- [x] Company/contact separation — companies and contacts as separate entities with linking
+- [x] Reply deduplication — prevents double-handling of the same reply
+- [x] Parallel agent execution — handler runs alongside scout/writer simultaneously
 - [ ] LinkedIn DM outreach
 - [ ] Calendar integration (Cal.com / Calendly) for auto-booking
 - [ ] AI voice cold calling (Bland.ai / Vapi)
 - [ ] SMS/text outreach
-- [ ] Analyst agent — learn from outcomes, A/B test messaging
-- [ ] Web dashboard — see pipeline, review Harvey's work, override decisions
 - [ ] Multi-product support — run Harvey for multiple products simultaneously
 - [ ] Team mode — multiple Harveys coordinating across territories
 - [ ] Webhook receiver for real-time reply processing
