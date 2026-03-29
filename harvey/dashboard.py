@@ -7,6 +7,7 @@ import os
 import signal
 import subprocess
 import sys
+import uuid
 from datetime import datetime
 from pathlib import Path
 
@@ -300,7 +301,7 @@ async def add_feedback(request: Request):
     comment = data.get("comment", "")
     if not comment:
         return {"success": False, "message": "Comment is required."}
-    feedback_id = _new_id()
+    feedback_id = uuid.uuid4().hex[:12]
     db_path = str(DB_PATH)
     if DB_PATH.exists():
         async with aiosqlite.connect(db_path) as db:

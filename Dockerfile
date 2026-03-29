@@ -20,6 +20,7 @@ RUN pip install --no-cache-dir -r requirements.txt
 # Copy project
 COPY harvey/ harvey/
 COPY prompts/ prompts/
+COPY skills/ skills/
 COPY harvey.yaml .
 
 # Create data directory

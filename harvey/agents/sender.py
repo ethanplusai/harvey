@@ -2,6 +2,7 @@
 
 import json
 import logging
+from datetime import date
 
 from harvey.brain import Brain
 from harvey.config import HarveyConfig, EnvConfig
@@ -35,6 +36,14 @@ class Sender:
         draft_campaigns = await self.state.get_campaigns_by_status("draft")
         if not draft_campaigns:
             logger.info("Sender: No draft campaigns to deploy.")
+            return
+
+        # Enforce daily send limit
+        max_sends = self.config.channels.email.max_daily_sends
+        sends_today = await self._count_sends_today()
+        remaining = max_sends - sends_today
+        if remaining <= 0:
+            logger.info(f"Sender: Daily send limit reached ({sends_today}/{max_sends}). Skipping.")
             return
 
         for campaign in draft_campaigns:
@@ -73,7 +82,7 @@ class Sender:
             logger.error(f"Sender: Failed to set emails for campaign {campaign_id}")
             return
 
-        # 3. Add leads
+        # 3. Add leads (capped to remaining daily budget)
         prospects = []
         for prospect_id in campaign.prospect_ids:
             prospect = await self.state.get_prospect(prospect_id)
@@ -83,6 +92,17 @@ class Sender:
         if not prospects:
             logger.warning(f"Sender: No valid prospects for campaign {campaign.name}")
             return
+
+        # Check remaining daily send budget
+        max_sends = self.config.channels.email.max_daily_sends
+        sends_today = await self._count_sends_today()
+        remaining = max_sends - sends_today
+        if remaining <= 0:
+            logger.info(f"Sender: Daily limit reached. Deferring campaign '{campaign.name}'.")
+            return
+        if len(prospects) > remaining:
+            logger.info(f"Sender: Capping leads from {len(prospects)} to {remaining} (daily limit).")
+            prospects = prospects[:remaining]
 
         leads = [
             {
@@ -134,3 +154,15 @@ class Sender:
             f"Sender: Campaign '{campaign.name}' deployed to Instantly "
             f"with {len(leads)} leads. Campaign ID: {campaign_id}"
         )
+
+    async def _count_sends_today(self) -> int:
+        """Count how many prospects were contacted today."""
+        import aiosqlite
+        today = date.today().isoformat()
+        async with aiosqlite.connect(self.state.db_path) as db:
+            async with db.execute(
+                "SELECT COUNT(*) FROM prospects WHERE status = 'contacted' AND updated_at LIKE ?",
+                (f"{today}%",),
+            ) as cursor:
+                row = await cursor.fetchone()
+                return row[0] if row else 0

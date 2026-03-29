@@ -53,7 +53,7 @@ def cmd_train(args):
     from harvey.trainer import Trainer
 
     trainer = Trainer()
-    asyncio.run(trainer.train_from_url(args.url, max_pages=args.max_pages))
+    asyncio.run(trainer.train(args.url, max_pages=args.max_pages))
 
 
 def cmd_dashboard(args):

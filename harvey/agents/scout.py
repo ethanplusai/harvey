@@ -994,15 +994,21 @@ Respond ONLY with the JSON array."""
 
     def _parse_linkedin_url(self, url: str, snippet: str) -> dict | None:
         """Parse a LinkedIn profile URL and snippet to extract name."""
-        match = re.search(r"/in/([a-zA-Z]+-[a-zA-Z]+)", url)
+        match = re.search(r"/in/([\w][\w-]+)", url)
         if match:
-            parts = match.group(1).split("-")
+            slug = match.group(1)
+            # Remove trailing hex/numeric IDs that LinkedIn appends
+            slug = re.sub(r"-[0-9a-f]{4,}$", "", slug)
+            parts = slug.split("-")
+            # Filter out empty parts and very short noise
+            parts = [p for p in parts if len(p) > 1 or p.isalpha()]
             if len(parts) >= 2:
                 return {
                     "first_name": parts[0].title(),
-                    "last_name": parts[1].title(),
+                    "last_name": " ".join(p.title() for p in parts[1:]),
                 }
 
+        # Fallback: parse from snippet (e.g., "First Last - Title at Company")
         name_match = re.match(r"^([A-Z][a-z]+)\s+([A-Z][a-z]+)", snippet)
         if name_match:
             return {

@@ -65,6 +65,10 @@ class Writer:
             )
             campaign_id = await self.state.add_campaign(campaign)
 
+            # Mark prospects so they aren't picked up again
+            for p in prospects:
+                await self.state.update_prospect_status(p.id, "queued")
+
             await self.state.log_action(
                 action_type="write_campaign",
                 agent="writer",

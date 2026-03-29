@@ -89,17 +89,15 @@ class Handler:
         if not lead_email or not reply_text:
             return
 
+        # Dedup: skip if we already processed this reply
+        if reply_uuid and await self.state.is_reply_processed(reply_uuid):
+            logger.debug(f"Handler: Reply {reply_uuid} already processed. Skipping.")
+            return
+
         logger.info(f"Handler: Reply from {lead_email}")
 
-        # Find the prospect
-        # (Lookup by email in our DB)
-        prospects = await self.state.get_prospects_by_status("contacted")
-        prospect = next((p for p in prospects if p.email == lead_email), None)
-
-        if not prospect:
-            # Also check "replied" status
-            prospects = await self.state.get_prospects_by_status("replied")
-            prospect = next((p for p in prospects if p.email == lead_email), None)
+        # Find the prospect by email (indexed lookup)
+        prospect = await self.state.get_prospect_by_email(lead_email)
 
         if not prospect:
             logger.warning(f"Handler: No prospect found for {lead_email}")
@@ -180,6 +178,10 @@ class Handler:
                         "response_preview": response[:100],
                     },
                 )
+
+        # Mark reply as processed to avoid double-handling
+        if reply_uuid:
+            await self.state.mark_reply_processed(reply_uuid)
 
     async def _classify_intent(self, reply_text: str, prospect) -> str:
         """Ask the brain to classify the reply's intent."""

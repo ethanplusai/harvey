@@ -110,15 +110,21 @@ class StateManager:
 
                 CREATE TABLE IF NOT EXISTS usage_log (
                     id TEXT PRIMARY KEY,
-                    date TEXT,
+                    date TEXT UNIQUE,
                     claude_calls INTEGER DEFAULT 0,
                     usage_percent REAL DEFAULT 0.0,
                     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
                 );
 
+                CREATE TABLE IF NOT EXISTS processed_replies (
+                    reply_id TEXT PRIMARY KEY,
+                    processed_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                );
+
                 CREATE INDEX IF NOT EXISTS idx_companies_domain ON companies(domain);
                 CREATE INDEX IF NOT EXISTS idx_prospects_company_id ON prospects(company_id);
                 CREATE INDEX IF NOT EXISTS idx_prospects_status ON prospects(status);
+                CREATE INDEX IF NOT EXISTS idx_prospects_email ON prospects(email);
                 CREATE INDEX IF NOT EXISTS idx_campaigns_status ON campaigns(status);
                 CREATE INDEX IF NOT EXISTS idx_conversations_status ON conversations(status);
                 CREATE INDEX IF NOT EXISTS idx_feedback_entity ON feedback(entity_type, entity_id);
@@ -258,6 +264,23 @@ class StateManager:
             )
             await db.commit()
 
+    async def get_prospect_by_email(self, email: str) -> "Prospect | None":
+        """Look up a prospect by email address (indexed query)."""
+        if not email:
+            return None
+        async with aiosqlite.connect(self.db_path) as db:
+            db.row_factory = aiosqlite.Row
+            async with db.execute(
+                "SELECT * FROM prospects WHERE email = ?", (email,)
+            ) as cursor:
+                row = await cursor.fetchone()
+                if not row:
+                    return None
+                d = dict(row)
+                d["email_verified"] = bool(d.get("email_verified", 0))
+                d["phone_verified"] = bool(d.get("phone_verified", 0))
+                return Prospect(**d)
+
     async def prospect_exists(self, email: str = "", linkedin_url: str = "") -> bool:
         async with aiosqlite.connect(self.db_path) as db:
             if email:
@@ -319,6 +342,27 @@ class StateManager:
             ) as cursor:
                 rows = await cursor.fetchall()
                 return [dict(r) for r in rows]
+
+    # ── Reply Deduplication ──
+
+    async def is_reply_processed(self, reply_id: str) -> bool:
+        """Check if a reply has already been processed."""
+        if not reply_id:
+            return False
+        async with aiosqlite.connect(self.db_path) as db:
+            async with db.execute(
+                "SELECT 1 FROM processed_replies WHERE reply_id = ?", (reply_id,)
+            ) as cursor:
+                return bool(await cursor.fetchone())
+
+    async def mark_reply_processed(self, reply_id: str):
+        """Mark a reply as processed to avoid double-handling."""
+        async with aiosqlite.connect(self.db_path) as db:
+            await db.execute(
+                "INSERT OR IGNORE INTO processed_replies (reply_id) VALUES (?)",
+                (reply_id,),
+            )
+            await db.commit()
 
     # ── Campaigns ──
 

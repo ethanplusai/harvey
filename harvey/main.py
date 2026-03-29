@@ -4,7 +4,7 @@ import asyncio
 import logging
 import signal
 import sys
-from datetime import datetime, time
+from datetime import datetime, time, timedelta
 
 import pytz
 
@@ -45,7 +45,7 @@ def seconds_until_quiet_hours_end(config: HarveyConfig) -> int:
 
     if end_today <= now:
         # End time is tomorrow
-        end_today = end_today.replace(day=end_today.day + 1)
+        end_today = end_today + timedelta(days=1)
 
     delta = end_today - now
     return max(int(delta.total_seconds()), 60)
