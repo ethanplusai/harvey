@@ -490,7 +490,12 @@ class Scout:
                     email = found
                     email_verified = True
 
-                if email and await self.state.prospect_exists(email=email):
+                if await self.state.prospect_exists(
+                    email=email,
+                    first_name=first_name,
+                    last_name=last_name,
+                    company=company["name"],
+                ):
                     continue
 
                 prospect = Prospect(

@@ -138,16 +138,21 @@ class Handler:
                 intent=intent,
             )
 
+        # 2b. Advance conversation stage based on intent
+        new_stage = self._determine_stage(intent, convo.stage, reply_text)
+        if new_stage != convo.stage:
+            await self.state.update_conversation(convo.id, stage=new_stage)
+            convo.stage = new_stage
+            logger.info(f"Handler: Stage for {lead_email}: {convo.stage} → {new_stage}")
+
         # 3. Generate and send response based on intent
         if intent == "not_interested":
-            # Graceful exit — no response needed, mark as closed
-            await self.state.update_conversation(convo.id, status="closed")
+            await self.state.update_conversation(convo.id, status="closed", stage="closed_lost")
             await self.state.update_prospect_status(prospect.id, "lost")
             logger.info(f"Handler: {lead_email} not interested. Closing.")
             return
 
         if intent == "ooo":
-            # Don't respond, let the sequence continue later
             logger.info(f"Handler: {lead_email} is OOO. Will follow up later.")
             return
 
@@ -206,6 +211,49 @@ Respond with ONLY the category label, nothing else."""
             return "question"
 
         return intent
+
+    def _determine_stage(self, intent: str, current_stage: str, reply_text: str) -> str:
+        """Advance the conversation stage based on intent and context."""
+        text_lower = reply_text.lower()
+
+        # Terminal states
+        if intent == "not_interested":
+            return "closed_lost"
+
+        # Stage advancement rules
+        if intent == "interested":
+            if current_stage == "initial_outreach":
+                return "engaged"
+            if current_stage == "engaged":
+                # Check if they're asking about specifics → qualifying
+                if any(w in text_lower for w in ["price", "cost", "how much", "pricing", "demo", "trial"]):
+                    return "presenting"
+                return "qualifying"
+            if current_stage in ("qualifying", "presenting"):
+                return "negotiating"
+            if current_stage == "negotiating":
+                return "closing"
+
+        if intent == "objection":
+            # Objections typically happen during presenting or negotiating
+            if current_stage in ("initial_outreach", "engaged"):
+                return "qualifying"
+            # Stay in current stage during objection handling
+
+        if intent == "question":
+            if current_stage == "initial_outreach":
+                return "engaged"
+            if current_stage == "engaged":
+                return "qualifying"
+
+        if intent == "wrong_person":
+            return current_stage  # Don't advance
+
+        # Check for meeting/call signals
+        if any(w in text_lower for w in ["let's meet", "schedule", "calendar", "book a call", "free on", "available"]):
+            return "closing"
+
+        return current_stage
 
     async def _generate_response(
         self, intent: str, reply_text: str, prospect, convo: Conversation

@@ -87,6 +87,7 @@ class StateManager:
                     channel TEXT DEFAULT 'email',
                     thread_json TEXT DEFAULT '[]',
                     intent TEXT DEFAULT '',
+                    stage TEXT DEFAULT 'initial_outreach',
                     status TEXT DEFAULT 'open',
                     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
@@ -281,7 +282,10 @@ class StateManager:
                 d["phone_verified"] = bool(d.get("phone_verified", 0))
                 return Prospect(**d)
 
-    async def prospect_exists(self, email: str = "", linkedin_url: str = "") -> bool:
+    async def prospect_exists(
+        self, email: str = "", linkedin_url: str = "",
+        first_name: str = "", last_name: str = "", company: str = "",
+    ) -> bool:
         async with aiosqlite.connect(self.db_path) as db:
             if email:
                 async with db.execute(
@@ -292,6 +296,14 @@ class StateManager:
             if linkedin_url:
                 async with db.execute(
                     "SELECT 1 FROM prospects WHERE linkedin_url = ?", (linkedin_url,)
+                ) as cursor:
+                    if await cursor.fetchone():
+                        return True
+            # Name + company dedup (case-insensitive)
+            if first_name and last_name and company:
+                async with db.execute(
+                    "SELECT 1 FROM prospects WHERE LOWER(first_name) = ? AND LOWER(last_name) = ? AND LOWER(company) = ?",
+                    (first_name.lower(), last_name.lower(), company.lower()),
                 ) as cursor:
                     if await cursor.fetchone():
                         return True
@@ -418,12 +430,12 @@ class StateManager:
             await db.execute(
                 """INSERT INTO conversations
                    (id, prospect_id, campaign_id, channel, thread_json,
-                    intent, status, created_at, updated_at)
-                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                    intent, stage, status, created_at, updated_at)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
                 (
                     convo.id, convo.prospect_id, convo.campaign_id,
                     convo.channel, convo.thread_json(), convo.intent,
-                    convo.status, convo.created_at.isoformat(),
+                    convo.stage, convo.status, convo.created_at.isoformat(),
                     convo.updated_at.isoformat(),
                 ),
             )
@@ -462,6 +474,57 @@ class StateManager:
                 (_new_id(), action_type, agent, json.dumps(details or {})),
             )
             await db.commit()
+
+    # ── Analytics ──
+
+    async def get_campaign_stats(self) -> list[dict]:
+        """Get performance stats for each campaign."""
+        async with aiosqlite.connect(self.db_path) as db:
+            db.row_factory = aiosqlite.Row
+            async with db.execute(
+                """SELECT c.id, c.name, c.status, c.prospect_ids_json,
+                          (SELECT COUNT(*) FROM conversations
+                           WHERE campaign_id = c.id) as reply_count,
+                          (SELECT COUNT(*) FROM conversations
+                           WHERE campaign_id = c.id AND intent = 'interested') as interested_count,
+                          (SELECT COUNT(*) FROM conversations
+                           WHERE campaign_id = c.id AND intent = 'objection') as objection_count,
+                          (SELECT COUNT(*) FROM conversations
+                           WHERE campaign_id = c.id AND intent = 'not_interested') as not_interested_count
+                   FROM campaigns c
+                   WHERE c.status IN ('active', 'completed')
+                   ORDER BY c.created_at DESC"""
+            ) as cursor:
+                rows = await cursor.fetchall()
+                stats = []
+                for r in rows:
+                    d = dict(r)
+                    prospect_ids = json.loads(d.get("prospect_ids_json", "[]"))
+                    d["leads_count"] = len(prospect_ids)
+                    d["reply_rate"] = (
+                        round(d["reply_count"] / len(prospect_ids) * 100, 1)
+                        if prospect_ids else 0
+                    )
+                    stats.append(d)
+                return stats
+
+    async def get_intent_distribution(self) -> dict[str, int]:
+        """Count conversations by intent."""
+        async with aiosqlite.connect(self.db_path) as db:
+            async with db.execute(
+                "SELECT intent, COUNT(*) FROM conversations WHERE intent != '' GROUP BY intent"
+            ) as cursor:
+                rows = await cursor.fetchall()
+                return {row[0]: row[1] for row in rows}
+
+    async def get_stage_distribution(self) -> dict[str, int]:
+        """Count conversations by sales stage."""
+        async with aiosqlite.connect(self.db_path) as db:
+            async with db.execute(
+                "SELECT stage, COUNT(*) FROM conversations WHERE stage != '' GROUP BY stage"
+            ) as cursor:
+                rows = await cursor.fetchall()
+                return {row[0]: row[1] for row in rows}
 
     # ── Usage Tracking ──
 

@@ -109,11 +109,13 @@ async def heartbeat():
     from harvey.agents.writer import Writer
     from harvey.agents.sender import Sender
     from harvey.agents.handler import Handler
+    from harvey.agents.analyst import Analyst
 
     scout = Scout(brain, state, config, env)
     writer = Writer(brain, state, config)
     sender = Sender(brain, state, config, env)
     handler = Handler(brain, state, config, env)
+    analyst = Analyst(state)
 
     interval = config.usage.heartbeat_interval_minutes * 60
     max_calls = int(200 * (config.usage.max_daily_claude_percent / 100))
@@ -136,20 +138,41 @@ async def heartbeat():
 
             # 3. Decide what to do
             logger.info("Thinking about what to do next...")
+            summary = await state.get_state_summary()
             action = await decide_next_action(brain, state, config)
-            logger.info(f"Decision: {action}")
+            logger.info(f"Primary action: {action}")
 
-            # 4. Execute
-            if action == "prospect":
-                await scout.run()
+            # 4. Execute — run independent agents in parallel where possible
+            # Handler is always safe to run alongside other agents
+            tasks = []
+            has_open_convos = summary.get("open_conversations", 0) > 0
+
+            if action == "handle_replies":
+                tasks.append(("handle_replies", handler.run()))
+            elif action == "prospect":
+                tasks.append(("prospect", scout.run()))
+                # Also handle replies in parallel if needed
+                if has_open_convos:
+                    tasks.append(("handle_replies", handler.run()))
             elif action == "write_campaign":
-                await writer.run()
+                tasks.append(("write_campaign", writer.run()))
+                if has_open_convos:
+                    tasks.append(("handle_replies", handler.run()))
             elif action == "send_campaign":
-                await sender.run()
-            elif action == "handle_replies":
-                await handler.run()
+                tasks.append(("send_campaign", sender.run()))
             elif action == "idle":
-                logger.info("Nothing to do. Waiting for next cycle.")
+                tasks.append(("analyze", analyst.run()))
+
+            if len(tasks) > 1:
+                logger.info(f"Running {len(tasks)} agents in parallel: {[t[0] for t in tasks]}")
+
+            # Run all tasks, catch errors per-task
+            results = await asyncio.gather(
+                *[t[1] for t in tasks], return_exceptions=True
+            )
+            for (name, _), result in zip(tasks, results):
+                if isinstance(result, Exception):
+                    logger.error(f"Agent {name} failed: {result}")
 
             # 5. Log the action
             await state.log_action(action_type=action, agent="main")
