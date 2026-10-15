@@ -22,6 +22,7 @@ of failing it.
 
 Without an API key Precleared allows 10 checks a day; a free key
 (https://precleared.dev/get-key, PRECLEARED_API_KEY) allows 25 a day.
+Beyond that, a key draws on a prepaid pack (https://precleared.dev/#pricing).
 """
 
 import hashlib
@@ -161,11 +162,21 @@ class PreclearedClient:
             return Clearance(allowed=False, held=True,
                              reason=self._redact(f"Precleared unreachable: {e}"))
 
-        if resp.status_code in (402, 429):
+        if resp.status_code == 429:
+            # Keyless allowance used up: a free key gives this install its own.
             return Clearance(
                 allowed=False, held=True,
                 reason="Precleared daily allowance used up; add PRECLEARED_API_KEY "
                        "(free key: https://precleared.dev/get-key) or wait until tomorrow",
+            )
+        if resp.status_code == 402:
+            # The key's free checks for today are used and it has no credits left,
+            # so another key won't help: a pack (or tomorrow's allowance) will.
+            return Clearance(
+                allowed=False, held=True,
+                reason="Precleared: today's free checks on your key are used and it has "
+                       "no credits left; add a pack (https://precleared.dev/#pricing) "
+                       "or wait until tomorrow",
             )
         if resp.status_code == 401:
             return Clearance(allowed=False, held=True,

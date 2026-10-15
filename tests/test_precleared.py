@@ -376,3 +376,40 @@ async def test_unexpected_optional_field_shapes_are_ignored(state):
     assert result.verdict == "consent_needed"
     assert result.reason == ""
     assert result.receipt_id == ""
+
+
+# ── allowance messages ──
+
+
+def mock_status(status, body):
+    """A Precleared stand-in that answers every request with one status and body."""
+    return httpx.MockTransport(lambda request: httpx.Response(status, json=body))
+
+
+@pytest.mark.asyncio
+async def test_keyless_daily_limit_points_to_a_free_key(state):
+    client = PreclearedClient("GB", transport=mock_status(429, {
+        "error": "daily_limit", "get_key_url": "https://precleared.dev/get-key",
+    }))
+
+    result = await client.clear("person@example.com", state)
+
+    assert result.held and not result.allowed
+    assert "add PRECLEARED_API_KEY" in result.reason
+    assert "precleared.dev/get-key" in result.reason
+
+
+@pytest.mark.asyncio
+async def test_key_out_of_checks_points_to_a_pack_not_a_free_key(state):
+    client = PreclearedClient("GB", api_key="pc_live_test", transport=mock_status(402, {
+        "error": "payment_required", "buy_url": "https://precleared.dev/#pricing",
+    }))
+
+    result = await client.clear("person@example.com", state)
+
+    assert result.held and not result.allowed
+    assert "pack" in result.reason
+    assert "precleared.dev/#pricing" in result.reason
+    assert "add PRECLEARED_API_KEY" not in result.reason
+    # Nothing cached, so the next cycle asks again.
+    assert await state.get_setting(SETTINGS_PREFIX + "person@example.com") == ""
