@@ -39,7 +39,7 @@ _NON_RETRYABLE_PATTERNS = (
 )
 
 
-PROVIDER_LABELS = {"claude": "Claude", "codex": "Codex"}
+PROVIDER_LABELS = {"claude": "Claude", "codex": "Codex", "deepseek": "DeepSeek"}
 
 # Settings key holding the brain's last health transition, for `harvey
 # status` and the dashboard: {"provider", "status": "ok"|"paused", "reason",
@@ -88,6 +88,7 @@ class Brain:
         self.provider = self.config.provider
         self.model = self.config.model
         self.codex = None
+        self.deepseek = None
         # Codex health (unused for Claude, whose behaviour is unchanged).
         self.unavailable = ""
         self._unavailable_at = 0.0
@@ -101,6 +102,10 @@ class Brain:
                 model=self.model, reasoning_effort=self.config.reasoning_effort
             )
             self.quota = CodexQuotaClient(self.codex)
+        elif self.provider == "deepseek":
+            from harvey.deepseek import DeepSeekClient
+            self.deepseek = DeepSeekClient(model=self.model)
+            self.quota = None  # per-token API — no subscription quota to read
         else:
             # Lazy import avoids a cycle (quota -> usage -> state).
             from harvey.integrations.quota import QuotaClient
@@ -239,6 +244,11 @@ class Brain:
         """
         if self.provider == "codex":
             return await self._think_codex(
+                prompt, session_id=session_id, timeout=timeout,
+                max_retries=max_retries, agent=agent, task=task,
+            )
+        if self.provider == "deepseek":
+            return await self._think_deepseek(
                 prompt, session_id=session_id, timeout=timeout,
                 max_retries=max_retries, agent=agent, task=task,
             )
@@ -455,6 +465,76 @@ class Brain:
             num_turns=1,
             source="codex_app_server",
             provider="codex",
+            **result.usage,
+        )
+
+    async def _think_deepseek(
+        self,
+        prompt: str,
+        session_id: str | None,
+        timeout: float,
+        max_retries: int,
+        agent: str,
+        task: str,
+    ) -> str:
+        """One DeepSeek API call per attempt (see harvey/deepseek.py)."""
+        from harvey.deepseek import DeepSeekError
+
+        logger.debug(f"Brain call via DeepSeek (label={session_id})")
+        last_error = ""
+        for attempt in range(max_retries + 1):
+            if attempt > 0:
+                delay = RETRY_BASE_DELAY * (2 ** (attempt - 1))
+                logger.info(
+                    f"Retrying DeepSeek call in {delay:.0f}s "
+                    f"(attempt {attempt + 1}/{max_retries + 1})..."
+                )
+                await asyncio.sleep(delay)
+            try:
+                result = await self.deepseek.run(prompt, timeout=timeout)
+            except DeepSeekError as e:
+                last_error = str(e)
+                if e.retryable:
+                    logger.warning(f"DeepSeek call failed: {e}")
+                    continue
+                logger.error(f"DeepSeek call failed: {e}")
+                return ""
+            except Exception as e:
+                # CancelledError is not an Exception, so shutdown propagates.
+                logger.error(f"DeepSeek call failed unexpectedly ({type(e).__name__}).")
+                return ""
+
+            try:
+                await self.state.increment_usage(provider="deepseek")
+            except Exception as e:
+                logger.warning(f"Failed to record usage counter: {e}")
+            try:
+                await self._record_deepseek_usage(
+                    result, agent=agent, task=task, label=session_id or ""
+                )
+            except Exception as e:
+                logger.warning(f"Failed to record usage event: {e}")
+            return result.text
+
+        logger.error(
+            f"DeepSeek call failed after {max_retries + 1} attempts. "
+            f"Last error: {last_error[:200]}"
+        )
+        return ""
+
+    async def _record_deepseek_usage(self, result, agent: str, task: str, label: str):
+        """One usage row per DeepSeek call (per-token API)."""
+        if not agent and label.startswith("harvey-"):
+            agent = label[len("harvey-"):].split("-")[0]
+        await self.state.record_usage_event(
+            agent=agent,
+            task=task or label,
+            session_id="",
+            model=result.model,
+            duration_ms=result.duration_ms,
+            num_turns=1,
+            source="deepseek_api",
+            provider="deepseek",
             **result.usage,
         )
 

@@ -65,6 +65,15 @@ usage:
     end: "07:00"
     timezone: "America/New_York"
 
+# Which model subscription Harvey thinks with.
+#   claude   — Claude Code on your Claude Pro/Max plan (default)
+#   codex    — Codex on your ChatGPT plan (macOS/Linux only)
+#   deepseek — DeepSeek API (per-token; set DEEPSEEK_API_KEY in .env)
+brain:
+  provider: "claude"            # claude | codex | deepseek
+  model: ""                     # empty = provider default (deepseek: deepseek-chat)
+  reasoning_effort: ""          # codex only
+
 # Optional: check each new recipient with Precleared (precleared.dev) before
 # the first cold email: may cold marketing email go to this address under UK
 # PECR, US CAN-SPAM, Canada's CASL, Germany's UWG and France's rules? Any other
