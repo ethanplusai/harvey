@@ -32,6 +32,7 @@ dependencies = [
     "pytz>=2024.1",
     "fastapi>=0.115,<1",
     "uvicorn>=0.34,<1",
+    "mcp>=1.0.0,<2",
 ]
 
 [project.optional-dependencies]
@@ -47,6 +48,7 @@ Changelog = "https://github.com/ethanplusai/harvey/blob/main/CHANGELOG.md"
 
 [project.scripts]
 harvey = "harvey.cli:main"
+harvey-mcp = "harvey.mcp_server:main"
 
 [tool.setuptools.packages.find]
 include = ["harvey*"]
