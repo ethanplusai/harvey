@@ -353,7 +353,9 @@ async def test_existing_usage_rows_become_claude(tmp_path):
             await db.executescript(script)
         await db.execute("PRAGMA user_version = 10")
         await db.execute("INSERT INTO usage_events (id, model, output_tokens) VALUES ('a', 'm', 5)")
-        await db.execute("INSERT INTO usage_log (id, date, claude_calls) VALUES ('u', date('now'), 7)")
+        from datetime import date
+        today = date.today().isoformat()
+        await db.execute("INSERT INTO usage_log (id, date, claude_calls) VALUES ('u', ?, 7)", (today,))
         await db.commit()
 
     sm = StateManager(db_path)
@@ -362,9 +364,10 @@ async def test_existing_usage_rows_become_claude(tmp_path):
     assert [(r["provider"], r["output_tokens"]) for r in rows] == [("claude", 5)]
     assert await sm.get_usage_today("claude") == 7
     assert await sm.get_usage_today("codex") == 0
+    assert await sm.get_usage_today("antigravity") == 0
     summary = await sm.get_state_summary()
     assert summary["usage_today"] == 7
-    assert summary["usage_today_by_provider"] == {"claude": 7, "codex": 0}
+    assert summary["usage_today_by_provider"] == {"claude": 7, "codex": 0, "antigravity": 0}
     with pytest.raises(ValueError):
         await sm.record_usage_event(provider="gemini")
 

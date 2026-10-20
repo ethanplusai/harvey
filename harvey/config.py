@@ -259,8 +259,9 @@ class UsageConfig(BaseModel):
         return v
 
 
-BRAIN_PROVIDERS = ("claude", "codex")
+BRAIN_PROVIDERS = ("claude", "codex", "antigravity")
 CODEX_REASONING_EFFORTS = ("minimal", "low", "medium", "high", "xhigh")
+ANTIGRAVITY_REASONING_EFFORTS = ("low", "medium", "high", "xhigh", "max")
 
 # Model names are passed to a CLI, so they must look like a model name and
 # never like a flag ("-x") or anything a shell would treat specially.
@@ -271,14 +272,16 @@ class BrainConfig(BaseModel):
     """Which subscription Harvey thinks with.
 
     ``claude`` (default) runs Claude Code headless on your Claude plan.
-    ``codex`` runs Codex on your ChatGPT plan. There is never an automatic
-    fallback between them, and an explicit ``model`` only affects Harvey —
-    your own Claude Code / Codex settings are never read or changed.
+    ``codex`` runs Codex on your ChatGPT plan.
+    ``antigravity`` runs Antigravity CLI ('agy') on your Antigravity plan.
+    There is never an automatic fallback between them, and an explicit
+    ``model`` only affects Harvey — your own provider settings are never read
+    or changed.
     """
 
     provider: str = "claude"
     model: str = ""  # empty = the provider's own default
-    reasoning_effort: str = ""  # codex only; empty = model default
+    reasoning_effort: str = ""  # codex / antigravity; empty = model default
 
     @field_validator("provider", mode="before")
     @classmethod
@@ -299,16 +302,28 @@ class BrainConfig(BaseModel):
             raise ValueError(f"'{v}' is not a valid model name.")
         return v
 
-    @field_validator("reasoning_effort", mode="before")
-    @classmethod
-    def _valid_effort(cls, v) -> str:
-        v = str(v or "").strip().lower()
-        if v and v not in CODEX_REASONING_EFFORTS:
+    @model_validator(mode="after")
+    def _valid_effort(self) -> "BrainConfig":
+        v = (self.reasoning_effort or "").strip().lower()
+        self.reasoning_effort = v
+        if not v:
+            return self
+        if self.provider == "codex" and v not in CODEX_REASONING_EFFORTS:
+            raise ValueError(
+                f"'{v}' is not a valid reasoning effort for Codex. "
+                f"Use one of: {', '.join(CODEX_REASONING_EFFORTS)}."
+            )
+        if self.provider == "antigravity" and v not in ANTIGRAVITY_REASONING_EFFORTS:
+            raise ValueError(
+                f"'{v}' is not a valid reasoning effort for Antigravity. "
+                f"Use one of: {', '.join(ANTIGRAVITY_REASONING_EFFORTS)}."
+            )
+        if self.provider not in ("codex", "antigravity") and v not in CODEX_REASONING_EFFORTS:
             raise ValueError(
                 f"'{v}' is not a valid reasoning effort. "
                 f"Use one of: {', '.join(CODEX_REASONING_EFFORTS)}."
             )
-        return v
+        return self
 
 
 class WriterConfig(BaseModel):

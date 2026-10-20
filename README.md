@@ -1,10 +1,10 @@
 # Harvey
 
-**An autonomous sales agent that runs on your Claude Code or Codex subscription.**
+**An autonomous sales agent that runs on your Claude Code, Codex, or Antigravity subscription.**
 
 Harvey finds businesses worth selling to, learns something specific about each one, writes cold email that references it, sends it, reads the replies, and works the conversation toward a meeting. It runs on your machine, in a loop, on its own.
 
-The unusual part: **there is no model API bill.** Harvey uses your Claude Pro or Max subscription through Claude Code, or your ChatGPT subscription through Codex. Model calls use the plan you already pay for, without an API key or per-token API billing. Claude is the default; [Codex is an opt-in provider on macOS and Linux](#using-a-chatgpt-plan-instead-codex).
+The unusual part: **there is no model API bill.** Harvey uses your Claude Pro or Max subscription through Claude Code, your ChatGPT subscription through Codex, or your Antigravity subscription through the Antigravity CLI (`agy`). Model calls use the plan you already pay for, without an API key or per-token API billing. Claude is the default; [Codex](#using-a-chatgpt-plan-instead-codex) and [Antigravity](#using-an-antigravity-subscription-agy) are opt-in providers.
 
 ```
 $ harvey run
@@ -45,6 +45,7 @@ anything, and approving mail one message at a time:
 - [How the data is stored](#how-the-data-is-stored)
 - [Configuration](#configuration)
 - [Using a ChatGPT plan instead (Codex)](#using-a-chatgpt-plan-instead-codex)
+- [Using an Antigravity subscription (agy)](#using-an-antigravity-subscription-agy)
 - [Legal and deliverability](#legal-and-deliverability)
 - [Troubleshooting](#troubleshooting)
 - [Project structure](#project-structure)
@@ -67,7 +68,7 @@ Your selected subscription covers model calls, subject to its usage limits. That
 
 | | |
 |---|---|
-| Claude Pro/Max or a ChatGPT plan with Codex access | your existing subscription |
+| Claude Pro/Max, ChatGPT with Codex, or Antigravity | your existing subscription |
 | Finding businesses | **$0** on the default source, or ~$0.37 per 1,000 on the cheapest paid one |
 | Reading their websites | **$0** — three HTTP requests each, no model call |
 | Writing and sending | your subscription + a mailbox (~$7/mo Google Workspace) |
@@ -476,6 +477,26 @@ What to know:
 - **When Codex can't be used, Harvey pauses rather than guessing.** Before each heartbeat, Harvey checks everything a call needs except the prompt itself: the Codex CLI version, the isolation, your login (expired or due for renewal), your ChatGPT account, and that your configured model can run with no tools. No prompt is sent, so nothing is used from your plan beyond a quick account check. If something is wrong, the whole cycle is skipped: no reply is read or marked handled, nothing is drafted or sent. The log line, `harvey status`, and the dashboard's Actions card say "Codex paused" and why. If Codex stops working part-way through a cycle (for example the plan hits its usage limit), the reply being handled is left exactly as it was for a clean retry, not escalated, half-recorded or lost, and that cycle sends nothing. Fix the cause (usually `codex login`), and Harvey resumes on its next heartbeat: a renewed login or reinstalled CLI is noticed immediately, a usage-limit pause ends after an hour, and other fixes are picked up within 30 minutes. `harvey status --check` runs the same check on demand and exits non-zero if it fails. Brief failures (a crash or timeout) just skip one cycle. Harvey never falls back to Claude or an API key.
 - **Requirements.** **macOS or Linux**, Codex CLI **0.159.3** exactly, and Node.js for its npm package. **Windows isn't supported for Codex:** Harvey refuses it there before reading your login; use the Claude provider on Windows. Harvey checks the Codex version before every call and refuses any other version, including newer ones, because a different Codex can add tools Harvey's lockdown doesn't know about. Support for a new version comes with a Harvey update. Live use with a real ChatGPT account has been verified on macOS and ARM64 Linux. The offline suites also passed on x86-64 Linux under CPU emulation; CI covers Linux and macOS. The Docker image ships the Claude CLI only, so Codex isn't supported in Docker. To re-verify the lockdown offline against your installed CLI, with no credentials or network: `HARVEY_CODEX_CLI_TESTS=1 pytest tests/test_codex_cli_surface.py`.
 - **Overhead.** Each call checks the CLI version, starts Codex once without your login to verify its configuration, reads the model catalog, then starts it again to run the prompt; each heartbeat's check does the same without the prompt. That adds a few seconds per call, and one Brain's Codex calls run one at a time.
+
+---
+
+## Using an Antigravity subscription (agy)
+
+If you have an Antigravity subscription (e.g. Google One AI Premium, Gemini Advanced, or Google Workspace), Harvey can run through the Antigravity CLI (`agy`) in headless print mode.
+
+Set `brain.provider` in `harvey.yaml`:
+
+```yaml
+brain:
+  provider: antigravity
+  model: gemini-3.8-flash-high  # or claude-sonnet-4-6 (optional)
+  reasoning_effort: medium       # low | medium | high | xhigh | max (optional)
+```
+
+- **Requirements:** Install the `agy` CLI from [https://antigravity.google](https://antigravity.google) and authenticate once in your terminal.
+- **Zero tools & security:** Prompts are executed with `--disable-slash-commands` and tool execution omitted to protect against prompt injection from scraped web data or inbound emails.
+- **Long prompt handling:** Prompts exceeding argument length limits are passed cleanly through stdin (`--input-format text`).
+- **Quota & billing:** Model calls run on your Antigravity plan quota without per-token API charges.
 
 ---
 

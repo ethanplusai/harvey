@@ -77,8 +77,13 @@ def _check_codex_cli() -> bool:
     return shutil.which("codex") is not None
 
 
+def _check_agy_cli() -> bool:
+    """Check if Antigravity CLI is installed and accessible."""
+    return shutil.which("agy") is not None
+
+
 async def _test_claude(brain: Brain) -> bool:
-    """Test that the configured brain answers (Claude or Codex)."""
+    """Test that the configured brain answers (Claude, Codex, or Antigravity)."""
     response = await brain.think(
         "Respond with exactly: HARVEY_READY",
         session_id="harvey-setup-test",
@@ -89,10 +94,11 @@ async def _test_claude(brain: Brain) -> bool:
 def _ask_brain_config() -> BrainConfig:
     """Ask which subscription Harvey thinks with. Claude is the default."""
     _print_harvey("I think with an AI subscription you already pay for:")
-    print("    claude — your Claude plan, via Claude Code (default)")
-    print("    codex  — your ChatGPT plan, via the Codex CLI")
+    print("    claude      — your Claude plan, via Claude Code (default)")
+    print("    codex       — your ChatGPT plan, via the Codex CLI")
+    print("    antigravity — your Antigravity plan, via the Antigravity CLI ('agy')")
     while True:
-        provider = _ask("Which one? (claude/codex)", default="claude").lower()
+        provider = _ask("Which one? (claude/codex/antigravity)", default="claude").lower()
         if provider == "codex":
             from harvey.codex import CodexError, require_supported_platform
             try:
@@ -100,13 +106,16 @@ def _ask_brain_config() -> BrainConfig:
             except CodexError as e:
                 print(f"    ({e})")
                 continue
-        if provider in ("claude", "codex"):
+        if provider in ("claude", "codex", "antigravity"):
             break
-        print("    (type claude or codex)")
+        print("    (type claude, codex, or antigravity)")
     if provider == "codex":
         from harvey.codex import SUGGESTED_MODEL
         print(f"    {SUGGESTED_MODEL} is the Codex model Harvey has verified as text-only")
         print("    (no code-execution tools). Press Enter to use it, or type another.")
+    elif provider == "antigravity":
+        print("    gemini-3.8-flash-high is the default Antigravity model.")
+        print("    Press Enter to use it, or type another (e.g. claude-sonnet-4-6).")
     while True:
         if provider == "codex":
             model = _ask("Model", default=SUGGESTED_MODEL, required=False)
@@ -190,8 +199,36 @@ class SetupWizard:
         self.brain_config = _ask_brain_config()
         if self.brain_config.provider == "codex":
             await self._check_codex()
+        elif self.brain_config.provider == "antigravity":
+            await self._check_antigravity()
         else:
             await self._check_claude()
+
+    async def _check_antigravity(self):
+        # Check Antigravity CLI ('agy')
+        print("\n  Checking Antigravity CLI ('agy')...", end=" ")
+        if _check_agy_cli():
+            print("✓ Found")
+        else:
+            print("✗ Not found")
+            _print_harvey("I need the Antigravity CLI ('agy') to think. Install it from:")
+            print("         https://antigravity.google")
+            print("\n         After installing, authenticate via 'agy',")
+            print("         then re-run this setup.")
+            raise SystemExit(1)
+
+        # Test headless mode
+        print("  Testing Antigravity headless mode...", end=" ", flush=True)
+        state = StateManager()
+        brain = Brain(state, self.brain_config)
+        if await _test_claude(brain):
+            print("✓ Working")
+        else:
+            print("✗ Failed")
+            _print_harvey("Antigravity didn't respond to a test prompt.")
+            print("         Run 'agy' in your terminal to ensure you are logged in,")
+            print("         then re-run setup.")
+            raise SystemExit(1)
 
     async def _check_claude(self):
         # Check Claude CLI
@@ -661,10 +698,18 @@ class SetupWizard:
 """)
 
         # Show what's configured
+        if self.brain_config.provider == "codex":
+            brain_cli_name = "Codex CLI (ChatGPT plan)"
+            brain_cli_ok = _check_codex_cli()
+        elif self.brain_config.provider == "antigravity":
+            brain_cli_name = "Antigravity CLI ('agy')"
+            brain_cli_ok = _check_agy_cli()
+        else:
+            brain_cli_name = "Claude Code CLI"
+            brain_cli_ok = _check_claude_cli()
+
         checks = {
-            ("Codex CLI (ChatGPT plan)" if self.brain_config.provider == "codex"
-             else "Claude Code CLI"): (_check_codex_cli() if self.brain_config.provider == "codex"
-                                      else _check_claude_cli()),
+            brain_cli_name: brain_cli_ok,
             "Instantly API": bool(self.env_vars.get("INSTANTLY_API_KEY")),
             "LinkedIn": bool(self.env_vars.get("LINKEDIN_EMAIL")),
             "Cloudflare Crawl": bool(self.env_vars.get("CLOUDFLARE_ACCOUNT_ID")),

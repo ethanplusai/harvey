@@ -11,6 +11,7 @@ import asyncio
 import json
 import logging
 import re
+import shutil
 import time
 from pathlib import Path
 
@@ -33,12 +34,17 @@ KILL_REAP_SECONDS = 10.0  # waiting for a killed child on shutdown
 _NON_RETRYABLE_PATTERNS = (
     "not logged in",
     "please run `claude login`",
+    "please run `agy login`",
     "invalid api key",
     "unauthorized",
 )
 
 
-PROVIDER_LABELS = {"claude": "Claude", "codex": "Codex"}
+PROVIDER_LABELS = {
+    "claude": "Claude",
+    "codex": "Codex",
+    "antigravity": "Antigravity",
+}
 
 # Settings key holding the brain's last health transition, for `harvey
 # status` and the dashboard: {"provider", "status": "ok"|"paused", "reason",
@@ -119,19 +125,11 @@ class Brain:
         return ""
 
     async def preflight(self) -> str:
-        """Can this Brain be used right now? Returns "" or the reason not.
-
-        Codex only (Claude keeps its existing behaviour): runs the adapter's
-        full pre-prompt check (CodexClient.preflight): CLI version, route and
-        lockdown attested with no login in the runtime, the native login read
-        only (expiry, renewal), then with the access-only copy the configured
-        model against the catalog, the ChatGPT account, and a started
-        tool-less thread. No turn, so no inference; nothing is written to the
-        native login. While paused, the check is repeated only when the login
-        file or the Codex executable changes, or every
-        PROVIDER_RECHECK_SECONDS, so a persistent problem doesn't start
-        runtimes every heartbeat.
-        """
+        """Can this Brain be used right now? Returns "" or the reason not."""
+        if self.provider == "antigravity":
+            if not shutil.which("agy"):
+                return "Antigravity CLI ('agy') binary not found in PATH."
+            return ""
         if self.provider != "codex":
             return await self._claude_preflight()
         from harvey.codex import CodexError
@@ -259,6 +257,11 @@ class Brain:
         """
         if self.provider == "codex":
             return await self._think_codex(
+                prompt, session_id=session_id, timeout=timeout,
+                max_retries=max_retries, agent=agent, task=task,
+            )
+        if self.provider == "antigravity":
+            return await self._think_antigravity(
                 prompt, session_id=session_id, timeout=timeout,
                 max_retries=max_retries, agent=agent, task=task,
             )
@@ -483,6 +486,169 @@ class Brain:
             source="codex_app_server",
             provider="codex",
             **result.usage,
+        )
+
+    async def _think_antigravity(
+        self,
+        prompt: str,
+        session_id: str | None,
+        timeout: float,
+        max_retries: int,
+        agent: str,
+        task: str,
+    ) -> str:
+        """Send a prompt to the Antigravity CLI ('agy') in headless print mode."""
+        prompt_via_stdin = len(prompt) > _MAX_ARGV_PROMPT_CHARS
+        cmd = ["agy", "-p"]
+        if not prompt_via_stdin:
+            cmd.append(prompt)
+        cmd += [
+            "--output-format", "json",
+            "--disable-slash-commands",
+        ]
+        if prompt_via_stdin:
+            cmd += ["--input-format", "text"]
+        if self.model:
+            cmd += ["--model", self.model]
+        if self.config.reasoning_effort:
+            cmd += ["--effort", self.config.reasoning_effort]
+
+        logger.debug(f"Brain call via Antigravity: {prompt[:100]}...")
+
+        last_error = ""
+        for attempt in range(max_retries + 1):
+            if attempt > 0:
+                delay = RETRY_BASE_DELAY * (2 ** (attempt - 1))
+                logger.info(
+                    f"Retrying Antigravity call in {delay:.0f}s "
+                    f"(attempt {attempt + 1}/{max_retries + 1})..."
+                )
+                await asyncio.sleep(delay)
+
+            process = None
+            try:
+                process = await asyncio.create_subprocess_exec(
+                    *cmd,
+                    stdin=(asyncio.subprocess.PIPE if prompt_via_stdin
+                           else asyncio.subprocess.DEVNULL),
+                    stdout=asyncio.subprocess.PIPE,
+                    stderr=asyncio.subprocess.PIPE,
+                )
+                try:
+                    stdout, stderr = await asyncio.wait_for(
+                        process.communicate(
+                            prompt.encode("utf-8") if prompt_via_stdin else None
+                        ),
+                        timeout=timeout,
+                    )
+                except asyncio.TimeoutError:
+                    logger.error(
+                        f"Antigravity call timed out after {timeout:.0f}s. Killing process."
+                    )
+                    try:
+                        process.kill()
+                        await process.wait()
+                    except ProcessLookupError:
+                        pass
+                    last_error = "timeout"
+                    continue
+
+                if process.returncode != 0:
+                    error = stderr.decode(errors="replace").strip()
+                    logger.error(
+                        f"Antigravity exited with code {process.returncode}: {error[:300]}"
+                    )
+                    last_error = error
+                    if any(p in error.lower() for p in _NON_RETRYABLE_PATTERNS):
+                        logger.error(
+                            "Non-retryable Antigravity auth error. "
+                            "Log in with `agy` and restart Harvey."
+                        )
+                        return ""
+                    continue
+
+                raw = stdout.decode(errors="replace").strip()
+                response, payload = self._parse_antigravity_payload(raw)
+
+                try:
+                    await self.state.increment_usage(provider="antigravity")
+                except Exception as e:
+                    logger.warning(f"Failed to record usage counter: {e}")
+                try:
+                    await self._record_antigravity_usage(
+                        payload, agent=agent, task=task, label=session_id or ""
+                    )
+                except Exception as e:
+                    logger.warning(f"Failed to record usage event: {e}")
+
+                logger.debug(f"Antigravity response: {response[:200]}...")
+                return response
+
+            except FileNotFoundError:
+                logger.error(
+                    "Antigravity CLI ('agy') not found. Install it: https://antigravity.google"
+                )
+                return ""
+            except asyncio.CancelledError:
+                if process is not None:
+                    try:
+                        process.kill()
+                    except ProcessLookupError:
+                        pass
+                raise
+            except Exception as e:
+                logger.error(f"Antigravity brain error: {e}")
+                last_error = str(e)
+                continue
+
+        logger.error(
+            f"Antigravity call failed after {max_retries + 1} attempts. "
+            f"Last error: {str(last_error)[:200]}"
+        )
+        return ""
+
+    @staticmethod
+    def _parse_antigravity_payload(raw: str) -> tuple[str, dict | None]:
+        """Split agy JSON output into (response_text, result_payload)."""
+        try:
+            payload = json.loads(raw)
+        except json.JSONDecodeError:
+            return raw, None
+        if not isinstance(payload, dict):
+            return raw, None
+        response_text = str(payload.get("response") or payload.get("result") or "")
+        return response_text, payload
+
+    async def _record_antigravity_usage(
+        self, payload: dict | None, agent: str, task: str, label: str
+    ):
+        """Write per-model usage rows from an Antigravity result payload."""
+        if not payload:
+            return
+        if not agent and label.startswith("harvey-"):
+            agent = label[len("harvey-"):].split("-")[0]
+
+        session = str(payload.get("conversation_id") or "")
+        duration_ms = int(float(payload.get("duration_seconds") or 0) * 1000)
+        num_turns = int(payload.get("num_turns") or 1)
+        is_error = payload.get("status") != "SUCCESS"
+        usage = payload.get("usage") or {}
+
+        await self.state.record_usage_event(
+            agent=agent,
+            task=task or label,
+            session_id=session,
+            duration_ms=duration_ms,
+            num_turns=num_turns,
+            is_error=is_error,
+            source="agy_print",
+            provider="antigravity",
+            model=self.model or "gemini-3.8-flash-high",
+            input_tokens=int(usage.get("input_tokens") or 0),
+            output_tokens=int(usage.get("output_tokens") or 0),
+            cache_read_tokens=int(usage.get("cache_read_tokens") or 0),
+            cache_creation_tokens=0,
+            cost_usd=0.0,
         )
 
     @staticmethod
