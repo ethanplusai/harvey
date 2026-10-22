@@ -9,6 +9,12 @@ minor versions can still change behaviour.
 
 ### Added
 
+- **German dashboard.** Settings → Language switches the dashboard between
+  English and German (stored per browser, like the theme). Every string in the
+  dashboard, including texts the API builds (Today items, setup checks, signal
+  catalog, discovery sources), goes through one dictionary,
+  `harvey/web/i18n/de.json`, keyed by the English text; anything missing falls
+  back to English. Emails, prompts and the CLI are unchanged.
 - **`harvey warmup [domain]`**: checks whether a sending domain is ready for
   cold email. It covers MX, SPF (`+all`, duplicates, top-level lookups), DKIM,
   DMARC, domain age, domain and SMTP-IP blocklists (a list that refuses the

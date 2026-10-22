@@ -597,8 +597,10 @@ def _render_js(func: str, data, helpers=("escHtml", "formatDate")) -> str:
     node = shutil.which("node")
     if not node:
         pytest.skip("node is not installed")
-    source = (Path(dash.__file__).parent / "web" / "app.js").read_text()
-    funcs = []
+    web = Path(dash.__file__).parent / "web"
+    source = (web / "app.js").read_text()
+    # t() and locale() come from i18n.js, loaded before app.js on the page.
+    funcs = [(web / "i18n.js").read_text()]
     for name in (*helpers, func):
         match = re.search(rf"^function {name}\(.*?^}}\n", source, re.S | re.M)
         assert match, name
