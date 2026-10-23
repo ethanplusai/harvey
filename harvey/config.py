@@ -140,6 +140,63 @@ class WarmupConfig(BaseModel):
         return min(ceiling, self.start_sends + (days - self.min_days) * self.daily_increase)
 
 
+class SendWindowConfig(BaseModel):
+    """When cold email may go out, in each recipient's local time.
+
+    Off unless ``channels.email.send_window`` is set. A cold email goes out
+    only between ``start`` and ``end`` (on weekdays, with ``weekdays_only``)
+    in the recipient's own time zone, worked out from what Harvey knows
+    about them (see harvey/send_window.py). Recipients whose zone can't be
+    told get the window in ``usage.quiet_hours.timezone``; so does everyone
+    with ``recipient_timezone: false``. Follow-ups keep their delay_days and
+    move into the window. Replies are never held.
+    """
+
+    start: str = "08:00"
+    end: str = "17:00"
+    weekdays_only: bool = True
+    recipient_timezone: bool = True
+
+    @field_validator("start", "end", mode="before")
+    @classmethod
+    def _valid_clock(cls, v, info):
+        if v is None:
+            return cls.model_fields[info.field_name].default
+        # YAML 1.1 reads an unquoted 17:00 as the number 1020 (base 60).
+        if isinstance(v, int) and not isinstance(v, bool) and 0 <= v < 24 * 60:
+            v = f"{v // 60:02d}:{v % 60:02d}"
+        v = str(v).strip()
+        try:
+            _time.fromisoformat(v)
+        except ValueError:
+            raise ValueError(
+                f"send_window time '{v}' is not valid. Use 24h HH:MM, e.g. '08:00'."
+            )
+        return v
+
+    @model_validator(mode="after")
+    def _start_before_end(self):
+        if _time.fromisoformat(self.start) >= _time.fromisoformat(self.end):
+            raise ValueError(
+                "send_window.start must be earlier than send_window.end "
+                "(a send window can't run past midnight)."
+            )
+        return self
+
+
+def send_window_of(config) -> "SendWindowConfig | None":
+    """The configured send window, or None when there isn't one."""
+    email = getattr(getattr(config, "channels", None), "email", None)
+    window = getattr(email, "send_window", None)
+    return window if isinstance(window, SendWindowConfig) else None
+
+
+def operator_timezone(config) -> str:
+    """usage.quiet_hours.timezone: the zone Harvey itself runs on."""
+    quiet = getattr(getattr(config, "usage", None), "quiet_hours", None)
+    return getattr(quiet, "timezone", "") or "UTC"
+
+
 class EmailChannelConfig(BaseModel):
     enabled: bool = True
     # "instantly" (legacy), "gmail" (Gmail/Workspace via API — recommended),
@@ -161,6 +218,10 @@ class EmailChannelConfig(BaseModel):
     # New domain? Ramp cold email up slowly (see WarmupConfig). Native
     # providers only: Instantly has its own warmup and per-account limits.
     warmup: WarmupConfig = WarmupConfig()
+    # Send cold email only in office hours, in each recipient's own time
+    # zone (see SendWindowConfig). None: no window, as before. Native
+    # providers only; Instantly schedules its own sends.
+    send_window: SendWindowConfig | None = None
 
     @field_validator("warmup", mode="before")
     @classmethod

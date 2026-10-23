@@ -34,6 +34,8 @@ class Prospect(BaseModel):
     status: str = "new"        # new/contacted/replied/meeting/closed/lost
     score: int = 0
     personalization_notes: str = ""
+    # IANA time zone for the send window ("Europe/Oslo"), once known.
+    timezone: str = ""
     # legacy fields kept for backwards compat with existing code
     company: str = ""
     industry: str = ""

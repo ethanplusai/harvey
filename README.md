@@ -335,6 +335,8 @@ Before anything leaves, a **deterministic pre-send gate** — no model involved 
 
 Optionally, the same step can ask [Precleared](https://precleared.dev) whether cold email to each new address is allowed before the first one goes out. See [Legal and deliverability](#legal-and-deliverability).
 
+**Office hours in the recipient's time zone.** Set `channels.email.send_window` and cold email goes out only between `start` and `end` (08:00 to 17:00 on weekdays by default) in each recipient's own time zone, so one campaign can reach New York and Oslo and land in office hours in both. Harvey works the zone out once, from the company's location (a US state, a Canadian province, an Australian state or a country with one time zone, plus the coordinates discovery already cached for that place), from the country Precleared finds when that check is on, or from `prospect_country`. Anyone it can't place gets the window in `usage.quiet_hours.timezone`. Follow-ups keep their delay and move into the window, an email approved after hours waits for the next one, and replies are never held. Quiet hours then pause prospecting and writing but not mail that's due: a heartbeat with something to send reads replies first, then sends it. Gmail, Microsoft and SMTP only.
+
 When you trust it, set `channels.email.require_approval: false` for full autopilot.
 
 **Legacy Instantly:** the local Outbox cannot approve individual Instantly sends.
@@ -431,7 +433,7 @@ product:      { name, description, pricing, key_benefits, objection_responses, o
 icp:          { industries, titles, company_size, geography, hiring_signals, geo_coordinates }
 channels:
   email:      { provider: gmail | microsoft | smtp | instantly, max_daily_sends, require_approval,
-                send_to_risky, max_bounce_rate }
+                send_to_risky, max_bounce_rate, warmup, send_window }
 usage:        { max_daily_claude_percent, heartbeat_interval_minutes, quiet_hours }
 brain:        { provider: claude | codex, model, reasoning_effort }   # optional; claude by default
 writer:       { humanizer }   # optional; true adds one editing pass per batch using ~/.claude/skills/humanizer/SKILL.md

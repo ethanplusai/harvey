@@ -76,6 +76,9 @@ class Clearance:
     verdict: str = ""
     reason: str = ""
     receipt_id: str = ""
+    # The recipient's country as Precleared worked it out ("GB"), or "".
+    # The send window uses it when nothing else tells the recipient's zone.
+    country: str = ""
 
 
 class PreclearedClient:
@@ -152,6 +155,7 @@ class PreclearedClient:
                 "verdict": result.verdict,
                 "reason": result.reason,
                 "receipt_id": result.receipt_id,
+                "country": result.country,
                 "checked_at": _utcnow().isoformat(),
                 "inputs": inputs,
             }))
@@ -228,14 +232,24 @@ class PreclearedClient:
 
         receipt = data.get("receipt")
         receipt_id = _text(receipt.get("id")) if isinstance(receipt, dict) else ""
+        facts = data.get("facts")
+        country = _country(facts.get("recipient_country")) if isinstance(facts, dict) else ""
         if verdict == "ok_to_email":
-            return Clearance(allowed=True, verdict=verdict, receipt_id=receipt_id)
+            return Clearance(allowed=True, verdict=verdict, receipt_id=receipt_id,
+                             country=country)
         return Clearance(
             allowed=False,
             verdict=verdict,
             reason=_reason(data),
             receipt_id=receipt_id,
+            country=country,
         )
+
+
+def _country(value) -> str:
+    """A two-letter country code from Precleared's facts, or ""."""
+    code = value.strip().upper() if isinstance(value, str) else ""
+    return code if len(code) == 2 and code.isascii() and code.isalpha() else ""
 
 
 def _text(value) -> str:
@@ -353,6 +367,7 @@ def _from_cache(raw: str, inputs: str) -> Clearance | None:
         verdict=verdict,
         reason=_text(data.get("reason")),
         receipt_id=_text(data.get("receipt_id")),
+        country=_country(data.get("country")),
     )
 
 

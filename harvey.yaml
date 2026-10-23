@@ -63,6 +63,17 @@ channels:
       start_sends: 5
       daily_increase: 3
       dkim_selector: ""         # only if your provider uses an unusual one
+    # Send cold email only in office hours in each recipient's own time zone,
+    # worked out from the company's location or the country Precleared finds.
+    # Anyone Harvey can't place gets the window in usage.quiet_hours.timezone.
+    # Follow-ups move into the window; replies are never held. Quiet hours
+    # then stop prospecting and writing, not mail that's due.
+    # Gmail/Microsoft/SMTP only. Remove the # marks to switch it on.
+    # send_window:
+    #   start: "08:00"
+    #   end: "17:00"
+    #   weekdays_only: true
+    #   recipient_timezone: true  # false: one zone for everyone (quiet_hours.timezone)
   linkedin:
     enabled: false             # explicit opt-in; credentials alone do not enable it
     max_daily_connections: 20

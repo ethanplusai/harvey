@@ -4,15 +4,16 @@ import asyncio
 import logging
 import signal
 import sys
-from datetime import datetime, time, timedelta
+from datetime import datetime, time, timedelta, timezone
 
 import pytz
 
 from harvey.brain import Brain
 from harvey.config import (
     ConfigError, load_config, load_env, HarveyConfig, legacy_sending_held, sending_notice,
-    compliance_notice,
+    compliance_notice, send_window_of,
 )
+from harvey.integrations.mail_provider import NATIVE_PROVIDERS
 from harvey.pipeline import run_profile_stage
 from harvey.state import StateManager
 
@@ -45,6 +46,11 @@ QUIET_HOURS_POLL_SECONDS = 300
 REPLY_READERS = ("handle_replies", "read_replies")
 
 
+def _utc_iso() -> str:
+    """Naive UTC now in ISO form, as the outbox stores send_at."""
+    return datetime.now(timezone.utc).replace(tzinfo=None).isoformat()
+
+
 def in_quiet_hours(config: HarveyConfig) -> bool:
     """Check if we're currently in quiet hours."""
     qh = config.usage.quiet_hours
@@ -58,6 +64,22 @@ def in_quiet_hours(config: HarveyConfig) -> bool:
     else:
         # Quiet hours cross midnight (e.g., 22:00 - 07:00)
         return now >= start or now <= end
+
+
+def sends_through_quiet_hours(config: HarveyConfig) -> bool:
+    """True when quiet hours pause Harvey's own work but not due emails.
+
+    With a send window in each recipient's time zone, the operator's night
+    can be a recipient's morning. Prospecting and writing still sleep, but
+    a heartbeat with an email due reads and handles replies first (so
+    stop-on-reply has run; reading a reply is what consumes it, so it can't
+    be left for the morning) and then sends what's due. With nothing due,
+    it does nothing. Native mail providers only.
+    """
+    email = config.channels.email
+    window = send_window_of(config)
+    return bool(window is not None and window.recipient_timezone
+                and email.enabled and email.provider in NATIVE_PROVIDERS)
 
 
 def seconds_until_quiet_hours_end(config: HarveyConfig) -> int:
@@ -249,8 +271,12 @@ async def heartbeat(stop_event: asyncio.Event | None = None):
 
     while not stop_event.is_set():
         try:
-            # 1. Check quiet hours
-            if in_quiet_hours(config):
+            # 1. Check quiet hours. With send windows in recipients' own time
+            # zones, quiet hours only stop prospecting and writing: a cycle
+            # still reads replies and sends what's due (sends_through_quiet_hours).
+            quiet = in_quiet_hours(config)
+            send_only = quiet and sender.is_native and sends_through_quiet_hours(config)
+            if quiet and not send_only:
                 sleep_for = seconds_until_quiet_hours_end(config)
                 logger.info(f"Quiet hours. Sleeping for {sleep_for // 60} minutes.")
                 # Sleep in short polled chunks rather than one multi-hour
@@ -267,6 +293,16 @@ async def heartbeat(stop_event: asyncio.Event | None = None):
                         shutting_down = True
                         break
                 if shutting_down:
+                    break
+                continue
+            if send_only and not await state.get_outbox(
+                    status="approved", due_before=_utc_iso(), limit=1,
+                    skip_unready_follow_ups=True):
+                logger.info(
+                    f"Quiet hours. Nothing due to send; checking again in "
+                    f"{config.usage.heartbeat_interval_minutes} minutes."
+                )
+                if await _interruptible_sleep(interval, stop_event):
                     break
                 continue
 
@@ -298,10 +334,16 @@ async def heartbeat(stop_event: asyncio.Event | None = None):
                     break
                 continue
 
-            # 4. Decide what to do
-            logger.info("Checking pipeline state...")
-            summary = await state.get_state_summary()
-            action = await decide_next_action(brain, state, config, summary=summary)
+            # 4. Decide what to do (in quiet hours: only read replies and send)
+            if send_only:
+                logger.info("Quiet hours: reading replies, then sending what's due "
+                            "in recipients' own time zones.")
+                summary = {}
+                action = "quiet_hours_send"
+            else:
+                logger.info("Checking pipeline state...")
+                summary = await state.get_state_summary()
+                action = await decide_next_action(brain, state, config, summary=summary)
 
             # 5. Execute — run independent agents in parallel where possible
             # Handler is always safe to run alongside other agents

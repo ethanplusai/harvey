@@ -435,6 +435,12 @@ MIGRATIONS: list[str] = [
     -- so one subscription's budget never consumes the other's.
     ALTER TABLE usage_log ADD COLUMN codex_calls INTEGER DEFAULT 0;
     """,
+    # ── v12: each recipient's time zone, for the send window ──
+    """
+    -- An IANA name such as 'Europe/Oslo', worked out once from what Harvey
+    -- knows about the recipient. Empty until then.
+    ALTER TABLE prospects ADD COLUMN timezone TEXT DEFAULT '';
+    """,
 ]
 
 BRAIN_PROVIDERS = ("claude", "codex")
@@ -668,6 +674,7 @@ class StateManager:
         d["email_verified"] = bool(d.get("email_verified", 0))
         d["phone_verified"] = bool(d.get("phone_verified", 0))
         d["email_status"] = d.get("email_status") or ""
+        d["timezone"] = d.get("timezone") or ""
         return Prospect(**d)
 
     async def add_prospect(self, prospect: Prospect) -> str:
@@ -739,6 +746,15 @@ class StateManager:
             ) as cursor:
                 rows = await cursor.fetchall()
                 return [self._prospect_from_row(r) for r in rows]
+
+    async def set_prospect_timezone(self, prospect_id: str, zone: str):
+        """Remember a recipient's time zone. Leaves updated_at alone: it
+        isn't a change anyone made to the prospect."""
+        async with self._connect() as db:
+            await db.execute(
+                "UPDATE prospects SET timezone = ? WHERE id = ?", (zone, prospect_id)
+            )
+            await db.commit()
 
     async def update_prospect_status(self, prospect_id: str, status: str):
         async with self._connect() as db:
