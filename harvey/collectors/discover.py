@@ -23,6 +23,7 @@ already learned.
 import asyncio
 import base64
 import logging
+import math
 import re
 from html import unescape
 from dataclasses import dataclass, field
@@ -719,12 +720,213 @@ class OpenStreetMap(DiscoveryProvider):
         return out
 
 
+class ScavioProvider(DiscoveryProvider):
+    """Shared plumbing for the two Scavio adapters: one key, one credit price.
+
+    Scavio bills 1 credit per page. A page that fails after earlier pages
+    succeeded ends the query with what it already has, the same rule the run
+    loop applies between queries. A failure on the first page raises:
+    returning [] would make an expired key look like an empty market.
+    """
+
+    signup_url = "https://scavio.dev"
+    env_keys = ("scavio_api_key",)
+    free_tier = "50 credits on signup, no card"
+
+    API = "https://api.scavio.dev/api/v2/google"
+    # Entry plan: $30 for 7,000 credits. Larger plans cost less per credit,
+    # so estimates at this rate run high, never low.
+    CREDIT_PRICE = 30 / 7000
+
+    async def _post(self, client, env, path: str, body: dict) -> dict:
+        r = await client.post(
+            f"{self.API}{path}",
+            headers={"Authorization": f"Bearer {env['scavio_api_key']}",
+                     "Content-Type": "application/json"},
+            json=body,
+        )
+        if r.status_code >= 400:
+            # The body says what is wrong (bad key, out of credits, bad
+            # parameter); a bare status code does not.
+            try:
+                err = r.json().get("error")
+            except ValueError:
+                err = None
+            if isinstance(err, dict):
+                err = err.get("message")
+            raise RuntimeError(f"Scavio {r.status_code}: {err or r.text[:200]}")
+        data = r.json()
+        self.last_cost += float(data.get("credits_used", 1) or 0) * self.CREDIT_PRICE
+        return data
+
+    async def _pages(self, client, env, query, path: str, body: dict,
+                     results_key: str, page_size: int, pages: int
+                     ) -> list[tuple[int, dict]]:
+        """Every result as (offset of its page, item), page by page."""
+        rows: list[tuple[int, dict]] = []
+        for page in range(pages):
+            start = page * page_size
+            try:
+                data = await self._post(client, env, path, dict(body, start=start))
+            except Exception as e:
+                if not rows:
+                    raise
+                logger.warning("%s: page %d of %r failed, keeping %d results: %s",
+                               self.key, page + 1, query.keyword(), len(rows), e)
+                break
+            items = data.get(results_key) or []
+            rows.extend((start, item) for item in items if isinstance(item, dict))
+            if self._last_page(data, items, page_size):
+                break
+        return rows
+
+    def _last_page(self, data: dict, items: list, page_size: int) -> bool:
+        return len(items) < page_size
+
+
+class ScavioMaps(ScavioProvider):
+    """Google Maps listings, the source issue #28 asked for.
+
+    Every place Google Maps shows for a search around a point, with phone,
+    website, category, rating and review count. Businesses with no website
+    are kept, like the other listings providers.
+    """
+
+    key = "scavio_maps"
+    label = "Scavio Google Maps"
+    kind = "listings"
+    blurb = ("Google Maps results around each city: phone, website, category, "
+             "rating and review count for every place. Up to 120 businesses "
+             "per search.")
+    cost_note = ("1 credit per 20 businesses: about $0.21 per 1,000 on the $30 "
+                 "plan (7,000 credits)")
+    caveat = ("Google Maps does not say whether a listing is claimed, so the "
+              "unclaimed-listing signal stays empty. Same key as Scavio Google "
+              "Search.")
+
+    PAGE_SIZE = 20
+    MAX_PAGES = 6        # the API accepts start up to 100
+
+    def _page_count(self, query: DiscoveryQuery) -> int:
+        return max(1, min(self.MAX_PAGES, -(-query.limit // self.PAGE_SIZE)))
+
+    def estimate(self, queries):
+        return sum(self.CREDIT_PRICE * self._page_count(q) for q in queries)
+
+    @staticmethod
+    def map_center(coordinate: str) -> str:
+        """"39.7392,-104.9903,40" -> "@39.7392,-104.9903,10z".
+
+        Google Maps takes a center and a zoom, not a radius. A zoom-z view
+        spans roughly 40,000 km / 2^z, so a 40 km radius is zoom 10 (one
+        metro area) and 5 km is zoom 13.
+        """
+        parts = [p.strip() for p in coordinate.split(",")]
+        if len(parts) < 2 or not all(parts[:2]):
+            return ""
+        try:
+            radius_km = float(parts[2]) if len(parts) > 2 and parts[2] else 40.0
+        except ValueError:
+            radius_km = 40.0
+        zoom = round(math.log2(40000 / max(radius_km, 0.5)))
+        return f"@{parts[0]},{parts[1]},{max(3, min(zoom, 16))}z"
+
+    async def fetch(self, client, env, query):
+        # The map center picks the area, as it does in the Maps app. Without
+        # one the API falls back to a default city for the country, so the
+        # place name has to ride in the query instead.
+        center = self.map_center(query.coordinate) if query.coordinate else ""
+        body = {"query": query.term, "ll": center} if center else {"query": query.keyword()}
+
+        out = []
+        for _, item in await self._pages(
+                client, env, query, "/maps/search", body, "local_results",
+                self.PAGE_SIZE, self._page_count(query)):
+            name = item.get("title") or ""
+            if not name:
+                continue
+            site = item.get("website") or ""
+            place_id = item.get("place_id") or ""
+            out.append(Business(
+                name=name,
+                domain=normalize_domain(site),
+                website=site,
+                phone=item.get("phone") or "",
+                address=item.get("address") or "",
+                location=query.location,
+                category=item.get("type") or "",
+                rating=item.get("rating"),
+                review_count=item.get("reviews"),
+                has_website=bool(site),
+                # A Maps list position is not an organic rank, so rank stays
+                # None and no SERP_RANK is recorded for it.
+                external_id=f"gmaps:{place_id}" if place_id else "",
+                source_url=(f"https://www.google.com/maps/place/?q=place_id:{place_id}"
+                            if place_id else site),
+                provider=self.key,
+            ))
+        return out
+
+
+class ScavioSearch(ScavioProvider):
+    """Google organic results with rank, from the same key as Scavio Maps."""
+
+    key = "scavio_search"
+    label = "Scavio Google Search"
+    kind = "serp"
+    blurb = ("Google organic results with rank positions. One Scavio key "
+             "covers this and Google Maps listings.")
+    cost_note = ("1 credit per 10 results: depth 30 is 3 credits, about $0.013 "
+                 "a search on the $30 plan (7,000 credits)")
+    caveat = ("Results come from google.com in English (US) unless the search "
+              "names another place. Depth 20-30 is the sweet spot.")
+
+    PAGE_SIZE = 10
+
+    def estimate(self, queries):
+        return sum(self.CREDIT_PRICE * max(1, -(-q.depth // self.PAGE_SIZE))
+                   for q in queries)
+
+    def _last_page(self, data, items, page_size):
+        # Google often shows fewer than 10 organic results on a page (a local
+        # pack or videos take the space), so a short page is not the end.
+        # The end is when Google offers no next page.
+        return not items or not (data.get("pagination") or {}).get("next")
+
+    async def fetch(self, client, env, query):
+        out = []
+        for start, item in await self._pages(
+                client, env, query, "", {"query": query.keyword()},
+                "organic_results", self.PAGE_SIZE,
+                max(1, -(-query.depth // self.PAGE_SIZE))):
+            domain = normalize_domain(item.get("link") or "")
+            if not domain:
+                continue
+            position = item.get("position")
+            out.append(Business(
+                name=business_name(item.get("title") or "", domain),
+                raw_title=item.get("title") or "",
+                domain=domain,
+                website=item.get("link") or "",
+                location=query.location,
+                # `position` restarts at 1 on every page, so page 2's first
+                # result is rank 11, not rank 1.
+                rank=start + position if isinstance(position, int) else None,
+                has_website=True,
+                source_url=item.get("link") or "",
+                provider=self.key,
+            ))
+        return out
+
+
 PROVIDERS: dict[str, DiscoveryProvider] = {
     p.key: p for p in (
         OpenStreetMap(),
         DataForSEOListings(),
         DataForSEOSerp(),
         Serper(),
+        ScavioMaps(),
+        ScavioSearch(),
     )
 }
 

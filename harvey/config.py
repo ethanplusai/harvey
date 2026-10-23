@@ -510,6 +510,7 @@ class EnvConfig(BaseModel):
     linkedin_password: str = ""
     hunter_api_key: str = ""
     serper_api_key: str = ""
+    scavio_api_key: str = ""
     reoon_api_key: str = ""
     zerobounce_api_key: str = ""
     # Native mail providers (channels.email.provider: gmail | smtp)
@@ -624,6 +625,7 @@ def load_env() -> EnvConfig:
         linkedin_password=os.getenv("LINKEDIN_PASSWORD", "").strip(),
         hunter_api_key=os.getenv("HUNTER_API_KEY", "").strip(),
         serper_api_key=os.getenv("SERPER_API_KEY", "").strip(),
+        scavio_api_key=os.getenv("SCAVIO_API_KEY", "").strip(),
         reoon_api_key=os.getenv("REOON_API_KEY", "").strip(),
         zerobounce_api_key=os.getenv("ZEROBOUNCE_API_KEY", "").strip(),
         gmail_client_id=os.getenv("GMAIL_CLIENT_ID", "").strip(),
