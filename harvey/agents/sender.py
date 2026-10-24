@@ -24,7 +24,7 @@ from harvey.config import (
 from harvey.gate import autopilot_review, pre_send_check
 from harvey.integrations.instantly import InstantlyClient
 from harvey.integrations.mail_provider import NATIVE_PROVIDERS, get_mail_provider
-from harvey.integrations.precleared import PreclearedClient
+from harvey.integrations.precleared import PreclearedClient, clear_hold, record_hold
 from harvey.sending_mode import sync_sending_mode
 from harvey.state import (
     AUTOPILOT_OFF_REASON, HAND_SENT_REASON, HELD_FOR_REVIEW, MANUAL_SEND_KEY,
@@ -642,6 +642,12 @@ class Sender:
         # cold emails wait for a later cycle, replies still go out.
         compliance_paused = False
         held_cold = 0
+        # For the Today page and `harvey status`: what held cold email this
+        # cycle, how many waited behind it, and whether a fresh call was
+        # answered (which clears an earlier hold).
+        hold = None
+        waiting_on_check = 0
+        answered = False
         for item in due:
             if sent >= budget:
                 break
@@ -650,6 +656,7 @@ class Sender:
                 continue
             needs_check = self.precleared is not None and item["kind"] == "sequence"
             if needs_check and compliance_paused:
+                waiting_on_check += 1
                 continue
 
             prospect = await self.state.get_prospect(item["prospect_id"])
@@ -672,11 +679,15 @@ class Sender:
                 clearance = await self.precleared.clear(item["to_email"], self.state)
                 if clearance.held:
                     compliance_paused = True
+                    hold = clearance
+                    waiting_on_check += 1
                     logger.warning(
                         f"Sender: compliance check unavailable, holding cold "
                         f"email until a later cycle: {clearance.reason}"
                     )
                     continue
+                if not clearance.cached:
+                    answered = True
                 if not clearance.allowed:
                     await self.state.update_outbox_item(
                         item["id"], status="failed",
@@ -772,6 +783,11 @@ class Sender:
             if self.send_pacing and sent < budget:
                 await asyncio.sleep(random.uniform(*SEND_JITTER_SECONDS))
 
+        if self.precleared is not None:
+            if hold is not None:
+                await record_hold(self.state, hold, waiting_on_check)
+            elif answered:
+                await clear_hold(self.state)
         if held_cold:
             warmup = getattr(self.config.channels.email, "warmup", None)
             days = warmup.days_in() if warmup is not None else None

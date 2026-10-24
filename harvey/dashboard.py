@@ -1972,6 +1972,19 @@ async def get_today():
                 "action": "Review and resume", "tab": "outbox",
             })
 
+        # Cold email waiting on the optional Precleared check: its free
+        # checks ran out, the key was rejected, or it couldn't be reached.
+        from harvey.integrations.precleared import current_hold, hold_message
+        precleared_hold = await current_hold(state)
+        if precleared_hold:
+            message = hold_message(precleared_hold)
+            items.append({
+                "key": "precleared-hold", "tone": message["tone"],
+                "title": message["title"], "detail": message["detail"],
+                "action": "Open the log", "tab": "controls",
+                "url": message["url"], "url_label": message["url_label"],
+            })
+
         setup = await get_setup_status()
         if isinstance(setup, dict) and setup.get("percent", 100) < 100:
             missing = [c["label"] for c in setup.get("checks", [])

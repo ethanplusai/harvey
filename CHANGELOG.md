@@ -52,6 +52,15 @@ minor versions can still change behaviour.
   off), cold email still sends, and `harvey run`, `harvey status` and the
   Outbox tab warn until it's set. The opt-out line must ask for a reply
   Harvey recognises and can't contain a link. Based on #13 by Camilo Cruz.
+- **The Today page and `harvey status` say when Precleared is holding cold
+  email.** When the check can't be made (its free checks for the day are used
+  up, the key is out of checks or was rejected, or Precleared can't be
+  reached), cold email still waits and replies still go out, but this used to
+  reach only the log, so cold email just went out slower. Harvey now records
+  the hold, and the Today page and `harvey status` say how many cold emails
+  are waiting and what fixes it: a free key, a pack for that key (the checkout
+  link from Precleared's answer), or nothing but time. The next fresh answer
+  clears it, and a hold not seen for a day is ignored.
 
 ### Changed
 

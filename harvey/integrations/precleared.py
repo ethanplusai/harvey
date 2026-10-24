@@ -26,6 +26,10 @@ Without an API key Precleared allows 10 checks a day; a free key
 (https://precleared.dev/get-key, PRECLEARED_API_KEY) allows 25 a day.
 Beyond that, a key draws on a prepaid pack. When a key runs out, the held
 reason gives the checkout link from Precleared's answer.
+
+A hold is also recorded under STATUS_KEY, so the dashboard's Today page and
+`harvey status` say that cold email is waiting and how to fix it (a free
+key, a pack, or nothing but time). The next fresh answer clears it.
 """
 
 import hashlib
@@ -58,7 +62,16 @@ ADDRESS_SOURCES = ("published", "bought", "scraped", "given", "unknown")
 SENDER_COUNTRIES = ("GB", "US")
 # Where to buy more checks when a 402 answer carries no usable checkout link.
 BUY_URL = "https://precleared.dev/buy"
+GET_KEY_URL = "https://precleared.dev/get-key"
 MAX_BUY_URL = 2048
+# What `harvey status` and the dashboard's Today page read about the check:
+# {"status": "held", "kind", "reason", "url", "waiting", "since", "at"}, or
+# "" when the last fresh call got an answer. Written by the sender.
+STATUS_KEY = "precleared_status"
+# Precleared's allowance resets daily, so a hold not seen for this long is
+# stale: Harvey stopped running, or the check was switched off.
+STATUS_MAX_AGE = timedelta(hours=26)
+HOLD_KINDS = ("keyless_limit", "out_of_checks", "key_rejected", "unavailable")
 
 
 @dataclass
@@ -76,6 +89,12 @@ class Clearance:
     verdict: str = ""
     reason: str = ""
     receipt_id: str = ""
+    # Holds only: why the check couldn't be made (one of HOLD_KINDS) and
+    # where the user can fix it (a free key or this key's checkout link).
+    hold_kind: str = ""
+    fix_url: str = ""
+    # True when the verdict came from the 30-day cache rather than a call.
+    cached: bool = False
 
 
 class PreclearedClient:
@@ -181,13 +200,13 @@ class PreclearedClient:
             async with httpx.AsyncClient(timeout=TIMEOUT, transport=self._transport) as client:
                 resp = await client.post(API_URL, json=payload, headers=headers)
         except httpx.HTTPError as e:
-            return Clearance(allowed=False, held=True,
+            return Clearance(allowed=False, held=True, hold_kind="unavailable",
                              reason=self._redact(f"Precleared unreachable: {e}"))
 
         if resp.status_code == 429:
             # Keyless allowance used up: a free key gives this install its own.
             return Clearance(
-                allowed=False, held=True,
+                allowed=False, held=True, hold_kind="keyless_limit", fix_url=GET_KEY_URL,
                 reason="Precleared daily allowance used up; add PRECLEARED_API_KEY "
                        "(free key: https://precleared.dev/get-key) or wait until tomorrow",
             )
@@ -195,35 +214,38 @@ class PreclearedClient:
             # The key's free checks for today are used and it has no credits left,
             # so another key won't help: a pack (or tomorrow's allowance) will.
             # The 402 answer carries a checkout link for this key.
+            buy_url = _buy_url(resp, self.api_key)
             return Clearance(
-                allowed=False, held=True,
+                allowed=False, held=True, hold_kind="out_of_checks", fix_url=buy_url,
                 reason=self._redact(
                     "Precleared: today's free checks on your key are used and it has "
-                    f"no credits left; add a pack ({_buy_url(resp, self.api_key)}) "
+                    f"no credits left; add a pack ({buy_url}) "
                     "or wait until tomorrow"
                 ),
             )
         if resp.status_code == 401:
-            return Clearance(allowed=False, held=True,
+            return Clearance(allowed=False, held=True, hold_kind="key_rejected",
+                             fix_url=GET_KEY_URL,
                              reason="PRECLEARED_API_KEY was rejected (wrong or revoked)")
         if resp.status_code != 200:
-            return Clearance(allowed=False, held=True,
+            return Clearance(allowed=False, held=True, hold_kind="unavailable",
                              reason=self._redact(f"Precleared HTTP {resp.status_code}: {resp.text[:200]}"))
 
         try:
             data = resp.json()
         except ValueError:
-            return Clearance(allowed=False, held=True, reason="Precleared returned invalid JSON")
+            return Clearance(allowed=False, held=True, hold_kind="unavailable",
+                             reason="Precleared returned invalid JSON")
 
         # Only a JSON object with a known verdict counts as an answer.
         # Anything else is treated like an unavailable check, so cold email
         # is held, not failed, and the rest of the cycle carries on.
         if not isinstance(data, dict):
-            return Clearance(allowed=False, held=True,
+            return Clearance(allowed=False, held=True, hold_kind="unavailable",
                              reason="Precleared returned an unexpected response (not a JSON object)")
         verdict = data.get("verdict")
         if not isinstance(verdict, str) or verdict not in VERDICTS:
-            return Clearance(allowed=False, held=True,
+            return Clearance(allowed=False, held=True, hold_kind="unavailable",
                              reason="Precleared returned a response without a known verdict")
 
         receipt = data.get("receipt")
@@ -353,8 +375,115 @@ def _from_cache(raw: str, inputs: str) -> Clearance | None:
         verdict=verdict,
         reason=_text(data.get("reason")),
         receipt_id=_text(data.get("receipt_id")),
+        cached=True,
     )
 
 
 def _utcnow() -> datetime:
     return datetime.now(timezone.utc)
+
+
+# ── Holds: what `harvey status` and the Today page show ──
+
+
+def parse_status(raw: str) -> dict:
+    """The stored STATUS_KEY value as a dict ({} if absent or bad)."""
+    try:
+        value = json.loads(raw) if raw else {}
+    except ValueError:
+        return {}
+    return value if isinstance(value, dict) else {}
+
+
+async def record_hold(state, clearance: Clearance, waiting: int) -> None:
+    """Store that cold email is waiting on the check, and how to fix it.
+
+    ``since`` is kept while the same kind of hold continues, so the user
+    can see how long cold email has been waiting; ``at`` is the last time
+    a cycle hit it.
+    """
+    try:
+        previous = parse_status(await state.get_setting(STATUS_KEY))
+        kind = clearance.hold_kind if clearance.hold_kind in HOLD_KINDS else "unavailable"
+        now = _utcnow().replace(microsecond=0).isoformat()
+        since = previous.get("since") if (
+            previous.get("status") == "held" and previous.get("kind") == kind) else None
+        await state.set_setting(STATUS_KEY, json.dumps({
+            "status": "held", "kind": kind, "reason": clearance.reason[:300],
+            "url": clearance.fix_url, "waiting": max(1, int(waiting)),
+            "since": since or now, "at": now,
+        }))
+    except Exception as e:
+        logger.warning(f"Precleared: failed to record the hold: {e}")
+
+
+async def clear_hold(state) -> None:
+    """Forget a recorded hold once a fresh call has been answered."""
+    try:
+        if parse_status(await state.get_setting(STATUS_KEY)).get("status") == "held":
+            await state.set_setting(STATUS_KEY, "")
+    except Exception as e:
+        logger.warning(f"Precleared: failed to clear the hold: {e}")
+
+
+async def current_hold(state) -> dict:
+    """The recorded hold if a cycle hit it recently, else {}."""
+    status = parse_status(await state.get_setting(STATUS_KEY))
+    if status.get("status") != "held":
+        return {}
+    try:
+        at = datetime.fromisoformat(str(status.get("at")))
+    except (TypeError, ValueError):
+        return {}
+    if at.tzinfo is None:
+        at = at.replace(tzinfo=timezone.utc)
+    if _utcnow() - at > STATUS_MAX_AGE:
+        return {}
+    return status
+
+
+def hold_message(hold: dict) -> dict:
+    """Title, detail, tone and link for a recorded hold, in plain words.
+
+    Shared by the Today page and `harvey status`, so both say the same thing.
+    """
+    kind = hold.get("kind")
+    url = _text(hold.get("url"))
+    try:
+        waiting = max(1, int(hold.get("waiting") or 1))
+    except (TypeError, ValueError):
+        waiting = 1
+    emails = f"{waiting} cold email is waiting" if waiting == 1 else f"{waiting} cold emails are waiting"
+    replies = "Replies are not held."
+    if kind == "keyless_limit":
+        return {
+            "tone": "warn", "url": url or GET_KEY_URL, "url_label": "Get a free key",
+            "title": "Precleared's free checks for today are used up",
+            "detail": (f"{emails}. Without a key, Precleared allows 10 checks a day. "
+                       f"A free key gives Harvey its own 25 a day: get one at {url or GET_KEY_URL} "
+                       "and put it in .env as PRECLEARED_API_KEY. Otherwise the waiting "
+                       f"emails go out after the checks reset at midnight UK time. {replies}"),
+        }
+    if kind == "out_of_checks":
+        return {
+            "tone": "warn", "url": url or BUY_URL, "url_label": "Buy checks",
+            "title": "Your Precleared key is out of checks for today",
+            "detail": (f"{emails}. The key has used today's free checks and has no pack "
+                       f"left. Buy checks to send them now: {url or BUY_URL}. Otherwise they "
+                       f"go out after the free checks reset at midnight UK time. {replies}"),
+        }
+    if kind == "key_rejected":
+        return {
+            "tone": "bad", "url": url or GET_KEY_URL, "url_label": "Get a new key",
+            "title": "Precleared rejected your key",
+            "detail": (f"{emails}. PRECLEARED_API_KEY was rejected (wrong or revoked). "
+                       "Check the key in .env, or get a new free key at "
+                       f"{url or GET_KEY_URL}. {replies}"),
+        }
+    reason = _text(hold.get("reason")) or "no answer"
+    return {
+        "tone": "warn", "url": "", "url_label": "",
+        "title": "Precleared can't be reached right now",
+        "detail": (f"{emails} until it answers ({reason}). Harvey asks again every "
+                   f"cycle. {replies}"),
+    }
