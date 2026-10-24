@@ -25,6 +25,7 @@ from harvey.integrations.mail_provider import (
 from harvey.models.conversation import Conversation, Message
 from harvey.state import REVIEW_NEXT_REPLY_KEY, StateManager
 from harvey.sending_mode import sync_sending_mode
+from harvey.startups import startup_facts
 from harvey.untrusted import UNTRUSTED_RULE, fence
 
 logger = logging.getLogger("harvey.handler")
@@ -869,13 +870,11 @@ Product: {self.config.product.name} — {self.config.product.description}"""
         # Inject objection handling + sales methodology skills
         if self.skills:
             prompt += "\n\n" + self.skills
-        # A YC startup's founder gets the founder playbook.
-        try:
-            yc = (await self.state.yc_batch(prospect.company_id)
-                  if getattr(prospect, "company_id", "") else None)
-        except Exception:
-            yc = None   # an optional lookup never stops a reply
-        if yc is not None and hasattr(self.brain, "load_skill"):
+        # A startup's founder (YC, another accelerator, a raise they
+        # announced) gets the founder playbook. An optional lookup never
+        # stops a reply: startup_facts reads a failure as "not a startup".
+        startup = await startup_facts(self.state, getattr(prospect, "company_id", ""))
+        if startup is not None and hasattr(self.brain, "load_skill"):
             playbook = self.brain.load_skill("selling_to_startups")
             if playbook:
                 prompt += "\n\nSELLING TO STARTUP FOUNDERS\n" + playbook

@@ -23,14 +23,14 @@ When an agent runs, it calls `brain.load_skills_for_agent("agent_name")` which c
 | `competitive_intel.md` | | x | x | | |
 | `selling_to_startups.md` | | x* | x* | | |
 
-\* Only for prospects whose company is YC-backed (the `YC_BACKED` signal), not loaded for everyone.
+\* Only for prospects whose company is a startup by its own site's account (the `YC_BACKED` or `ACCELERATOR` signal, or a `FUNDING_ROUND` from the last 18 months), not loaded for everyone.
 
 ## Built-in Skills
 
 - **`prospecting_tactics.md`** — Google dorking queries, company website scraping, trigger events, referral mining
 - **`lead_qualification.md`** — BANT screening, ICP scoring, MEDDIC framework, disqualification criteria
 - **`account_navigation.md`** — Multi-contact handling, entry point strategy, multi-threading rules
-- **`selling_to_startups.md`** — Writing to early-stage founders: who reads, timing around a YC batch and Demo Day, what not to do, handling their replies. Used automatically for YC-backed prospects.
+- **`selling_to_startups.md`** — Writing to early-stage founders: who reads, timing around a YC or accelerator batch and Demo Day, writing to companies that just raised (and when a raise is too old to mention), what not to do, handling their replies. Used automatically for YC-backed, accelerator-backed and recently funded prospects.
 - **`signal_playbook.md`** — Turning buying signals (hiring, tech stack, funding) into the email's first line; which signal wins when there are several
 - **`email_frameworks.md`** — Cold email copywriting rules, banned AI patterns, 2026 reply-rate data (length, offer CTAs, cadence, no tracking), 5 frameworks (AIDA, PAS, BAB, QVC, 3Ps)
 - **`sales_methodology.md`** — ABC Loop, conversation flow, tone calibration, ethical guidelines

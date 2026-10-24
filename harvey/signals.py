@@ -212,6 +212,32 @@ SIGNAL_CATALOG: list[dict] = [
         "confidence_floor": 0.0,
     },
     {
+        "code": "ACCELERATOR",
+        "label": "Went through an accelerator",
+        "description": ("The company says on its own site that an accelerator backed it: Techstars, "
+                        "500 Global, Antler, Entrepreneur First, South Park Commons, Neo, AI Grant, "
+                        "a16z speedrun, Pioneer or Plug and Play, with the cohort when stated. YC is "
+                        "YC_BACKED. Pairs with the accelerator discovery preset and the startup-founder "
+                        "writing playbook."),
+        "category": "profile",
+        "value_type": "bool",
+        "collector": "profile",
+        "cost_note": "free (homepage and About page)",
+        "confidence_floor": 0.0,
+    },
+    {
+        "code": "FUNDING_ROUND",
+        "label": "Announced a funding round",
+        "description": ("The company announces its own raise on its site (\"we raised\", \"Acme raises "
+                        "$12M Series A\"): round, amount and date when stated. Raises over 18 months old "
+                        "aren't written to as news. Pairs with the recently-funded discovery preset."),
+        "category": "profile",
+        "value_type": "bool",
+        "collector": "profile",
+        "cost_note": "free (homepage, About, press page)",
+        "confidence_floor": 0.0,
+    },
+    {
         "code": "HIRING_ROLE",
         "label": "Hiring for a relevant role",
         "description": "An open role on their careers page that implies they're buying in your category right now.",

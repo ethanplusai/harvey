@@ -186,9 +186,11 @@
     <div class="form-row" style="margin-bottom:4px">
       <div class="form-group">
         <label class="form-label" for="disc-preset">Look for</label>
-        <select class="form-input" id="disc-preset" title="YC startups: companies whose own site says they're backed by Y Combinator, found by web search (Serper or DataForSEO SERP). Turn on the YC_BACKED signal to tag them.">
+        <select class="form-input" id="disc-preset" title="Startup searches, run by web search (Serper or DataForSEO SERP). YC startups and Accelerator startups: companies whose own site says Y Combinator or another accelerator (Techstars, Antler, Entrepreneur First and others) backed them; turn on YC_BACKED or ACCELERATOR to tag them. Recently funded: companies announcing their own raise in the last 18 months; turn on FUNDING_ROUND to record the round, amount and date.">
           <option value="">Your ICP's industries</option>
           <option value="yc">YC startups</option>
+          <option value="accelerator">Accelerator startups</option>
+          <option value="funding">Recently funded</option>
         </select>
       </div>
       <div class="form-group" style="flex:2">

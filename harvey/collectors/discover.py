@@ -26,6 +26,7 @@ import logging
 import re
 from html import unescape
 from dataclasses import dataclass, field
+from datetime import date, timedelta
 from urllib.parse import urlparse
 
 import httpx
@@ -66,6 +67,16 @@ JUNK_DOMAIN_PATTERNS = tuple(re.compile(p, re.I) for p in (
     r"(^|\.)(crunchbase|techcrunch|wellfound|angel|tracxn|pitchbook)\.",
     r"(^|\.)(cbinsights|producthunt|f6s|dealroom|growjo|owler|zoominfo)\.",
     r"(^|\.)github\.com$",
+    # accelerators' own sites (the accelerator preset's noise)
+    r"(^|\.)(techstars|antler|joinef|southparkcommons|aigrant|a16z|pioneer|plugandplaytechcenter|plugandplay)\.",
+    r"(^|\.)(500\.co|neo\.com)$",
+    # funding news, wires and round trackers (the funding preset's noise)
+    r"(^|\.)(prnewswire|businesswire|globenewswire|accesswire|einpresswire|newswire|finsmes|axios)\.",
+    r"(^|\.)(venturebeat|siliconangle|eu-startups|sifted|geekwire|thesaasnews|fortune|bloomberg)\.",
+    r"(^|\.)(reuters|wsj|cnbc|businessinsider|privco|recentfunding|pulse2|startupfundraising)\.",
+    r"(^|\.)(startupintros|openvc|siliconcanals|startupdaily|e27|similarweb|vcbacked|roundos)\.",
+    r"(^|\.)(techfundingnews|startups\.gallery)",
+    r"(^|\.)tech\.eu$",
     # infrastructure that is never a prospect
     r"(^|\.)(google|bing|yahoo|duckduckgo|amazon|apple|microsoft)\.",
     r"(wordpress|wix|squarespace|shopify|godaddy|weebly|webflow)\.com$",
@@ -809,7 +820,36 @@ PRESETS = {
                  "-site:linkedin.com -site:crunchbase.com"),
         "local": False,
     },
+    # Startups that say on their own site an accelerator backed them. Two
+    # searches per industry, because Google reads only the first 32 words.
+    "accelerator": {
+        "label": "Accelerator startups",
+        "kinds": ("serp",),
+        "terms": (
+            '{industry} ("backed by Techstars" OR "backed by Antler" OR "backed by Entrepreneur First" '
+            'OR "backed by South Park Commons" OR "backed by 500 Global") '
+            "-site:linkedin.com -site:crunchbase.com",
+            # Not "backed by Pioneer": it finds Pioneer Square Labs and Pioneer
+            # Fund (the profile still reads a Pioneer claim on the page).
+            '{industry} ("backed by Neo" OR "backed by AI Grant" OR "a16z speedrun" '
+            'OR "backed by Plug and Play") '
+            "-site:linkedin.com -site:crunchbase.com -site:a16z.com -site:neo.com",
+        ),
+        "local": False,
+    },
+    # Companies announcing their own raise, from the last ~18 months. The
+    # news sites and databases are excluded here and filtered as junk.
+    "funding": {
+        "label": "Recently funded",
+        "kinds": ("serp",),
+        "term": ('{industry} ("we raised" OR "we\'ve raised" OR announces OR raises) '
+                 '("seed round" OR "Series A" OR "Series B") after:{since} '
+                 "-site:techcrunch.com -site:crunchbase.com -site:pitchbook.com -site:linkedin.com "
+                 "-site:prnewswire.com -site:businesswire.com -site:globenewswire.com"),
+        "local": False,
+    },
 }
+FUNDING_LOOKBACK_DAYS = 548       # ~18 months: older raises aren't news
 
 
 def preset_problem(preset: str, provider_key: str) -> str | None:
@@ -840,7 +880,9 @@ def build_queries(config, cities: list[str] | None = None,
     terms = list(icp.industries) or [config.product.name]
     spec = PRESETS.get(preset) if preset else None
     if spec:
-        terms = [spec["term"].format(industry=t) for t in terms]
+        since = (date.today() - timedelta(days=FUNDING_LOOKBACK_DAYS)).isoformat()
+        templates = spec.get("terms") or (spec["term"],)
+        terms = [tpl.format(industry=t, since=since) for t in terms for tpl in templates]
         places = cities if cities is not None else ([""] if not spec["local"] else list(icp.geography) or [""])
     else:
         places = cities if cities is not None else list(icp.geography) or [""]
@@ -1039,6 +1081,11 @@ def _observations(biz: Business, company_id: str, confirmed: set[str],
         # site (third-party sites are filtered out above). Short of reading
         # that page ourselves, so below the homepage's own claim.
         add("YC_BACKED", num=1.0, conf=0.7)
+    if query is not None and query.preset == "accelerator":
+        # Same, for the other programs; which one isn't known until the
+        # profile reads their pages. A funding hit isn't recorded: the
+        # raise's date matters, so the profile reads the hit page itself.
+        add("ACCELERATOR", num=1.0, conf=0.6)
     return rows
 
 

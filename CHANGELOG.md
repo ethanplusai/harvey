@@ -20,6 +20,24 @@ minor versions can still change behaviour.
   `skills/selling_to_startups.md` playbook: who reads, timing around the
   batch and Demo Day, what not to do. Harvey never reads ycombinator.com,
   whose terms forbid scraping it or collecting founders' contact details.
+- **Startups beyond YC: accelerators and recent raises.** Two more presets:
+  `accelerator` (*Accelerator startups*) finds companies whose own site says
+  Techstars, 500 Global, Antler, Entrepreneur First, South Park Commons, Neo,
+  AI Grant, a16z speedrun, Pioneer or Plug and Play backed them, and
+  `funding` (*Recently funded*) finds companies announcing their own raise in
+  the last 18 months, with news sites, press wires and funding databases
+  excluded and filtered as junk. Two new signals read it off their own
+  pages: `ACCELERATOR` (program and cohort, from a sentence where the company
+  says it or a "Backed by" logo wall) and `FUNDING_ROUND` (round, amount and
+  date, from the homepage, the search hit's own page, About or the press
+  page; the date from the sentence or the page's publish date). Both are
+  anchored like `YC_BACKED`: "we help startups raise", customer or
+  portfolio lines, an investor's round in another company, and money that
+  isn't a raise (loans closed, verdicts won, money raised for a charity)
+  don't count. The founder playbook now applies to YC- and
+  accelerator-backed companies and to raises dated within 18 months, and has
+  a section on writing to recently funded companies; an older or undated
+  raise is never written to as news.
 - **Approval or autopilot, visible and switchable.** The Outbox now says
   which sending mode you're in, and Settings → Sending explains both,
   lists the domains counted as yours and switches them. Turning autopilot

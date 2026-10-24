@@ -154,11 +154,11 @@ harvey run
 
 This is the part that makes Harvey different from a black box, and it is deliberately not skippable.
 
-Harvey knows how to collect **23 signals** about a business. It does not collect any of them until you say so. On first run it *proposes* the catalog; you confirm, skip, or reject each one in the dashboard or from the terminal:
+Harvey knows how to collect **26 signals** about a business. It does not collect any of them until you say so. On first run it *proposes* the catalog; you confirm, skip, or reject each one in the dashboard or from the terminal:
 
 ```bash
 harvey signals                       # review the catalog
-harvey signals --confirm free        # everything that costs nothing (21 of them)
+harvey signals --confirm free        # everything that costs nothing (24 of them)
 harvey signals --confirm SERP_RANK   # a paid one, opted into explicitly
 ```
 
@@ -176,6 +176,7 @@ Every signal shows what it is in plain language, **what it costs**, and how many
 | | `NO_SCHEMA_MARKUP` | A concrete, checkable SEO gap you can name in an email. |
 | | `BLOG_STALE` | Content marketing started and abandoned. |
 | | `SITE_PAGE_COUNT`, `TECH_STACK`, `BLOCKS_AI_CRAWLERS`, `HIRING_ROLE` | Size, platform, AI-search visibility, and what they're hiring for. |
+| | `YC_BACKED`, `ACCELERATOR`, `FUNDING_ROUND` | A startup, as its own site says: YC or another accelerator (with the batch or cohort), or a raise it announced (round, amount, date). |
 | **People** | `CONTACT_FOUND`, `DECISION_MAKER_TITLE`, `LIKELY_OWNER`, `REGISTRY_VERIFIED` | Who decides, and whether they own the place. |
 | **Contact** | `EMAIL_PATTERN`, `EMAIL_STATUS`, `CONTACT_FORM_URL` | Whether you can actually reach them. |
 
@@ -213,24 +214,41 @@ harvey discover               # go
 | **DataForSEO SERP** | $0.0018 / search | $1 credit + free sandbox | Rank as the buying signal. |
 | **Serper** | ~$0.30–1.00 / 1,000 | 2,500 free, no card | The easiest paid one to try. |
 
-**Selling to startups?** Harvey has a built-in YC-startup skill, made of three
+**Selling to startups?** Harvey has a built-in startup skill, made of three
 parts:
 
-- **The search:** `harvey discover --preset yc --provider serper`, or *Look for: YC
-  startups* on the Discover tab, searches your industries for companies whose
-  own websites say they're backed by Y Combinator.
-- **The signal:** turn on `YC_BACKED` (Signals tab) to tag them, with their batch
-  when the site states it (W24, S23). It reads the homepage and About page for
-  a reference to the company's own YC page or a line where the company says it
-  ("we went through Y Combinator", "YC W24"), not customer lines like "trusted
-  by YC-backed startups". Many YC companies never say it on their site, so it
-  finds the ones that do; a YC-preset search hit counts as a yes too.
-- **The writing:** for those prospects the writer and reply handler use
-  `skills/selling_to_startups.md`, a playbook for writing to founders.
+- **The searches** (each a web search, so Serper or DataForSEO SERP):
 
-Harvey never reads ycombinator.com itself, whose terms forbid scraping it or
-collecting founders' contact details; everything comes from the companies' own
-sites and your search provider.
+  | Preset | Finds | Signal |
+  |---|---|---|
+  | `yc` (*YC startups*) | Companies whose own site says they're backed by Y Combinator | `YC_BACKED`, with the batch (W24, S23) |
+  | `accelerator` (*Accelerator startups*) | Ones backed by Techstars, 500 Global, Antler, Entrepreneur First, South Park Commons, Neo, AI Grant, a16z speedrun or Plug and Play (two searches per industry; the signal also reads Pioneer) | `ACCELERATOR`, with the program and cohort ("Techstars 2024") |
+  | `funding` (*Recently funded*) | Companies announcing their own raise ("we raised", "announces $X Series A") in the last 18 months, news sites and funding databases excluded | `FUNDING_ROUND`: round, amount and date |
+
+  `harvey discover --preset accelerator --provider serper`, or the *Look for*
+  menu on the Discover tab.
+- **The signals:** turn them on in the Signals tab. They read the homepage and
+  About page (and for a raise, the page the search found on their own site and
+  their press or news page) for a line where the company says it about itself
+  ("we went through Y Combinator", "Acme (Techstars '24)", "we raised a $4M
+  seed round"), a "Backed by" logo wall, or a link to its own YC page. Customer
+  and audience lines ("trusted by YC-backed startups", "we help founders raise
+  their seed round") don't count. Many startups never say it on their site, so
+  these find the ones that do; a YC or accelerator preset hit counts as a yes too.
+  A raise's date comes from its own clause, or from the publish date of a
+  press, news or blog post. Money that isn't a raise (loans closed, verdicts
+  won, money raised for a charity, an investor's round in another company)
+  doesn't count.
+- **The writing:** the writer and reply handler use
+  `skills/selling_to_startups.md`, a playbook for writing to founders with a
+  section on companies that just raised, for YC- and accelerator-backed
+  companies and for raises dated within the last 18 months. An older or
+  undated raise alone doesn't bring the playbook, and is never written to as
+  news.
+
+Harvey never reads ycombinator.com, the accelerators' directories, Crunchbase,
+PitchBook or LinkedIn, whose terms forbid scraping them; everything comes from
+the companies' own sites and your search provider.
 
 Cities geocode themselves (cached forever, one lookup each). Directories, aggregators and institutions are filtered by pattern, not a blocklist — `en.wikipedia.org` and `biz.yelp.com` never make it in.
 

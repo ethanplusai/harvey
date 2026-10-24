@@ -21,6 +21,7 @@ from harvey.integrations.mail_provider import NATIVE_PROVIDERS
 from harvey.models.campaign import Campaign, EmailStep
 from harvey.state import WRITABLE_EMAIL_STATUSES, StateManager
 from harvey.sending_mode import sync_sending_mode
+from harvey.startups import startup_facts
 from harvey.untrusted import UNTRUSTED_RULE, fence
 
 logger = logging.getLogger("harvey.writer")
@@ -234,19 +235,13 @@ class Writer:
                 f"({'awaiting approval' if require_approval else 'approved'})."
             )
 
-    async def _yc(self, company_id) -> str | None:
-        """The company's YC batch (see state.yc_batch); a failed read is just
-        "not known to be YC", never a reason not to write."""
-        state = getattr(self, "state", None)
-        if not company_id or state is None or not hasattr(state, "yc_batch"):
-            return None
-        try:
-            return await state.yc_batch(company_id)
-        except Exception:
-            return None
+    async def _startup(self, company_id) -> list[str] | None:
+        """Fact lines when the company is a startup (YC, another accelerator,
+        a raise it announced; see harvey.startups), else None."""
+        return await startup_facts(getattr(self, "state", None), company_id)
 
     def _startup_playbook(self) -> str:
-        """skills/selling_to_startups.md, for YC-backed prospects ("" if absent)."""
+        """skills/selling_to_startups.md, for startup prospects ("" if absent)."""
         text = self.brain.load_skill("selling_to_startups") if hasattr(self.brain, "load_skill") else ""
         return "\n\nSELLING TO STARTUP FOUNDERS\n" + text if text else ""
 
@@ -308,10 +303,9 @@ class Writer:
                 )
         if prospect.personalization_notes:
             facts.append(f"- Research notes: {prospect.personalization_notes}")
-        yc = await self._yc(prospect.company_id)
-        if yc is not None:
-            facts.append("- Backed by Y Combinator" + (f" (YC {yc})" if yc else "")
-                         + ", as their own site says")
+        startup = await self._startup(prospect.company_id)
+        if startup is not None:
+            facts.extend(startup)
 
         prompt = self.brain.load_prompt(
             "writer",
@@ -326,7 +320,7 @@ class Writer:
         ) or ""
         if self.skills:
             prompt += "\n\n" + self.skills
-        if yc is not None:
+        if startup is not None:
             prompt += self._startup_playbook()
         prompt += await self._feedback_block([prospect.id])
 
@@ -411,8 +405,8 @@ Pricing: {self.config.product.pricing}"""
         if self.skills:
             prompt += "\n\n" + self.skills
         # One template goes to the whole batch: founder framing only when
-        # every prospect in it is a YC startup.
-        backed = [await self._yc(p.company_id) for p in prospects]
+        # every prospect in it is a startup.
+        backed = [await self._startup(p.company_id) for p in prospects]
         if prospects and all(b is not None for b in backed):
             prompt += self._startup_playbook()
         # Campaign notes only: this template goes to the whole batch, so a

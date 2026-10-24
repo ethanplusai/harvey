@@ -23,6 +23,7 @@ from harvey.models.campaign import Campaign, EmailStep  # noqa: F401 (EmailStep 
 from harvey.models.conversation import Conversation, Message  # noqa: F401
 
 from harvey.paths import PROJECT_ROOT
+from harvey.startups import parse_funding
 
 DB_PATH = PROJECT_ROOT / "data" / "harvey.db"
 
@@ -1449,9 +1450,35 @@ class StateManager:
     async def yc_search_hit(self, company_id: str) -> bool:
         """Did a YC-preset search find this company (its latest YC reading
         is a discovery hit)?"""
-        rows = await self.get_observations(company_id=company_id, signal_code="YC_BACKED",
+        return await self.search_hit(company_id, "YC_BACKED")
+
+    async def search_hit(self, company_id: str, signal_code: str) -> bool:
+        """Is the company's latest reading of ``signal_code`` a preset
+        search's hit (collector "discover")? Profiling doesn't write "not
+        stated" over one."""
+        rows = await self.get_observations(company_id=company_id, signal_code=signal_code,
                                            latest_only=True, limit=1)
         return bool(rows and rows[0].get("collector") == "discover" and rows[0].get("value_num") == 1)
+
+    async def _latest_yes(self, company_id: str, signal_code: str) -> dict | None:
+        if not company_id:
+            return None
+        rows = await self.get_observations(company_id=company_id, signal_code=signal_code,
+                                           latest_only=True, limit=1)
+        return rows[0] if rows and rows[0].get("value_num") == 1 else None
+
+    async def accelerator(self, company_id: str) -> str | None:
+        """The accelerator(s) the company says it went through ("Techstars
+        2024; Antler", or "" for a search hit that didn't say which), or
+        None. YC is yc_batch's."""
+        row = await self._latest_yes(company_id, "ACCELERATOR")
+        return (row.get("value_text") or "") if row else None
+
+    async def funding_round(self, company_id: str) -> dict | None:
+        """The latest raise the company announced on its own site, as
+        {"round", "amount", "date"} (any may be ""), or None."""
+        row = await self._latest_yes(company_id, "FUNDING_ROUND")
+        return parse_funding(row.get("value_text") or "") if row else None
 
     async def get_observations(
         self,
