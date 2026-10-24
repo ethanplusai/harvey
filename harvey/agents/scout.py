@@ -157,7 +157,11 @@ class Scout:
         # Job boards first: hiring is the strongest intent signal, and the
         # strategy self-skips when python-jobspy isn't installed.
         strategies.append(("hiring_boards", self._prospect_via_hiring_boards))
-        strategies.append(("profile_search", self._prospect_via_profile_search))
+        # Web search for LinkedIn profiles yields names without a company or
+        # email, which Harvey can't verify; it rides the same switch as the
+        # LinkedIn channel so it is off unless LinkedIn prospecting is wanted.
+        if self.config.channels.linkedin.enabled:
+            strategies.append(("profile_search", self._prospect_via_profile_search))
         strategies.append(("company_discovery", self._prospect_via_company_discovery))
 
         for name, strategy in strategies:
