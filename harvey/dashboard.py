@@ -632,6 +632,9 @@ def _pipeline_bucket(status: str | None, stage: str | None, intent: str | None,
 async def get_stats():
     """Pipeline overview stats."""
     try:
+        # Apply schema migrations before reading columns added since this DB
+        # was created (the dashboard can be started before `harvey run`).
+        await _state().init_db()
         prospects = await query_db(
             "SELECT status, COUNT(*) as count FROM prospects GROUP BY status"
         )
@@ -667,10 +670,12 @@ async def get_stats():
         action_count = actions[0]["count"] if actions else 0
 
         usage = await query_db(
-            "SELECT claude_calls, codex_calls FROM usage_log WHERE date = date('now')"
+            "SELECT claude_calls, codex_calls, opencode_calls "
+            "FROM usage_log WHERE date = date('now')"
         )
         usage_today = (usage[0]["claude_calls"] or 0) if usage else 0
         codex_today = (usage[0]["codex_calls"] or 0) if usage else 0
+        opencode_today = (usage[0]["opencode_calls"] or 0) if usage else 0
 
         return {
             "prospects": {"total": prospect_total, "by_status": prospect_map},
@@ -680,6 +685,7 @@ async def get_stats():
             "actions_total": action_count,
             "claude_calls_today": usage_today,
             "codex_calls_today": codex_today,
+            "opencode_calls_today": opencode_today,
             "brain_provider": _active_provider(),
             "brain_status": await _brain_status(),
         }
@@ -723,10 +729,17 @@ def _active_provider() -> str:
     return brain.provider if brain else ""
 
 
-def _quota_client_for(provider: str, model: str = ""):
-    """One cached quota reader per provider (and Codex model). Each reads
-    only its own subscription, so a Claude gauge is never shown as Codex or
-    vice versa, and Codex shows the bucket metering the configured model."""
+def _quota_client_for(provider: str, model: str = "",
+                      monthly_limit_usd: float = 0.0):
+    """A quota reader for the active provider only. Claude and Codex are
+    cached; OpenCode Go is built fresh from its own ledger. Each reads only
+    its own subscription, so one provider's gauge is never shown as another's,
+    and Codex/OpenCode show the allowance metering the configured model."""
+    if provider == "opencode":
+        # Cheap, ledger-only, and tied to this process's DB: no cache, so a
+        # test or a dashboard restart can never reuse another DB's state.
+        from harvey.opencode import OpenCodeQuotaClient
+        return OpenCodeQuotaClient(_state(), model, monthly_limit_usd)
     key = (provider, model if provider == "codex" else "")
     if key not in _quota_clients:
         if provider == "codex":
@@ -774,7 +787,9 @@ async def get_usage():
     provider = brain.provider if brain else ""
     quota = None
     try:
-        client = _quota_client_for(provider, brain.model if brain else "")
+        client = _quota_client_for(
+            provider, brain.model if brain else "",
+            brain.monthly_limit_usd if brain else 0.0)
         if client is not None:
             quota = await client.get_utilization()
     except Exception as e:
@@ -1951,7 +1966,8 @@ async def get_today():
         # Ordered by how much it blocks Harvey from doing anything at all.
         brain = await _brain_status()
         if brain.get("status") == "paused":
-            who = "Codex" if brain.get("provider") == "codex" else "Harvey's model"
+            who = {"codex": "Codex", "opencode": "OpenCode Go"}.get(
+                brain.get("provider"), "Harvey's model")
             items.append({
                 "key": "brain-paused", "tone": "bad",
                 "title": f"{who} is paused, so Harvey is waiting",

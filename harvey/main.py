@@ -336,7 +336,8 @@ async def heartbeat(stop_event: asyncio.Event | None = None):
                 continue
 
             # 2. Is the brain usable at all? (Codex: CLI version, isolation,
-            # login, account and model checked without a prompt.) If not, do nothing
+            # login, account and model; OpenCode Go: key and model catalog;
+            # checked without a prompt.) If not, do nothing
             # this cycle — no replies consumed, nothing written or sent —
             # and say why, rather than running agents that would each fail.
             problem = await brain.preflight()

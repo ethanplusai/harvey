@@ -83,8 +83,8 @@ def require_supported_platform() -> None:
         return
     raise CodexError(
         "Harvey's Codex provider supports macOS and Linux only; it isn't "
-        "supported on Windows yet. Use the Claude provider there "
-        "(brain.provider: claude in harvey.yaml).",
+        "supported on Windows yet. Use the Claude provider or OpenCode Go there "
+        "(brain.provider: claude or opencode in harvey.yaml).",
         kind="setup",
     )
 

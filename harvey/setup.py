@@ -122,7 +122,7 @@ def _check_codex_cli() -> bool:
 
 
 async def _test_claude(brain: Brain) -> bool:
-    """Test that the configured brain answers (Claude or Codex)."""
+    """Test that the configured brain answers (Claude, Codex or OpenCode Go)."""
     response = await brain.think(
         "Respond with exactly: HARVEY_READY",
         session_id="harvey-setup-test",
@@ -133,10 +133,14 @@ async def _test_claude(brain: Brain) -> bool:
 def _ask_brain_config() -> BrainConfig:
     """Ask which subscription Harvey thinks with. Claude is the default."""
     _print_harvey("I think with an AI subscription you already pay for:")
-    print("    claude — your Claude plan, via Claude Code (default)")
-    print("    codex  — your ChatGPT plan, via the Codex CLI")
+    print("    claude   — your Claude plan, via Claude Code (default)")
+    print("    codex    — your ChatGPT plan, via the Codex CLI")
+    print("    opencode — your OpenCode Go plan, via the Go inference API")
     while True:
-        provider = _ask("Which one? (claude/codex)", default="claude").lower()
+        provider = _ask(
+            "Which one? (claude/codex/opencode)", default="claude").lower()
+        provider = {"go": "opencode", "opencode go": "opencode",
+                    "opencode-go": "opencode"}.get(provider, provider)
         if provider == "codex":
             from harvey.codex import CodexError, require_supported_platform
             try:
@@ -144,16 +148,34 @@ def _ask_brain_config() -> BrainConfig:
             except CodexError as e:
                 print(f"    ({e})")
                 continue
-        if provider in ("claude", "codex"):
+        if provider in ("claude", "codex", "opencode"):
             break
-        print("    (type claude or codex)")
+        print("    (type claude, codex or opencode)")
+
     if provider == "codex":
         from harvey.codex import SUGGESTED_MODEL
         print(f"    {SUGGESTED_MODEL} is the Codex model Harvey has verified as text-only")
         print("    (no code-execution tools). Press Enter to use it, or type another.")
+    elif provider == "opencode":
+        from harvey.opencode import DEFAULT_MODEL, api_key_from_env
+        saved = _read_env_file().get("OPENCODE_API_KEY", "").strip("'\" ")
+        if not api_key_from_env() and saved:
+            os.environ["OPENCODE_API_KEY"] = saved
+        if not api_key_from_env():
+            key = _ask(
+                "OpenCode Go API key (OpenCode Console → Go → API key; input hidden)",
+                secret=True,
+            )
+            os.environ["OPENCODE_API_KEY"] = key
+        print(f"    {DEFAULT_MODEL} is the default: cheap, zero-retention and")
+        print("    $80/month of Go allowance ($160 on Go Plus). Press Enter to use it,")
+        print("    or type another Go model id (for example glm-5.3-flash or kimi-k2.7-code).")
+
     while True:
         if provider == "codex":
             model = _ask("Model", default=SUGGESTED_MODEL, required=False)
+        elif provider == "opencode":
+            model = _ask("Model", default=DEFAULT_MODEL, required=False)
         else:
             model = _ask("Model (leave blank for the default)", required=False)
         try:
@@ -242,6 +264,10 @@ class SetupWizard:
         self.brain_config = _ask_brain_config()
         if self.brain_config.provider == "codex":
             await self._check_codex()
+        elif self.brain_config.provider == "opencode":
+            self.env_vars["OPENCODE_API_KEY"] = os.getenv(
+                "OPENCODE_API_KEY", "").strip()
+            await self._check_opencode()
         else:
             await self._check_claude()
 
@@ -319,6 +345,41 @@ class SetupWizard:
             print("✗ Failed")
             _print_harvey("Codex is installed but the test call failed. The log")
             _print_harvey("above says why (login, plan limits, or isolation).")
+            if not _ask_yes_no("Continue anyway?", default=False):
+                raise SystemExit(1)
+        self._check_python_packages()
+
+    async def _check_opencode(self):
+        from harvey.opencode import DEFAULT_MODEL, api_key_from_env
+
+        print("\n  Checking OpenCode Go key...", end=" ")
+        if api_key_from_env():
+            print("✓ Found")
+        else:
+            print("✗ Missing")
+            _print_harvey("I need an OpenCode Go API key to think. Open the")
+            _print_harvey("OpenCode Console → Go, copy the key, and put it in .env as")
+            _print_harvey("OPENCODE_API_KEY (or re-run setup and paste it when asked).")
+            raise SystemExit(1)
+
+        print("  Checking the Go model catalog...", end=" ")
+        state = StateManager()
+        await state.init_db()
+        brain = Brain(state, self.brain_config)
+        problem = await brain.preflight()
+        if problem:
+            print("✗ Not ready")
+            _print_harvey(problem)
+            raise SystemExit(1)
+        print(f"✓ {self.brain_config.model or DEFAULT_MODEL}")
+
+        print("  Testing OpenCode Go...", end=" ", flush=True)
+        if await _test_claude(brain):
+            print("✓ Working")
+        else:
+            print("✗ Failed")
+            _print_harvey("The Go key or model isn't working. The log above says")
+            _print_harvey("why (key, plan limits, or model availability).")
             if not _ask_yes_no("Continue anyway?", default=False):
                 raise SystemExit(1)
         self._check_python_packages()
@@ -815,10 +876,16 @@ class SetupWizard:
 """)
 
         # Show what's configured
+        provider = self.brain_config.provider
+        if provider == "codex":
+            brain_check = ("Codex CLI (ChatGPT plan)", _check_codex_cli())
+        elif provider == "opencode":
+            from harvey.opencode import api_key_from_env
+            brain_check = ("OpenCode Go key", bool(api_key_from_env()))
+        else:
+            brain_check = ("Claude Code CLI", _check_claude_cli())
         checks = {
-            ("Codex CLI (ChatGPT plan)" if self.brain_config.provider == "codex"
-             else "Claude Code CLI"): (_check_codex_cli() if self.brain_config.provider == "codex"
-                                      else _check_claude_cli()),
+            brain_check[0]: brain_check[1],
             "Instantly API": bool(self.env_vars.get("INSTANTLY_API_KEY")),
             "LinkedIn": bool(self.env_vars.get("LINKEDIN_EMAIL")),
             "Cloudflare Crawl": bool(self.env_vars.get("CLOUDFLARE_ACCOUNT_ID")),

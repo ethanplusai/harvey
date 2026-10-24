@@ -765,3 +765,20 @@ def test_homepage_prefers_stronger_brand_over_longer_partial_match():
     html = ('<meta property="og:site_name" content="Kettleman Landscaping">'
             '<title>Landscaping Professionals</title>')
     assert D.site_name_from_html(html, "kettlemanlandscaping.com") == "Kettleman Landscaping"
+
+def test_osm_maps_the_local_business_segments():
+    osm = D.OpenStreetMap()
+    assert "amenity=restaurant" in osm._tags("Restaurant / Cafe")
+    assert "amenity=clinic" in osm._tags("Clinic / Medical")
+    assert "shop=hairdresser" in osm._tags("Salon / Spa")
+    assert "leisure=fitness_centre" in osm._tags("Gym / Fitness")
+    assert "office=estate_agent" in osm._tags("Real Estate")
+    assert "amenity=prep_school" in osm._tags("Coaching / Tuition")
+    assert "tourism=hotel" in osm._tags("Hotel / Stay / AirBnB")
+    assert "shop=clothes" in osm._tags("Retail Shop")
+    assert "craft=painter" in osm._tags("Home Services")
+    assert "office=accountant" in osm._tags("Professional Services")
+    assert "shop=car_repair" in osm._tags("Automotive")
+    assert "amenity=school" in osm._tags("School / Preschool")
+    # No OSM tag exists for individual creators/influencers.
+    assert osm._tags("Individual / Content Creator / Influencer") == []

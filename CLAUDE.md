@@ -1,6 +1,6 @@
 # Harvey — Autonomous AI Sales Agent
 
-Harvey is an autonomous sales agent powered by Claude Code. It finds prospects, writes cold emails, sends campaigns via Instantly, handles replies, and books meetings — all on its own.
+Harvey is an autonomous sales agent powered by Claude Code, Codex or OpenCode Go. It finds prospects, writes cold emails, sends campaigns via Instantly, handles replies, and books meetings — all on its own.
 
 **You (Claude) are the guide.** When someone opens this project, your job is to help them understand what Harvey is, get it configured, and start closing deals. Be conversational, not robotic. Explain things simply. Ask one thing at a time.
 
@@ -22,7 +22,7 @@ Start by checking what state things are in. Don't dump a wall of setup steps —
 ### Then introduce yourself based on what you find:
 
 **If nothing is set up:**
-> "This is Harvey — an autonomous AI sales agent. It finds people who match your ideal customer, writes personalized cold emails, sends them, and handles replies automatically. It runs on your Claude Max subscription so there's no extra cost.
+> "This is Harvey — an autonomous AI sales agent. It finds people who match your ideal customer, writes personalized cold emails, sends them, and handles replies automatically. It runs on your Claude Max subscription (or Codex or OpenCode Go) so there's no extra cost.
 >
 > Let me help you get it set up. It takes about 5 minutes. First, let me install the dependencies..."
 
@@ -46,7 +46,9 @@ People will ask "how does this work?" — explain it simply:
 
 - **"Is it safe?"** → Yes. It runs locally on your machine, has daily usage limits, quiet hours, and send limits built in. It can't delete files, access your bank account, or do anything outside its sales workflow. Everything it does is logged in a local SQLite database you can inspect anytime.
 
-- **"What does it cost?"** → Just your Claude Max subscription (which you already have). The only paid integration is Instantly for sending emails (their cheapest plan works). Everything else — prospecting, email writing, reply handling — is included.
+- **"What does it cost?"** → Just the AI subscription you already have (Claude Max, ChatGPT/Codex, or OpenCode Go). The only paid integration is Instantly for sending emails (their cheapest plan works). Everything else — prospecting, email writing, reply handling — is included.
+
+- **"Can it use OpenCode Go instead?"** → Yes, opt-in and the simplest provider: put `OPENCODE_API_KEY` in `.env` (OpenCode Console → Go → API key) and set `brain: { provider: opencode, model: deepseek-v4.1-flash }` in harvey.yaml (or choose opencode in `harvey setup`, or `harvey train <url> --provider opencode --model deepseek-v4.1-flash`). Harvey calls Go's inference API directly over HTTPS — no CLI, no tools, no session store — so it works on Windows too. Go reports the allowance each call consumed; Harvey records it and budgets the plan's 5-hour/weekly/monthly windows. The model must be in the Go catalog (`harvey status --check` validates it without a prompt). Harvey never falls back to Claude or Codex on its own. See "Using OpenCode Go instead" in the README. A Go plan is separate from Claude Pro/Max.
 
 - **"Can it use ChatGPT / Codex instead of Claude?"** → Yes, opt-in. Install Codex CLI 0.159.3 (`npm install -g @openai/codex@0.159.3`; other versions are refused), run `codex login` with ChatGPT, and set `brain: { provider: codex, model: gpt-5.5 }` in harvey.yaml (or choose codex in `harvey setup`, which suggests gpt-5.5, or `harvey train <url> --provider codex --model gpt-5.5`). gpt-5.5 is the verified text-only model; a blank model fails on current accounts because the live catalog hides it, and code-mode models are refused. Claude stays the default; Harvey never switches providers on its own. Each Codex call runs isolated with no tools — see "Using a ChatGPT plan instead (Codex)" in the README. macOS and Linux only; on Windows, Codex is refused, so use Claude. Don't edit the user's own `~/.codex` config to make it work.
 
@@ -273,9 +275,9 @@ Users will come back with questions and tasks. Common ones:
 
 ### Architecture
 - **Heartbeat loop** (`main.py`): Every cycle → check quiet hours → check budget → decide → act → log → sleep
-- **Brain** (`brain.py`): Wraps `claude -p --output-format json --dangerously-skip-permissions` for headless Claude calls; records exact per-call token usage into `usage_events`
+- **Brain** (`brain.py`): Selects Claude, Codex or OpenCode Go and records exact per-call token/allowance usage into `usage_events`
 - **State** (`state.py`): SQLite at `data/harvey.db` with tables for companies, prospects, campaigns, conversations, actions, usage
-- **Usage tracking** (`usage.py`, `integrations/quota.py`): per-call attribution (agent/task/model/tokens) for Harvey's OWN Claude calls only — it never scans your other Claude Code sessions — plus a live subscription-quota gauge read the same way Claude Code's `/usage` does. The budget check throttles Harvey against real quota utilization so it always leaves headroom for your own interactive Claude use (`usage.max_daily_claude_percent`). Dashboard has a Usage tab; CLI has `harvey usage`.
+- **Usage tracking** (`usage.py`, `integrations/quota.py`, `opencode.py`): per-call attribution (agent/task/model/tokens) for Harvey's OWN calls only — it never scans your other Claude Code sessions — plus a subscription-quota gauge for the active provider. The budget check throttles Harvey against real quota utilization so it always leaves headroom for your own interactive use (`usage.max_daily_claude_percent`). For OpenCode Go the 5-hour/weekly/monthly allowance is estimated from the allowance Go reports per call. Dashboard has a Usage tab; CLI has `harvey usage`.
 - **Skills** (`skills/`): Markdown knowledge files injected into agent prompts
 - **Signals** (`signals.py`, `state.py`): every fact Harvey learns is an OBSERVATION — a row in `observations`, never a column. A new signal needs no migration, re-observing over time is a free time series, and confidence + provenance travel with the fact. The vocabulary in `signal_codes` is governed (a trigger rejects any code not in it) and gated: only `status = 'confirmed'` signals are collected, and only a human sets that. `state.cohort(require, exclude)` does the set intersection in SQL.
 - **Dashboard** (`dashboard.py` + `harvey/web/`): FastAPI JSON API plus plain HTML/CSS/JS served from disk — no build step. Edit `harvey/web/app.css` or `app.js` and reload the page.
@@ -302,7 +304,7 @@ harvey dashboard             # Web UI at http://127.0.0.1:5555 (open the printed
 harvey setup                 # Re-run setup wizard
 harvey train <url>           # Train on a product website
 harvey status                # Pipeline summary
-harvey usage                 # Claude quota gauges + per-agent token usage (no dollar costs — subscription plans aren't billed per token)
+harvey usage                 # active provider's quota + per-agent token usage (no dollar costs — subscription plans aren't billed per token)
 harvey export                # Deliverable prospects → sequencer-ready CSV (prospects.csv)
 harvey export --all          # Full raw list, no filters
 harvey gmail auth            # One-time Gmail OAuth (when provider: gmail)
@@ -321,5 +323,7 @@ harvey warmup [domain]       # Sending-domain readiness: SPF/DKIM/DMARC, age, bl
 - **SQLite errors**: The `data/` directory is created automatically on first run
 - **Claude headless mode fails**: User needs `claude login` and an active Max subscription
 - **Codex calls fail** (`brain.provider: codex`): the log line says why — `codex login` with ChatGPT (also when the login "has expired or is due for renewal": Harvey never renews it), install the supported Codex version (`harvey status --check` shows what's wrong without a model call; while Codex is unusable Harvey pauses whole cycles on purpose), pick a `brain.model` without code mode, or remove whatever Codex config layer is forcing tools/hooks/MCP back on. Never weaken Harvey's isolation checks to get past it.
+
+- **OpenCode Go calls fail** (`brain.provider: opencode`): `401` → check `OPENCODE_API_KEY` in `.env`; `400 Model is unavailable` → pick a model from the Go catalog (`harvey status --check` validates it without a prompt); `429`/allowance → the model's 5-hour/weekly/monthly limit is used up and Harvey pauses for an hour. A `400` mentioning `x-opencode-session` is a Harvey bug. Never add a fallback to another provider.
 - **Instantly API 401**: Wrong API key or needs the Growth plan for API access
 - **Google search rate limiting**: Harvey automatically falls back to DuckDuckGo and Bing. For reliable search, add a Serper API key ($5/mo).

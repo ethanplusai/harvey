@@ -90,6 +90,15 @@ usage:
     end: "07:00"
     timezone: "America/New_York"
 
+# Which AI subscription Harvey thinks with. Claude is the default; this
+# checkout uses OpenCode Go. See the README for Codex and Claude.
+brain:
+  provider: opencode
+  model: deepseek-v4.1-flash
+  # base_url: https://opencode.ai/inference/go
+  # max_tokens: 8192
+  # monthly_limit_usd: 160   # Go Plus: double the per-model limit
+
 # Optional: check each new recipient with Precleared (precleared.dev) before
 # the first cold email: may cold marketing email go to this address under UK
 # PECR, US CAN-SPAM, Canada's CASL, Germany's UWG and France's rules? Any other

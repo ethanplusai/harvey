@@ -501,7 +501,7 @@ class UsageConfig(BaseModel):
         return v
 
 
-BRAIN_PROVIDERS = ("claude", "codex")
+BRAIN_PROVIDERS = ("claude", "codex", "opencode")
 CODEX_REASONING_EFFORTS = ("minimal", "low", "medium", "high", "xhigh")
 
 # Model names are passed to a CLI, so they must look like a model name and
@@ -513,14 +513,21 @@ class BrainConfig(BaseModel):
     """Which subscription Harvey thinks with.
 
     ``claude`` (default) runs Claude Code headless on your Claude plan.
-    ``codex`` runs Codex on your ChatGPT plan. There is never an automatic
+    ``codex`` runs Codex on your ChatGPT plan. ``opencode`` calls OpenCode Go
+    over its inference API with your Go key. There is never an automatic
     fallback between them, and an explicit ``model`` only affects Harvey —
-    your own Claude Code / Codex settings are never read or changed.
+    your own Claude Code / Codex / OpenCode settings are never read or changed.
     """
 
     provider: str = "claude"
     model: str = ""  # empty = the provider's own default
     reasoning_effort: str = ""  # codex only; empty = model default
+    # OpenCode Go only. Empty base_url means the Go inference root.
+    base_url: str = ""
+    max_tokens: int = 8192  # OpenCode Go only
+    # Go Plus doubles every model's monthly allowance; set this when you are
+    # on Go Plus (or a custom plan). 0 uses the per-model Go plan default.
+    monthly_limit_usd: float = 0.0
 
     @field_validator("provider", mode="before")
     @classmethod
@@ -551,6 +558,42 @@ class BrainConfig(BaseModel):
                 f"Use one of: {', '.join(CODEX_REASONING_EFFORTS)}."
             )
         return v
+
+    @field_validator("base_url", mode="before")
+    @classmethod
+    def _valid_base_url(cls, v) -> str:
+        v = str(v or "").strip().rstrip("/")
+        if v and not v.startswith(("https://", "http://")):
+            raise ValueError("base_url must start with https:// (or http:// for a local test).")
+        if any(ch.isspace() or ord(ch) < 32 for ch in v):
+            raise ValueError("base_url must not contain spaces or control characters.")
+        return v
+
+    @field_validator("max_tokens", mode="before")
+    @classmethod
+    def _valid_max_tokens(cls, v) -> int:
+        if v is None or v == "":
+            return 8192
+        try:
+            value = int(v)
+        except (TypeError, ValueError):
+            raise ValueError("max_tokens must be a whole number.")
+        if not 256 <= value <= 32768:
+            raise ValueError("max_tokens must be between 256 and 32768.")
+        return value
+
+    @field_validator("monthly_limit_usd", mode="before")
+    @classmethod
+    def _valid_monthly_limit(cls, v) -> float:
+        if v is None or v == "":
+            return 0.0
+        try:
+            value = float(v)
+        except (TypeError, ValueError):
+            raise ValueError("monthly_limit_usd must be a number.")
+        if value < 0:
+            raise ValueError("monthly_limit_usd cannot be negative.")
+        return value
 
 
 class WriterConfig(BaseModel):
@@ -603,6 +646,8 @@ class EnvConfig(BaseModel):
     m365_tenant_id: str = ""
     # Optional: only used when compliance.precleared.enabled is true.
     precleared_api_key: str = ""
+    # OpenCode Go brain (brain.provider: opencode).
+    opencode_api_key: str = ""
 
 
 def _format_validation_error(e: ValidationError) -> str:
@@ -716,6 +761,8 @@ def load_env() -> EnvConfig:
         m365_client_id=os.getenv("M365_CLIENT_ID", "").strip(),
         m365_tenant_id=os.getenv("M365_TENANT_ID", "").strip(),
         precleared_api_key=os.getenv("PRECLEARED_API_KEY", "").strip(),
+        opencode_api_key=(os.getenv("OPENCODE_API_KEY", "")
+                          or os.getenv("OPENCODE_GO_API_KEY", "")).strip(),
     )
     return env
 
