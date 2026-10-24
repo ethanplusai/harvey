@@ -56,6 +56,8 @@ function authFetch(path, opts) {
   o.credentials = 'omit';
   o.cache = 'no-store';
   o.redirect = 'error';
-  o.referrerPolicy = 'no-referrer';
+  // Not 'no-referrer': per the Fetch spec that makes a POST's Origin "null"
+  // (Safari follows it), and the guard then refuses every action.
+  o.referrerPolicy = 'same-origin';
   return fetch(url.href, o);
 }

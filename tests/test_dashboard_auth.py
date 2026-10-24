@@ -830,7 +830,7 @@ def test_fragment_token_moves_to_session_storage_and_leaves_the_url():
     assert out["call"]["url"] == "http://127.0.0.1:5555/api/companies"
     assert out["call"]["ctype"] == "application/json"
     assert out["call"]["mode"] == "same-origin" and out["call"]["credentials"] == "omit"
-    assert out["call"]["redirect"] == "error" and out["call"]["referrerPolicy"] == "no-referrer"
+    assert out["call"]["redirect"] == "error" and out["call"]["referrerPolicy"] == "same-origin"
 
 
 def test_bad_fragment_is_stripped_but_not_stored():
