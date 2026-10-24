@@ -64,6 +64,17 @@ minor versions can still change behaviour.
 
 ### Fixed
 
+- **A reply stops the cold email to the whole company.** Stop-on-reply was
+  per person, so when an owner wrote back "not interested" the office
+  manager still got the follow-up. Now a reply (not a bounce, an
+  out-of-office or a "wrong person, ask Bob") cancels the sequence emails
+  queued for everyone else at that company, and Harvey won't write, stage
+  or send cold email to them later; the Outbox and log say which colleague
+  replied. Colleagues are the same company; or, when Harvey has no company
+  for one of them, the same email domain, and only if it's that company's
+  own domain, never a shared one like gmail.com or rr.com. Instantly
+  campaigns Harvey creates turn on Instantly's own `stop_for_company`.
+
 - **Gmail reads replies in the charset they were written in** (from #58 by
   xiaoheiai4719-collab). Every reply was decoded as UTF-8, so a reply sent
   as ISO-8859-1 or Windows-1252 ("Je préfère mardi") reached the model

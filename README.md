@@ -329,7 +329,7 @@ Harvey feels like one agent. Underneath it's five, each loaded with different sk
 |---|---|
 | **Scout** | Scores and personalizes what the collectors found. Python does the searching and the email resolution; the selected model is used only where judgment is actually needed — which is what keeps the token cost sane. |
 | **Writer** | Generates 3-email sequences. Email 1 under 75 words, email 2 under 75, email 3 under 40. Hard ban list on AI-sounding language. |
-| **Sender** | Renders merge variables per prospect and stages each email into the outbox with a send time. Drains due and approved items with human-like pacing, enforcing the daily cap and stop-on-reply. |
+| **Sender** | Renders merge variables per prospect and stages each email into the outbox with a send time. Drains due and approved items with human-like pacing, enforcing the daily cap and stop-on-reply: a reply from anyone at a company stops the sequence to everyone there. |
 | **Handler** | Polls for replies, dedups them, classifies intent, advances the conversation stage, and queues responses through the same approval ladder. Detects bounces, marks the address invalid, cancels that prospect's queued sends, and trips a global kill switch past a bounce-rate threshold. |
 | **Analyst** | Runs on idle cycles. Pipeline stats, campaign performance, intent distribution, what's actually working. |
 

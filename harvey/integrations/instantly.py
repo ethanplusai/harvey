@@ -151,7 +151,10 @@ class InstantlyClient:
 
     async def create_campaign(self, name: str) -> dict | None:
         """Create a new campaign. Returns campaign data with id."""
-        result = await self._request("POST", "/campaigns", {"name": name})
+        # stop_for_company: a reply from anyone at a company stops the
+        # sequence to everyone there, as on Harvey's own providers.
+        result = await self._request("POST", "/campaigns",
+                                     {"name": name, "stop_for_company": True})
         if isinstance(result, dict):
             logger.info(f"Created campaign: {name} (id={result.get('id')})")
             return result

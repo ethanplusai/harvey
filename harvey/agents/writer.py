@@ -77,6 +77,11 @@ class Writer:
             p for p in new_prospects
             if p.email and (p.email_status or "guess") in WRITABLE_EMAIL_STATUSES
         ]
+        # Someone at their company already replied: no cold email to write.
+        prospects_with_email = [
+            p for p in prospects_with_email
+            if not await self.state.colleague_who_replied(p.id)
+        ]
         if not prospects_with_email:
             logger.info(
                 "Writer: No prospects with deliverable (verified/risky) emails yet."

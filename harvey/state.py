@@ -47,6 +47,58 @@ HELD_FOR_REVIEW = "held for your review: "
 # Set while the heartbeat holds sending because replies couldn't all be read
 # (JSON: since, last_seen, reason), so Today and `harvey status` can say so.
 SENDS_HELD_KEY = "sends_held"
+# Outbox error on a sequence email cancelled because someone else at the
+# company replied: one answer from a company stops the cold email to all of it.
+COLLEAGUE_REPLIED = "a colleague replied"
+# Setting set (to their name) when someone's reply stops their company.
+# An out-of-office or a "wrong person" doesn't set it.
+COMPANY_STOP_KEY = "company_stop:"
+# Shared mailbox providers: two people on one aren't colleagues.
+FREE_MAIL_DOMAINS = frozenset({
+    "gmail.com", "googlemail.com", "yahoo.com", "ymail.com", "hotmail.com",
+    "outlook.com", "live.com", "msn.com", "aol.com", "icloud.com", "me.com",
+    "mac.com", "proton.me", "protonmail.com", "gmx.com", "gmx.de", "web.de",
+    "mail.com", "zoho.com", "yandex.com", "yandex.ru", "qq.com", "163.com",
+    "comcast.net", "att.net", "verizon.net", "sbcglobal.net", "bellsouth.net",
+    "cox.net", "charter.net", "hey.com", "fastmail.com", "pm.me", "rr.com",
+    "earthlink.net", "frontier.com", "frontiernet.net", "windstream.net",
+    "centurylink.net", "optonline.net", "roadrunner.com", "juno.com",
+    "netzero.net", "mindspring.com", "embarqmail.com", "suddenlink.net",
+    "yahoo.co.uk", "yahoo.ca", "yahoo.com.au", "hotmail.co.uk", "hotmail.ca",
+    "live.co.uk", "live.ca", "btinternet.com", "sky.com", "virginmedia.com",
+    "talktalk.net", "ntlworld.com", "shaw.ca", "rogers.com", "sympatico.ca",
+    "telus.net", "bigpond.com", "optusnet.com.au", "orange.fr", "free.fr",
+    "wanadoo.fr", "laposte.net", "t-online.de", "libero.it", "mail.ru",
+    "naver.com", "seznam.cz", "wp.pl", "o2.pl", "tutanota.com", "tuta.io",
+})
+
+
+def _email_domain(alias: str) -> str:
+    return f"lower(substr({alias}.email, instr({alias}.email, '@') + 1))"
+
+
+def _colleagues(p: str, c: str) -> str:
+    """SQL: prospect ``c`` works with prospect ``p``. The same company; or,
+    when either has no company, the same email domain, never a shared one
+    and never one that isn't the known side's own company domain."""
+    domain = _email_domain(p)
+    free = ", ".join(f"'{d}'" for d in sorted(FREE_MAIL_DOMAINS))
+    own = ("(SELECT lower(co.domain) FROM companies co WHERE co.id = {x}.company_id)")
+    return (
+        f"{c}.id != {p}.id AND ("
+        f"({p}.company_id != '' AND {c}.company_id = {p}.company_id) OR "
+        f"(({p}.company_id = '' OR {c}.company_id = '') "
+        f"AND instr({p}.email, '@') > 0 AND {domain} != '' AND {domain} NOT IN ({free}) "
+        f"AND {_email_domain(c)} = {domain} "
+        f"AND ({p}.company_id = '' OR {domain} = {own.format(x=p)}) "
+        f"AND ({c}.company_id = '' OR {domain} = {own.format(x=c)})))"
+    )
+
+
+def _company_answered(p: str) -> str:
+    """SQL: someone at prospect ``p``'s company has replied."""
+    return (f"EXISTS (SELECT 1 FROM prospects c, settings s "
+            f"WHERE s.key = '{COMPANY_STOP_KEY}' || c.id AND {_colleagues(p, 'c')})")
 # Outbox error on what autopilot had approved when it was turned off.
 AUTOPILOT_OFF_REASON = "waiting for you: autopilot was turned off before it went out"
 # Outbox errors starting with this: the send was cut off and the email may
@@ -1238,6 +1290,47 @@ class StateManager:
             await db.commit()
             return cursor.rowcount
 
+    async def stop_company(self, prospect_id: str) -> int:
+        """Someone replied: mark their company as answered and cancel the
+        sequence emails queued for everyone else there. Replies Harvey owes
+        a colleague who wrote in themselves are not touched."""
+        async with self._connect() as db:
+            db.row_factory = aiosqlite.Row
+            async with db.execute(
+                "SELECT first_name, last_name, email FROM prospects WHERE id = ?",
+                (prospect_id,),
+            ) as cursor:
+                row = await cursor.fetchone()
+            if row is None:
+                return 0
+            who = " ".join(x for x in (row["first_name"], row["last_name"]) if x) or row["email"]
+            await db.execute(
+                "INSERT OR REPLACE INTO settings (key, value, updated_at) VALUES (?, ?, ?)",
+                (COMPANY_STOP_KEY + prospect_id, who, _utcnow().isoformat()),
+            )
+            cursor = await db.execute(
+                "UPDATE outbox SET status = 'cancelled', error = ?, updated_at = ? "
+                "WHERE kind = 'sequence' AND status IN ('pending_review', 'approved') "
+                "AND prospect_id IN (SELECT c.id FROM prospects c, prospects p "
+                f"WHERE p.id = ? AND {_colleagues('p', 'c')})",
+                (f"{COLLEAGUE_REPLIED} ({who})", _utcnow().isoformat(), prospect_id),
+            )
+            await db.commit()
+            return cursor.rowcount
+
+    async def colleague_who_replied(self, prospect_id: str) -> str | None:
+        """The name of someone at this prospect's company who has replied,
+        or None. A cold email to them is no longer cold: the company answered."""
+        async with self._connect() as db:
+            async with db.execute(
+                "SELECT s.value FROM prospects p, prospects c, settings s "
+                f"WHERE p.id = ? AND s.key = '{COMPANY_STOP_KEY}' || c.id "
+                f"AND {_colleagues('p', 'c')} LIMIT 1",
+                (prospect_id,),
+            ) as cursor:
+                row = await cursor.fetchone()
+        return row[0] if row else None
+
     async def count_outbox_sent(self) -> int:
         async with self._connect() as db:
             async with db.execute(
@@ -1868,9 +1961,9 @@ class StateManager:
         marks = ",".join("?" for _ in WRITABLE_EMAIL_STATUSES)
         async with self._connect() as db:
             async with db.execute(
-                f"""SELECT COUNT(*) FROM prospects
+                f"""SELECT COUNT(*) FROM prospects p
                     WHERE status = 'new' AND email != ''
-                      AND email_status IN ({marks})""",
+                      AND email_status IN ({marks}) AND NOT {_company_answered('p')}""",
                 WRITABLE_EMAIL_STATUSES,
             ) as cursor:
                 return (await cursor.fetchone())[0]
