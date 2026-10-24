@@ -84,9 +84,10 @@ usage:
 # PECR, US CAN-SPAM, Canada's CASL, Germany's UWG and France's rules? Any other
 # answer holds the email back, with the reason in the Outbox. One check per
 # address; 10 a day free without a key, 25 with a free key (PRECLEARED_API_KEY
-# in .env). Applies to the native providers (gmail, smtp). If all your prospects
-# are in one country, set prospect_country: Precleared uses it only when it can't
-# tell the country from the address, company records or the company's website.
+# in .env). Applies to the native providers (gmail, microsoft, smtp). If all
+# your prospects are in one country, set prospect_country: Precleared uses it
+# only when it can't tell the country from the address, company records or the
+# company's website.
 compliance:
   # Added under every cold email (never replies). US law (CAN-SPAM) requires a
   # postal address you receive mail at: a street address, PO box or virtual

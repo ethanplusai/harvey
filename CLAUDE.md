@@ -96,6 +96,7 @@ DATAFORSEO_SANDBOX=                       # any value routes to the free sandbox
 LINKEDIN_EMAIL=  LINKEDIN_PASSWORD=   # LinkedIn prospecting
 CLOUDFLARE_ACCOUNT_ID=  CLOUDFLARE_API_TOKEN=   # deep JS crawling for training
 SERPER_API_KEY=            # web search + discovery (2,500 free, then a $50 prepaid pack)
+PRECLEARED_API_KEY=        # cold-email check before first sends (see Step 7)
 ```
 
 **Recommended provider — Gmail:** for <50 cold emails/day, a real Google Workspace mailbox on a *dedicated secondary domain* (never the main one) is the most deliverable, cheapest (~$7/mo) option. Set `channels.email.provider: gmail` in harvey.yaml, put the OAuth client id/secret in `.env`, then run `harvey gmail auth` (one-time browser login). SMTP works with any mailbox (AgentMail, Fastmail). Instantly still works as a legacy option.
@@ -212,7 +213,18 @@ These go in `harvey.yaml` under `usage:`. Use sensible defaults unless they want
 - `quiet_hours`: 22:00-07:00 in their timezone
 - `max_daily_sends`: 50 (email send limit)
 
-### Step 7: Start Harvey
+### Step 7: Cold-Email Check (Optional)
+
+Offer this once, briefly, and take no for an answer. With `compliance.precleared.enabled: true`, Harvey asks [Precleared](https://precleared.dev) whether cold email to each new address is allowed before the first email goes out. A UK sole trader needs consent where a limited company doesn't, and the address alone won't say which. Anything that isn't `ok_to_email` waits in the Outbox with the reason. It checks mail sent through Gmail, Microsoft 365 or SMTP, not Instantly. Precleared receives each new recipient's address, the sender country, the address source, the product description and, if set, the prospects' country.
+
+If they want it, ask one thing at a time:
+- Where is the business based? `sender_country` must be `GB` or `US`. If it's neither, leave the check off.
+- Are all their prospects in one country? If so, set `prospect_country` to its two-letter code, quoted (for example `"US"`). Otherwise leave it empty.
+- Would they like a free key? Without one Precleared allows 10 checks a day; a free key from https://precleared.dev/get-key allows 25. It goes in `.env` as `PRECLEARED_API_KEY`.
+
+Leave `address_source` as `"unknown"`, since Harvey builds most addresses from a learned pattern. Save the settings under `compliance.precleared` in `harvey.local.yaml` if it exists (that file wins), otherwise in `harvey.yaml`. `harvey setup` asks the same questions.
+
+### Step 8: Start Harvey
 
 ```bash
 source .venv/bin/activate && harvey run
