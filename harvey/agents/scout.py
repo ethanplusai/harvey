@@ -1692,14 +1692,8 @@ Respond ONLY with the JSON array."""
 
     def _signal_role_keywords(self) -> list[str]:
         """Role keywords that indicate in-market intent (config or ICP titles)."""
-        keywords = [
-            k.strip().lower()
-            for k in (getattr(self.config.icp, "hiring_signals", None) or [])
-            if k.strip()
-        ]
-        if keywords:
-            return keywords
-        return [t.strip().lower() for t in self.config.icp.titles if t.strip()]
+        from harvey.collectors.ats import role_keywords
+        return role_keywords(self.config.icp)
 
     async def _enrich_company_signals(
         self, company_id: str, domain: str, homepage_html: str = ""

@@ -32,6 +32,24 @@ problem this quarter.
 - Only reference the specific role if the notes name it. "Hiring in growth"
   is fine; inventing "hiring 3 AEs" is not.
 
+#### Using a job posting as the hook
+When the signal is a posting from their job board ("Head of Growth ·
+Marketing · Remote · posted 2026-10-01"), it is a public page anyone can
+read. Write like someone who read it, nothing more.
+
+- **Cite the role as posted.** "Saw the Head of Growth opening" — the title
+  they used, not a paraphrase that changes the seniority.
+- **Never guess salary, headcount, budget, or why the seat is open.** Not
+  "the role you're paying $180k for", not "your growth team of 4", not
+  "since your last Head of Growth left".
+- **Don't imply inside knowledge.** No "heard you're struggling to fill it",
+  no "I know the team is stretched". You saw a posting; say so or say less.
+- **Mind the date.** A posting date more than ~60 days old may be filled or
+  evergreen: talk about the function ("you're building out growth"), not
+  "your new opening". No date, no "just posted".
+- **One role, not the list.** If they're hiring for several matching roles,
+  pick the most relevant; a list of their openings reads as surveillance.
+
 ### Tech-stack signal (a tool detected on their site)
 You know something concrete about how they operate. Use it to place your
 product in their actual stack, or to point at a gap.

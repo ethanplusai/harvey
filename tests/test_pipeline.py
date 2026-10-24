@@ -110,7 +110,7 @@ def chain(monkeypatch):
     def install(businesses):
         monkeypatch.setitem(D.PROVIDERS, "fake", FakeDiscovery(businesses))
 
-        async def fake_profile(state, companies):
+        async def fake_profile(state, companies, **_):
             seen["profiled"] = [c["domain"] for c in companies]
             for company in companies:
                 await state.add_observation(
@@ -192,7 +192,7 @@ async def test_a_failing_profile_stage_does_not_lose_the_discovery(
         state, config, monkeypatch, chain):
     chain([D.Business(name="Baker", domain="baker.com", provider="fake")])
 
-    async def boom(state, companies):
+    async def boom(state, companies, **_):
         raise RuntimeError("network gone")
     monkeypatch.setattr("harvey.collectors.profile.profile_companies", boom)
 

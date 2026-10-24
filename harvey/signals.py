@@ -214,11 +214,29 @@ SIGNAL_CATALOG: list[dict] = [
     {
         "code": "HIRING_ROLE",
         "label": "Hiring for a relevant role",
-        "description": "An open role on their careers page that implies they're buying in your category right now.",
+        "description": (
+            "An open role that implies they're buying in your category right now: one "
+            "of your hiring_signals roles (or ICP titles) on the Greenhouse, Lever, "
+            "Ashby or Workable board their site links to, with department, location "
+            "and posting date, or a role listed on their careers page."
+        ),
         "category": "profile",
         "value_type": "text",
         "collector": "profile",
-        "cost_note": "free (careers page)",
+        "cost_note": "free (careers page or public job-board feed)",
+        "confidence_floor": 0.0,
+    },
+    {
+        "code": "OPEN_ROLES",
+        "label": "Open roles on their job board",
+        "description": (
+            "How many roles are open on the Greenhouse, Lever, Ashby or Workable board "
+            "their site links to. A growing team is a budget signal; zero is a quiet one."
+        ),
+        "category": "profile",
+        "value_type": "num",
+        "collector": "profile",
+        "cost_note": "free (public job-board feed, one request)",
         "confidence_floor": 0.0,
     },
 

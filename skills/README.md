@@ -31,7 +31,7 @@ When an agent runs, it calls `brain.load_skills_for_agent("agent_name")` which c
 - **`lead_qualification.md`** — BANT screening, ICP scoring, MEDDIC framework, disqualification criteria
 - **`account_navigation.md`** — Multi-contact handling, entry point strategy, multi-threading rules
 - **`selling_to_startups.md`** — Writing to early-stage founders: who reads, timing around a YC batch and Demo Day, what not to do, handling their replies. Used automatically for YC-backed prospects.
-- **`signal_playbook.md`** — Turning buying signals (hiring, tech stack, funding) into the email's first line; which signal wins when there are several
+- **`signal_playbook.md`** — Turning buying signals (hiring, tech stack, funding) into the email's first line; which signal wins when there are several; using a job posting as the hook without guessing or implying inside knowledge
 - **`email_frameworks.md`** — Cold email copywriting rules, banned AI patterns, 2026 reply-rate data (length, offer CTAs, cadence, no tracking), 5 frameworks (AIDA, PAS, BAB, QVC, 3Ps)
 - **`sales_methodology.md`** — ABC Loop, conversation flow, tone calibration, ethical guidelines
 - **`offer_strategy.md`** — Offer ladder by engagement level, closing mechanics, timing rules

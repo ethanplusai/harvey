@@ -1511,7 +1511,7 @@ def _discovery_queries(body: dict, config):
     from harvey.collectors.discover import build_queries, preset_problem
 
     preset = str(body.get("preset") or "")
-    problem = preset_problem(preset, str(body.get("provider") or ""))
+    problem = preset_problem(preset, str(body.get("provider") or ""), config=config)
     if problem:
         raise ValueError(problem)
     cities = [c.strip() for c in (body.get("cities") or []) if c.strip()] or None
@@ -1661,7 +1661,13 @@ async def start_profile():
         async def _go():
             global _discovery_report
             try:
-                companies, observations, _ = await run_profile_stage(state, limit=200)
+                try:
+                    from harvey.config import load_config
+                    config = load_config()
+                except Exception:
+                    config = None   # still profiles; no role is singled out
+                companies, observations, _ = await run_profile_stage(
+                    state, limit=200, config=config)
                 _discovery_report = {
                     "profiled_companies": companies,
                     "profile_observations": observations,

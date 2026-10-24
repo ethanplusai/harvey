@@ -216,3 +216,21 @@ def test_an_approved_edit_is_what_gets_sent(client):
     # The edit as saved, with the compliance footer the Sender adds underneath.
     assert [(m["subject"], m["body"].split("\n\n" + LINE)[0]) for m in sent] == [
         ("your portal", "Hello Proven Resource team,\n\nHaris")]
+
+
+def test_a_closed_role_shows_as_not_hiring_to_the_reviewer(client):
+    state, _ = asyncio.run(_seed(client.db_path))
+
+    async def more():
+        cid = (await dash.query_db("SELECT id FROM companies"))[0]["id"]
+        await state.add_observations([
+            {"company_id": cid, "signal_code": "HIRING_ROLE", "value_text": "Head of Growth",
+             "run_id": "r1", "observed_at": "2026-09-01 10:00:00"},
+            # The next profile read their board: nothing relevant open now.
+            {"company_id": cid, "signal_code": "HIRING_ROLE", "value_num": 0, "value_text": "",
+             "run_id": "r2", "observed_at": "2026-10-01 10:00:00"},
+        ])
+    asyncio.run(more())
+    signals = client.get("/api/outbox").json()["pending"][0]["context"]["signals"]
+    hiring = [v for k, v in signals.items() if "hiring" in k.lower() or k == "HIRING_ROLE"]
+    assert hiring == ["no"]

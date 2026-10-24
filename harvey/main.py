@@ -371,7 +371,7 @@ async def heartbeat(stop_event: asyncio.Event | None = None):
             # Claude budget the rest of this loop is rationing — and it is what
             # turns a name and a domain into something worth writing about.
             if summary.get("unprofiled", 0):
-                tasks.append(("profile", run_profile_stage(state, limit=25)))
+                tasks.append(("profile", run_profile_stage(state, limit=25, config=config)))
 
             outcomes = await _run_agents(tasks)
 

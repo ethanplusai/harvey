@@ -530,8 +530,13 @@ def cmd_profile(args):
 
         print(f"\n  {pending} companies need profiling. Reading up to "
               f"{args.limit}...\n")
+        try:
+            from harvey.config import load_config
+            config = load_config()
+        except Exception:
+            config = None   # still profiles; no role is singled out as hiring intent
         companies, observations, _ = await run_profile_stage(
-            state, limit=args.limit, stale_days=args.stale_days)
+            state, limit=args.limit, stale_days=args.stale_days, config=config)
         print(f"  Read {companies} sites → {observations} observations (free)")
         print("\n  See what turned up: harvey dashboard → Signals\n")
 
@@ -575,7 +580,7 @@ def cmd_discover(args):
         # Semicolons, not commas: "Denver, CO" is one city, not two.
         cities = [c.strip() for c in args.city.split(";") if c.strip()] or None
         preset = getattr(args, "preset", "") or ""
-        problem = preset_problem(preset, args.provider)
+        problem = preset_problem(preset, args.provider, config=config)
         if problem:
             print(f"\n  {problem}\n")
             sys.exit(2)
@@ -918,10 +923,12 @@ def main():
                      help="Max records per query (default: 100)")
     sub.add_argument("--max-spend", type=float, default=1.0,
                      help="Hard cap in dollars (default: 1.00)")
-    sub.add_argument("--preset", default="", choices=["", "yc"],
+    sub.add_argument("--preset", default="", choices=["", "yc", "hiring"],
                      help="A built-in search instead of your ICP's industries. "
-                          "yc: startups whose own site says they're YC-backed "
-                          "(needs serper or dataforseo_serp)")
+                          "yc: startups whose own site says they're YC-backed. "
+                          "hiring: companies whose own careers pages list one of "
+                          "your hiring_signals roles (else ICP titles). Both need "
+                          "serper or dataforseo_serp")
     sub.add_argument("--no-profile", action="store_true",
                      help="Don't profile what was found (profiling is free)")
     sub.set_defaults(func=cmd_discover)

@@ -66,6 +66,22 @@ JUNK_DOMAIN_PATTERNS = tuple(re.compile(p, re.I) for p in (
     r"(^|\.)(crunchbase|techcrunch|wellfound|angel|tracxn|pitchbook)\.",
     r"(^|\.)(cbinsights|producthunt|f6s|dealroom|growjo|owler|zoominfo)\.",
     r"(^|\.)github\.com$",
+    # hosted job boards: the company is whoever's board it is, not the host
+    r"(^|\.)(job-)?boards\.(eu\.)?greenhouse\.io$",
+    r"(^|\.)jobs\.(eu\.)?lever\.co$",
+    r"(^|\.)jobs\.ashbyhq\.com$",
+    r"(^|\.)(apply|jobs)\.workable\.com$",
+    r"(^|\.)(jobs|careers)\.smartrecruiters\.com$",
+    r"(^|\.)jobs\.jobvite\.com$",
+    r"(^|\.)ats\.rippling\.com$",
+    r"(^|\.)(myworkdayjobs|applytojob)\.com$",
+    # a company's board on these lives on a subdomain; the bare domain is
+    # the vendor, which may be someone's prospect
+    r"\.(icims|bamboohr|recruitee|teamtailor)\.com$",
+    r"\.breezy\.hr$",
+    r"\.jobs\.personio\.(de|com)$",
+    # job sites named for the job: jobs.com, careers.co.uk
+    r"^(jobs|careers)\.((co|com|org|net|ac)\.)?[a-z]{2,}$",
     # infrastructure that is never a prospect
     r"(^|\.)(google|bing|yahoo|duckduckgo|amazon|apple|microsoft)\.",
     r"(wordpress|wix|squarespace|shopify|godaddy|weebly|webflow)\.com$",
@@ -809,11 +825,43 @@ PRESETS = {
                  "-site:linkedin.com -site:crunchbase.com"),
         "local": False,
     },
+    # Companies hiring for one of your hiring_signals roles (else ICP titles),
+    # found by their OWN careers pages. The hosted boards are excluded: a
+    # boards.greenhouse.io hit names a board, not a website to profile.
+    # Profiling then reads the board their site links to and records the
+    # role (HIRING_ROLE); the search hit alone records nothing.
+    "hiring": {
+        "label": "Companies hiring for your roles",
+        "kinds": ("serp",),
+        "term": ('"{role}" careers {industry} -site:greenhouse.io -site:lever.co '
+                 "-site:ashbyhq.com -site:workable.com -site:smartrecruiters.com "
+                 "-site:jobvite.com -site:icims.com -site:bamboohr.com -site:recruitee.com "
+                 "-site:teamtailor.com -site:personio.de -site:breezy.hr -site:applytojob.com "
+                 "-site:myworkdayjobs.com -site:ats.rippling.com -site:linkedin.com "
+                 "-site:indeed.com -site:glassdoor.com -site:ziprecruiter.com"),
+        "local": False,
+    },
 }
 
+# A hit on careers.acme.com is acme.com's careers page.
+_CAREERS_HOST = re.compile(r"^(careers|jobs|join|work|apply|hiring)\.", re.I)
+_SECOND_LEVEL_SUFFIX = {"co", "com", "org", "net", "ac", "gov", "edu", "ltd", "plc", "or", "ne", "go"}
 
-def preset_problem(preset: str, provider_key: str) -> str | None:
-    """Why ``preset`` can't run on ``provider_key``, or None."""
+
+def company_host(domain: str) -> str:
+    """careers.acme.com → acme.com. Never down to a public suffix: jobs.co.uk
+    stays jobs.co.uk (and is junk), not co.uk."""
+    stripped = _CAREERS_HOST.sub("", domain)
+    labels = stripped.split(".")
+    if stripped == domain or len(labels) < 2:
+        return domain
+    if len(labels) == 2 and labels[0] in _SECOND_LEVEL_SUFFIX and len(labels[1]) == 2:
+        return domain
+    return stripped
+
+
+def preset_problem(preset: str, provider_key: str, config=None) -> str | None:
+    """Why ``preset`` can't run on ``provider_key`` (with ``config``), or None."""
     if not preset:
         return None
     spec = PRESETS.get(preset)
@@ -824,6 +872,11 @@ def preset_problem(preset: str, provider_key: str) -> str | None:
         names = ", ".join(k for k, p in PROVIDERS.items() if p.kind in spec["kinds"])
         return (f"The {spec['label']} preset is a web search, so it needs a search "
                 f"provider ({names}), not {provider_key}.")
+    if "{role}" in spec["term"] and config is not None:
+        from harvey.collectors.ats import role_keywords
+        if not role_keywords(getattr(config, "icp", None)):
+            return (f"The {spec['label']} preset searches for roles, and harvey.yaml has "
+                    "none: set icp.hiring_signals (or icp.titles).")
     return None
 
 
@@ -840,7 +893,9 @@ def build_queries(config, cities: list[str] | None = None,
     terms = list(icp.industries) or [config.product.name]
     spec = PRESETS.get(preset) if preset else None
     if spec:
-        terms = [spec["term"].format(industry=t) for t in terms]
+        from harvey.collectors.ats import role_keywords
+        roles = role_keywords(icp) if "{role}" in spec["term"] else [""]
+        terms = [spec["term"].format(industry=t, role=r) for r in roles for t in terms]
         places = cities if cities is not None else ([""] if not spec["local"] else list(icp.geography) or [""])
     else:
         places = cities if cities is not None else list(icp.geography) or [""]
@@ -949,6 +1004,10 @@ async def run_discovery(
                 report.found += len(found)
                 batch = []
                 for biz in found:
+                    if query.preset == "hiring" and biz.domain and not is_junk(biz.domain):
+                        # Judged on the host as found first: jobs.lever.co
+                        # stripped would be lever.co, a vendor, not junk.
+                        biz.domain = company_host(biz.domain)
                     if is_junk(biz.domain, biz.raw_title or biz.name):
                         report.junk += 1
                         continue

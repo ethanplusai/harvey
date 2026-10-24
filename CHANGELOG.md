@@ -9,6 +9,27 @@ minor versions can still change behaviour.
 
 ### Added
 
+- **Open roles from the job board a company actually uses.** When a
+  company's own site links or embeds a Greenhouse, Lever, Ashby or Workable
+  board, profiling reads that board's public JSON feed (one request, capped
+  at 8 MB, never a guessed token) instead of guessing from careers-page
+  HTML, which on most startup sites has no roles in it at all because a
+  script loads them. `HIRING_ROLE` now records the roles matching
+  `icp.hiring_signals` (else `icp.titles`) with department, location,
+  posting date and the posting's URL; the new `OPEN_ROLES` signal counts the
+  board's open roles. When the board lists no matching role, `HIRING_ROLE`
+  is recorded as 0, so a role that has closed stops counting in cohorts and
+  shows as "no" to the reviewer. Matching folds VP/Vice President, CMO/Chief
+  Marketing Officer and similar, and "Assistant to the CEO" is not a CEO
+  role. Pages linking three or more boards, none named like the site (an
+  agency or a VC portfolio page), are attributed to nobody. Sites without a
+  board still get the careers-page read.
+  The new `hiring` discovery preset (`harvey discover --preset hiring`, or
+  *Look for: Companies hiring for your roles*) searches through Serper or
+  DataForSEO SERP for companies whose own careers pages list your roles.
+  `skills/signal_playbook.md` has a short section on using a posting as the
+  hook: cite the role as posted, never guess salary or headcount, don't
+  imply inside knowledge, mind the posting date.
 - **A built-in skill for selling to YC startups.** The `yc` discovery preset
   (`harvey discover --preset yc`, or *Look for: YC startups* on Discover)
   searches your industries, through Serper or DataForSEO SERP, for companies

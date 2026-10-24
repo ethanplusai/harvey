@@ -60,12 +60,14 @@ async def run_profile_stage(
     state,
     limit: int = 100,
     stale_days: int = PROFILE_STALE_DAYS,
+    config=None,
 ) -> tuple[int, int, str]:
     """Profile whatever currently needs it.
 
     Returns (companies, observations, run_id). Free — three HTTP requests per
     business, no browser, no model call — so it is safe to run on every
-    heartbeat without touching the Claude budget.
+    heartbeat without touching the Claude budget. ``config`` says which open
+    roles count as hiring intent (``icp.hiring_signals``, else ``icp.titles``).
     """
     from harvey.collectors.profile import profile_companies
 
@@ -75,7 +77,7 @@ async def run_profile_stage(
         return 0, 0, ""
 
     logger.info("profile: %d companies need a look", len(pending))
-    observations, run_id = await profile_companies(state, pending)
+    observations, run_id = await profile_companies(state, pending, config=config)
     return len(pending), observations, run_id
 
 
@@ -117,7 +119,7 @@ async def run_prospecting(
     # have been interrupted, and observations go stale on a schedule.
     try:
         companies, observations, run_id = await run_profile_stage(
-            state, limit=profile_limit)
+            state, limit=profile_limit, config=config)
         report.profiled_companies = companies
         report.profile_observations = observations
         report.profile_run_id = run_id

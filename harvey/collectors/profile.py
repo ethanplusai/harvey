@@ -1,7 +1,8 @@
 """PROFILE collector — what a business is, from three HTTP requests.
 
 Cost: $0. No browser, no model. Homepage + robots.txt + sitemap.xml (+ the
-team and careers pages when present), then regex over HTML we already hold.
+team and careers pages when present, and the company's public job-board feed
+when its site links one), then regex over HTML we already hold.
 
 This is the highest value-per-effort stage in the pipeline: it produces the
 signals that actually make an email specific — who their incumbent agency is,
@@ -19,6 +20,8 @@ from urllib.parse import urljoin, urlparse
 import httpx
 
 from harvey.public_http import public_http_client
+
+from harvey.collectors.ats import detect_board, matching_roles, read_board, role_keywords
 
 from harvey.collectors.discover import (
     name_from_domain, name_matches_domain, site_name_from_html,
@@ -109,6 +112,17 @@ TEAM_PATHS = ("/team", "/about", "/about-us", "/our-team", "/staff",
               "/leadership", "/meet-the-team", "/company/team")
 CAREERS_PATHS = ("/careers", "/jobs", "/join-us", "/employment", "/hiring",
                  "/about/careers", "/careers/")
+# A homepage link to the careers page beats guessing paths: careers.acme.com
+# and /company/jobs are as common as /careers. Whole path segments and whole
+# anchors only: "/scheduling/hiring-marketplaces" is a product page.
+_CAREERS_HOST = re.compile(r"^(careers?|jobs|join)\.", re.I)
+_CAREERS_SEGMENTS = frozenset("""careers career jobs join join-us joinus work-with-us
+open-roles open-positions hiring""".split())
+_CAREERS_ANCHOR = re.compile(r"^(careers?|jobs|join us|join (our|the) team|we['’]?re hiring"
+                             r"|open (roles|positions)|work with us)$", re.I)
+# Roles recorded per company from a board. The first few say it; twenty rows
+# of "Account Executive, <city>" don't say more.
+MAX_BOARD_ROLES = 5
 CONTACT_PATHS = ("/contact", "/contact-us", "/get-a-quote", "/free-estimate",
                  "/request-estimate", "/quote")
 
@@ -373,10 +387,13 @@ class ProfileCollector:
     even if the data is sitting right there in the HTML.
     """
 
-    def __init__(self, state, confirmed: set[str] | None = None, timeout: float = 12.0):
+    def __init__(self, state, confirmed: set[str] | None = None, timeout: float = 12.0,
+                 role_keywords: list[str] | None = None):
         self.state = state
         self.confirmed = confirmed if confirmed is not None else set()
         self.timeout = timeout
+        # icp.hiring_signals (or icp.titles): which open roles are worth a row.
+        self.role_keywords = list(role_keywords or [])
         self._client: httpx.AsyncClient | None = None
         self.site_names: dict[str, str] = {}
 
@@ -432,6 +449,64 @@ class ProfileCollector:
             if html and len(html) > 500:
                 return url, html
         return "", ""
+
+    async def _careers_page(self, site: str, home: str, domain: str) -> tuple[str, str]:
+        """(url, html) of the careers page: the homepage's own link to it
+        (same domain or a subdomain), else the first common path that exists."""
+        for link in re.finditer(r'(?is)<a\b[^>]*href=["\']([^"\'#]+)["\'][^>]*>(.*?)</a>',
+                                _strip_code(home)):
+            url = urljoin(site + "/", link.group(1).strip())
+            parsed = urlparse(url)
+            host = (parsed.hostname or "").lower().removeprefix("www.")
+            if parsed.scheme not in ("http", "https") or not (
+                    host == domain or host.endswith("." + domain)):
+                continue
+            anchor = re.sub(r"\s+", " ", re.sub(r"(?s)<[^>]+>", " ", link.group(2))).strip()
+            segments = {seg.lower() for seg in parsed.path.split("/") if seg}
+            if (segments or host != domain) and (
+                    _CAREERS_HOST.match(host) or segments & _CAREERS_SEGMENTS
+                    or _CAREERS_ANCHOR.match(html_unescape(anchor))):
+                html = await self._get(url)
+                if html and len(html) > 500:
+                    return url, html
+                break
+        return await self._first_present(site, CAREERS_PATHS)
+
+    async def _hiring(self, site: str, home: str, domain: str, add) -> None:
+        curl, chtml = "", ""
+        board = detect_board(home, domain)
+        if board is None:
+            curl, chtml = await self._careers_page(site, home, domain)
+            board = detect_board(chtml, domain)
+        postings = await read_board(self._client, board) if board else None
+        if postings is not None:
+            add("OPEN_ROLES", num=len(postings), text=board.label, url=board.page_url)
+            keywords = getattr(self, "role_keywords", None) or []
+            matched = matching_roles(postings, keywords)[:MAX_BOARD_ROLES]
+            for post in matched:
+                add("HIRING_ROLE", text=post.summary(), url=post.url or board.page_url)
+            if not matched:
+                # The board answered and lists nothing relevant: say so, so
+                # last month's (now closed) roles stop being the current view.
+                add("HIRING_ROLE", num=0, url=board.page_url)
+            return
+        if board and not chtml:
+            curl, chtml = await self._careers_page(site, home, domain)
+        if chtml and self.wants("HIRING_ROLE"):
+            roles = []
+            for m in re.finditer(
+                r"(?is)<(h[2-5]|a|li)[^>]*>\s*([^<]{6,70})\s*</\1>", _strip_code(chtml)
+            ):
+                t = re.sub(r"\s+", " ", m.group(2)).strip()
+                if re.search(r"\b(hiring|apply|position|opening|wanted|"
+                             r"technician|installer|sales|manager|foreman|"
+                             r"estimator|crew|representative)\b", t, re.I):
+                    if t.lower() not in [r.lower() for r in roles]:
+                        roles.append(t)
+                if len(roles) >= 3:
+                    break
+            for r in roles:
+                add("HIRING_ROLE", text=r, url=curl)
 
     # ── individual detectors ──
 
@@ -640,24 +715,15 @@ class ProfileCollector:
                 if chtml and re.search(r"(?is)<form\b", _strip_code(chtml)):
                     add("CONTACT_FORM_URL", text=curl, url=curl)
 
-        # careers page → hiring intent
-        if self.wants("HIRING_ROLE"):
-            curl, chtml = await self._first_present(site, CAREERS_PATHS)
-            if chtml:
-                roles = []
-                for m in re.finditer(
-                    r"(?is)<(h[2-5]|a|li)[^>]*>\s*([^<]{6,70})\s*</\1>", _strip_code(chtml)
-                ):
-                    t = re.sub(r"\s+", " ", m.group(2)).strip()
-                    if re.search(r"\b(hiring|apply|position|opening|wanted|"
-                                 r"technician|installer|sales|manager|foreman|"
-                                 r"estimator|crew|representative)\b", t, re.I):
-                        if t.lower() not in [r.lower() for r in roles]:
-                            roles.append(t)
-                    if len(roles) >= 3:
-                        break
-                for r in roles:
-                    add("HIRING_ROLE", text=r, url=curl)
+        # open roles → hiring intent. The job-board feed when their site
+        # links one (titles, departments and dates for every role), else
+        # whatever the careers page's own HTML lists. Any failure here costs
+        # only these two signals, never the rest of the profile.
+        if self.wants("HIRING_ROLE") or self.wants("OPEN_ROLES"):
+            try:
+                await self._hiring(site, home, domain, add)
+            except Exception as e:
+                logger.info(f"profile: {domain} open roles unread: {type(e).__name__}: {e}")
 
         # team page → people
         if self.wants("CONTACT_FOUND") or self.wants("DECISION_MAKER_TITLE"):
@@ -726,8 +792,13 @@ class ProfileCollector:
         return total
 
 
-async def profile_companies(state, companies: list[dict]) -> tuple[int, str]:
-    """Convenience entry point: opens a run, profiles, closes the run."""
+async def profile_companies(state, companies: list[dict], config=None) -> tuple[int, str]:
+    """Convenience entry point: opens a run, profiles, closes the run.
+
+    ``config`` supplies the roles that count as hiring intent
+    (``icp.hiring_signals``, else ``icp.titles``); without it a job board
+    still gives OPEN_ROLES, but no role is singled out.
+    """
     from harvey.signals import seed_signal_catalog
     await seed_signal_catalog(state)
     confirmed = await state.confirmed_signal_codes()
@@ -739,7 +810,8 @@ async def profile_companies(state, companies: list[dict]) -> tuple[int, str]:
         return 0, ""
     run_id = await state.start_run("profile", provider="http")
     try:
-        async with ProfileCollector(state, confirmed) as collector:
+        keywords = role_keywords(getattr(config, "icp", None))
+        async with ProfileCollector(state, confirmed, role_keywords=keywords) as collector:
             n = await collector.run(companies, run_id=run_id)
         await state.finish_run(run_id, records=n, cost_usd=0.0)
         return n, run_id

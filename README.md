@@ -175,7 +175,8 @@ Every signal shows what it is in plain language, **what it costs**, and how many
 | | `NO_ONLINE_BOOKING` | Leads have to phone in, so after-hours demand is lost. |
 | | `NO_SCHEMA_MARKUP` | A concrete, checkable SEO gap you can name in an email. |
 | | `BLOG_STALE` | Content marketing started and abandoned. |
-| | `SITE_PAGE_COUNT`, `TECH_STACK`, `BLOCKS_AI_CRAWLERS`, `HIRING_ROLE` | Size, platform, AI-search visibility, and what they're hiring for. |
+| | `SITE_PAGE_COUNT`, `TECH_STACK`, `BLOCKS_AI_CRAWLERS` | Size, platform, AI-search visibility. |
+| | `HIRING_ROLE` / `OPEN_ROLES` | What they're hiring for, and how many roles are open. When their site links a Greenhouse, Lever, Ashby or Workable board, Harvey reads that board's public feed (one request): roles matching `icp.hiring_signals` (else `icp.titles`), with department, location, posting date and the posting's URL; when the board lists none, it records "not hiring" so a closed role stops counting. Otherwise it reads the careers page. Set `hiring_signals` to the roles that mean they're buying: the `titles` fallback names who you email, so "CEO" only matches a CEO opening (never "Assistant to the CEO"), which is rarely the signal you want. |
 | **People** | `CONTACT_FOUND`, `DECISION_MAKER_TITLE`, `LIKELY_OWNER`, `REGISTRY_VERIFIED` | Who decides, and whether they own the place. |
 | **Contact** | `EMAIL_PATTERN`, `EMAIL_STATUS`, `CONTACT_FORM_URL` | Whether you can actually reach them. |
 
@@ -231,6 +232,14 @@ parts:
 Harvey never reads ycombinator.com itself, whose terms forbid scraping it or
 collecting founders' contact details; everything comes from the companies' own
 sites and your search provider.
+
+**Looking for companies hiring a role?** `harvey discover --preset hiring
+--provider serper` (or *Look for: Companies hiring for your roles*) searches
+your industries for companies whose own careers pages list one of your
+`icp.hiring_signals` roles (else `icp.titles`). Hosted boards and job sites
+are left out of the search, since a board page names a board, not a website
+to profile. Confirm `HIRING_ROLE` and profiling reads the board their site links
+to and records the role; the search hit alone records nothing.
 
 Cities geocode themselves (cached forever, one lookup each). Directories, aggregators and institutions are filtered by pattern, not a blocklist — `en.wikipedia.org` and `biz.yelp.com` never make it in.
 
