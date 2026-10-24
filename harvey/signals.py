@@ -260,11 +260,16 @@ SIGNAL_CATALOG: list[dict] = [
     {
         "code": "LIKELY_OWNER",
         "label": "Likely the owner",
-        "description": "Registry indicators suggest this person owns the business rather than working there.",
+        "description": (
+            "The company's own website says this person owns or founded it: an "
+            "Owner/Founder/President title, a sentence like 'owned and operated by' "
+            "or a schema.org founder. Former, retired and late owners don't count. "
+            "The evidence is kept with the fact."
+        ),
         "category": "people",
         "value_type": "bool",
         "collector": "people",
-        "cost_note": "free (public registry API)",
+        "cost_note": "free (company website)",
         "confidence_floor": 0.0,
     },
 

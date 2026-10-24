@@ -30,14 +30,20 @@ import logging
 import random
 import re
 from datetime import datetime, timezone
-from urllib.parse import parse_qs, quote_plus, unquote, urlparse
+from urllib.parse import parse_qs, quote_plus, urlparse
 
 import httpx
 from bs4 import BeautifulSoup
 
 from harvey.brain import Brain
+from harvey.collectors import people as people_mod
+from harvey.collectors.discover import site_name_from_html
+from harvey.collectors.profile import _reads_like_title, looks_like_challenge
 from harvey.config import HarveyConfig, EnvConfig
-from harvey.integrations.email_finder import find_email, verify_published_address
+from harvey.integrations.email_finder import (
+    DEFAULT_PATTERN, SMALL_BUSINESS_PATTERN, find_email, site_email_evidence,
+    verify_published_address,
+)
 from harvey.integrations.linkedin import LinkedInAutomation
 from harvey.models.company import Company
 from harvey.models.prospect import COMPANY_INBOX_SOURCE, Prospect
@@ -60,6 +66,25 @@ BACKOFF_BASE = 1.5  # seconds; grows exponentially per attempt
 MAX_RESULTS_PER_QUERY = 20
 MAX_COMPANIES_PER_CYCLE = 10
 
+# Reading a company's site: the homepage, then up to five pages its own menu
+# links to (team, meet-the-doctors, about, contact...), never more than six
+# pages or ten requests per site. The fallback paths are only tried when the
+# menu offers fewer than two candidates.
+MAX_SITE_PAGES = 6
+# Every request Scout makes for one company — homepage variants, menu pages,
+# inbox pages, the check that a second domain is theirs — shares this cap.
+MAX_SITE_FETCHES = 10
+FALLBACK_SITE_PATHS = ("/about", "/about-us", "/team", "/our-team", "/contact", "/contact-us")
+# Named decision makers taken from one company per visit, likeliest first.
+MAX_CONTACTS_PER_COMPANY = 2
+# With no evidence of a company's email format, guess first@ only when
+# something independent of its website says it is small: the ICP's company
+# size, the company's own size on file, or a local-business listing as its
+# source. Otherwise first.last@, and verification decides. (first@ also
+# collides as a company grows: two Johns.)
+SMALL_COMPANY_MAX = 20
+LOCAL_BUSINESS_SOURCES = ("discover:osm", "discover:dataforseo_listings")
+
 # Company-inbox fallback: pages that publish a general address, and the
 # only mailboxes it will use, most likely read by the owner first. An
 # allowlist, not a blocklist: a personal address (jane.doe@) on a contact
@@ -68,7 +93,6 @@ INBOX_PAGES = ("/contact", "/contact-us")
 INBOX_PREFERRED = ("owner", "office", "info", "contact", "contactus", "hello",
                    "team", "service", "sales", "estimates", "quotes",
                    "inquiries", "enquiries", "admin", "support")
-INBOX_ADDRESS = re.compile(r"[a-z0-9._+\-]+@[a-z0-9.\-]+\.[a-z]{2,}")
 MAX_PROSPECTS_PER_CYCLE = 25
 
 # Hunter domain-searches per heartbeat. The monthly budget itself is shared
@@ -91,17 +115,6 @@ USER_AGENTS = [
     "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:122.0) "
     "Gecko/20100101 Firefox/122.0",
 ]
-
-# Signals that a response is a block / bot-challenge rather than real content.
-_BLOCK_MARKERS = (
-    "unusual traffic",
-    "captcha",
-    "are you a robot",
-    "verify you are human",
-    "detected unusual activity",
-    "access denied",
-    "/sorry/index",
-)
 
 # Seniority / title vocabulary reused for ICP heuristics.
 _SENIOR_KEYWORDS = (
@@ -128,6 +141,12 @@ class Scout:
         # In-memory dedup guards, reset each cycle.
         self._seen_prospect_keys: set[str] = set()
         self._seen_domains: set[str] = set()
+        # Per-cycle site reads (pages, published addresses) and the hosts
+        # that answered with a bot challenge instead of a page.
+        self._site_reads: dict[str, dict] = {}
+        self._site_evidence: dict[str, dict] = {}
+        self._own_domains: dict[str, bool] = {}
+        self._challenged: set[str] = set()
 
     async def run(self):
         """Main prospecting flow: find leads matching ICP."""
@@ -137,6 +156,8 @@ class Scout:
         self._queries_this_cycle = 0
         self._seen_prospect_keys = set()
         self._seen_domains = set()
+        self._site_reads, self._site_evidence, self._own_domains = {}, {}, {}
+        self._challenged = set()
 
         prospects_found = 0
 
@@ -226,11 +247,21 @@ class Scout:
         return headers
 
     @staticmethod
-    def _looks_blocked(text: str) -> bool:
-        if not text:
-            return False
-        low = text[:4000].lower()
-        return any(marker in low for marker in _BLOCK_MARKERS)
+    def _looks_blocked(text: str, status: int = 200) -> bool:
+        """A challenge or block page — not a real page that happens to load
+        reCAPTCHA for its contact form (which used to read as "blocked" and
+        cost Harvey the whole site)."""
+        return looks_like_challenge(text, status)
+
+    @staticmethod
+    def _host(url_or_domain: str) -> str:
+        host = urlparse(url_or_domain if "://" in url_or_domain else f"http://{url_or_domain}").netloc
+        return host.lower().split(":")[0].removeprefix("www.")
+
+    def challenged(self, domain: str) -> bool:
+        """True when the site answered with a bot challenge (SiteGround's
+        202, Cloudflare's "Just a moment...") — reachable, but not to us."""
+        return self._host(domain) in getattr(self, "_challenged", set())
 
     async def _fetch(
         self,
@@ -266,6 +297,12 @@ class Scout:
 
             if resp is not None:
                 last_status = resp.status_code
+                if resp.status_code in (200, 202, 403, 429, 503) and self._looks_blocked(
+                        getattr(resp, "text", "") or "", resp.status_code):
+                    # A bot challenge won't clear on retry: note it and stop.
+                    self.__dict__.setdefault("_challenged", set()).add(self._host(url))
+                    logger.debug(f"Fetch got a bot challenge ({resp.status_code}) for {url[:80]}")
+                    return None
                 # Retryable server / throttle responses.
                 if resp.status_code in (429, 500, 502, 503, 504):
                     logger.debug(
@@ -273,10 +310,6 @@ class Scout:
                         f"(attempt {attempt + 1}/{retries})"
                     )
                 elif resp.status_code == 200:
-                    if self._looks_blocked(resp.text):
-                        logger.debug(f"Fetch blocked/challenge page for {url[:80]}")
-                        # A challenge won't clear on immediate retry — bail.
-                        return None
                     return resp
                 else:
                     # 4xx (non-429) — no point retrying.
@@ -1102,10 +1135,16 @@ class Scout:
         """
         if not (first_name and last_name and domain):
             return "", "invalid"
+        # What the company's own site published: this person's exact address
+        # if it's there, and the default to guess with when nothing is.
+        evidence = getattr(self, "_site_evidence", {}).get(self._host(domain), {})
         try:
             result = await find_email(
                 first_name, last_name, domain,
                 verify=True, env=self.env, state=self.state,
+                known_emails=evidence.get("known") or None,
+                default_pattern=evidence.get("default", DEFAULT_PATTERN),
+                other_people=evidence.get("people") or None,
             )
         except Exception as e:
             logger.debug(f"find_email failed for {domain}: {e}")
@@ -1280,6 +1319,11 @@ Respond ONLY with the JSON array."""
             resp = await self._fetch(base, timeout=SCRAPE_TIMEOUT, retries=retries)
             if resp is not None:
                 return base, resp
+            if self.challenged(domain):
+                # Every variant lands on the same challenge: don't loop.
+                logger.info(f"Scout: {domain} answered with a bot challenge; "
+                            "skipped as challenged, not unreachable.")
+                break
         return "", None
 
     async def _scrape_company_info(self, domain: str) -> dict:
@@ -1326,30 +1370,157 @@ Respond ONLY with the JSON array."""
 
         return info
 
-    async def _scrape_team_page(self, domain: str) -> list[dict]:
-        """Try to find and scrape a company's team/about page."""
-        team_paths = ["/team", "/about", "/about-us", "/our-team", "/people",
-                      "/leadership", "/about/team", "/company/team", "/staff"]
-        members = []
+    async def _read_site(self, domain: str) -> dict:
+        """The homepage plus the pages its own menu links to where people are
+        named (team, meet-the-dentists, about, our-story, contact).
 
-        base, _ = await self._resolve_base_url(domain)
-        if not base:
-            return members
+        Returns {"base", "pages": [(url, html)], "tried": {normalized urls},
+        "challenged"}. Cached for the cycle, so the people pass and the
+        inbox pass share one read. Pages that resolve to the homepage are
+        skipped; at most MAX_SITE_PAGES pages and MAX_SITE_FETCHES requests.
+        """
+        cache = self.__dict__.setdefault("_site_reads", {})
+        key = self._host(domain)
+        if key in cache:
+            return cache[key]
+        site = {"base": "", "pages": [], "tried": set(), "challenged": False, "fetches": 0}
+        cache[key] = site
+        if self.challenged(key):
+            site["challenged"] = True
+            return site
+        base, home = await self._resolve_base_url(domain)
+        variants = [f"https://{domain}", f"https://www.{domain}", f"http://{domain}", f"http://www.{domain}"]
+        site["fetches"] = variants.index(base) + 1 if base in variants else len(variants)
+        if not base or home is None:
+            site["challenged"] = self.challenged(key)
+            return site
+        home_text = getattr(home, "text", "") or ""
+        home_url = str(getattr(home, "url", "") or base)
+        site["base"] = base
+        site["pages"].append((home_url, home_text))
+        norm = people_mod._norm_url
+        seen = {norm(home_url), norm(base)}
+        site["tried"] |= seen
 
-        for path in team_paths:
-            url = f"{base}{path}"
-            resp = await self._fetch(url, timeout=SCRAPE_TIMEOUT, retries=1)
-            if resp is None:
+        links = people_mod.menu_links(home_text, home_url, limit=MAX_SITE_PAGES - 1)
+        if len(links) < 2:
+            links += [f"{base}{p}" for p in FALLBACK_SITE_PATHS]
+        for url in links:
+            if len(site["pages"]) >= MAX_SITE_PAGES:
+                break
+            if norm(url) in seen:
                 continue
+            seen.add(norm(url))
+            site["tried"].add(norm(url))
+            resp = await self._site_fetch(site, url)
+            if resp is None:
+                if self.challenged(key) or site["fetches"] >= MAX_SITE_FETCHES:
+                    break
+                continue
+            final = str(getattr(resp, "url", "") or url)
+            text = getattr(resp, "text", "") or ""
+            if self._host(final) != key:
+                continue        # redirected to another business (a franchisor's /team)
+            if norm(final) in (norm(home_url), norm(base)) or text == home_text:
+                continue        # a menu link that is really the homepage
+            if any(norm(final) == norm(u) for u, _ in site["pages"]):
+                continue
+            site["pages"].append((final, text))
+        return site
 
-            soup = self._safe_soup(resp.text)
+    async def _site_fetch(self, site: dict, url: str):
+        """A fetch charged to the company's request budget (MAX_SITE_FETCHES)."""
+        if site.get("fetches", 0) >= MAX_SITE_FETCHES:
+            return None
+        site["fetches"] = site.get("fetches", 0) + 1
+        return await self._fetch(url, timeout=SCRAPE_TIMEOUT, retries=1)
+
+    async def _scrape_team_page(self, domain: str) -> list[dict]:
+        """The people a company's own site names, likeliest decision maker
+        first: cards and lists, schema.org, and sentences ("owned and
+        operated by...") across the pages its menu links to. CSS-class card
+        parsing is only a fallback when none of those find anyone.
+
+        Also learns what the site's published addresses say about its email
+        format, for _resolve_email.
+        """
+        site = await self._read_site(domain)
+        if not site["pages"]:
+            return []
+        home_url, home = site["pages"][0]
+        site_name = site_name_from_html(home, domain)
+        try:
+            found = people_mod.find_people(site["pages"], domain, site_name)
+        except Exception as e:
+            logger.debug(f"People detection failed for {domain}: {e}")
+            found = []
+        if not found:
+            found = self._people_from_cards(site["pages"])
+
+        addresses: list[str] = []
+        for _, html in site["pages"]:
+            for addr in people_mod.emails_on_page(html):
+                if addr not in addresses:
+                    addresses.append(addr)
+        site["addresses"] = addresses
+        await self._learn_email_evidence(domain, addresses, found)
+        return found
+
+    async def _learn_email_evidence(self, domain: str, addresses: list[str], found: list[dict]):
+        """Published addresses → the domain's pattern (and the exact address of
+        anyone named on the site), plus the default to guess with when there
+        is no evidence at all."""
+        key = self._host(domain)
+        named = [(p["first_name"], p["last_name"]) for p in found]
+        known, pattern, confidence = site_email_evidence(addresses, named, key)
+        self.__dict__.setdefault("_site_evidence", {})[key] = {
+            "known": known,
+            "people": named,
+            "default": SMALL_BUSINESS_PATTERN if await self._known_small(key) else DEFAULT_PATTERN,
+        }
+        if pattern:
+            try:
+                await self.state.save_email_pattern(
+                    key, pattern=pattern, confidence=confidence,
+                    source="site_address" if known else "site_address_guess",
+                )
+                logger.debug(f"Scout: learned pattern {pattern} for {key} ({confidence:.2f})")
+            except Exception as e:
+                logger.debug(f"save_email_pattern failed: {e}")
+
+    async def _known_small(self, domain: str) -> bool:
+        """Is there a size signal independent of the website? The ICP's
+        company size, the company's size on file, or a local-business
+        listing (OpenStreetMap, DataForSEO Business Listings) as its source.
+        Three executives on a homepage say nothing about headcount."""
+        def upper(text: str) -> int | None:
+            nums = [int(n.replace(",", "")) for n in re.findall(r"\d[\d,]*", text or "")]
+            return max(nums) if nums else None
+
+        icp = getattr(getattr(self, "config", None), "icp", None)
+        bound = upper(getattr(icp, "company_size", "") or "")
+        if bound is not None and bound <= SMALL_COMPANY_MAX:
+            return True
+        try:
+            company = await self.state.get_company_by_domain(domain)
+        except Exception:
+            company = None
+        if company is None:
+            return False
+        size = upper(getattr(company, "company_size", "") or "")
+        if size is not None and size <= SMALL_COMPANY_MAX:
+            return True
+        return (getattr(company, "source", "") or "") in LOCAL_BUSINESS_SOURCES
+
+    def _people_from_cards(self, pages: list[tuple[str, str]]) -> list[dict]:
+        """Fallback: CSS-class team cards (first heading = name). Only names
+        that look like people, and only titles that read like titles — a
+        bio paragraph under the name is not a title."""
+        members, seen = [], set()
+        for url, html in pages:
+            soup = self._safe_soup(html)
             if soup is None:
                 continue
-
-            # Harvest any real address on the page — one confirmed email
-            # reveals the domain's whole pattern (learned once, reused free).
-            await self._learn_pattern_from_page(soup, resp.text, domain)
-
             try:
                 cards = soup.select(
                     ".team-member, .person, .staff, [class*='team'], "
@@ -1357,52 +1528,31 @@ Respond ONLY with the JSON array."""
                 )
             except Exception:
                 cards = []
-
             for card in cards:
                 name_el = card.select_one("h2, h3, h4, .name, [class*='name']")
-                title_el = card.select_one(
-                    "p, .title, .role, .position, "
-                    "[class*='title'], [class*='role'], [class*='position']"
-                )
                 if not name_el:
                     continue
-
-                name = re.sub(r"\s+", " ", name_el.get_text()).strip()
+                split = people_mod.split_person_name(re.sub(r"\s+", " ", name_el.get_text()))
+                if not split or (split[0].lower(), split[1].lower()) in seen:
+                    continue
                 title = ""
-                if title_el:
-                    title = re.sub(r"\s+", " ", title_el.get_text()).strip()
-
-                # Reject obvious non-names (too long/short, digits, symbols).
-                if not (3 <= len(name) <= 50):
-                    continue
-                if any(ch.isdigit() for ch in name):
-                    continue
-                if not re.match(r"^[A-Za-z][A-Za-z.'\- ]+$", name):
-                    continue
-
-                parts = name.split(" ", 1)
-                if len(parts) < 2 or not parts[1].strip():
-                    continue
-
+                for el in card.select(".title, .role, .position, [class*='title'], "
+                                      "[class*='role'], [class*='position'], p, span"):
+                    text = re.sub(r"\s+", " ", el.get_text()).strip()
+                    if text and text != name_el.get_text().strip() and len(text) <= 80 \
+                            and _reads_like_title(text):
+                        title = text
+                        break
+                seen.add((split[0].lower(), split[1].lower()))
+                owner = people_mod.is_owner_title(title)
                 members.append({
-                    "first_name": parts[0].strip(),
-                    "last_name": parts[1].strip(),
-                    "title": title[:120],
+                    "first_name": split[0], "last_name": split[1], "title": title[:120],
+                    "owner": owner, "rank": people_mod.owner_rank(title, owner),
+                    "source": "card", "evidence": f"{split[0]} {split[1]} — {title}",
+                    "evidence_url": url,
                 })
-
-            if members:
-                break
-
-        # Dedup members by (first,last).
-        seen = set()
-        unique = []
-        for m in members:
-            key = (m["first_name"].lower(), m["last_name"].lower())
-            if key in seen:
-                continue
-            seen.add(key)
-            unique.append(m)
-        return unique
+        members.sort(key=lambda m: -m["rank"])
+        return members
 
     async def _contacts_from_company(
         self,
@@ -1422,9 +1572,12 @@ Respond ONLY with the JSON array."""
 
         contacts: list[Prospect] = []
         named_on_site = False
-        for member in team_members:
+        considered = 0
+        ranked = sorted(team_members, key=lambda m: -(m.get("rank") or 0))
+        for member in ranked:
             title = member.get("title", "")
-            if not self._title_matches_icp(title):
+            owner = bool(member.get("owner"))
+            if not (self._title_matches_icp(title) or (owner and self._icp_wants_owner())):
                 continue
 
             first_name = member.get("first_name", "")
@@ -1432,6 +1585,9 @@ Respond ONLY with the JSON array."""
             if not first_name or not last_name:
                 continue
             named_on_site = True
+            if considered >= MAX_CONTACTS_PER_COMPANY:
+                break
+            considered += 1
 
             email, email_status = await self._resolve_email(
                 first_name, last_name, domain
@@ -1445,11 +1601,11 @@ Respond ONLY with the JSON array."""
                 email_verified=(email_status == "verified"),
                 company=company_name,
                 company_id=company_id,
-                title=title,
-                seniority=self._infer_seniority(title),
+                title=title or ("Owner" if owner else ""),
+                seniority="c_suite" if owner else self._infer_seniority(title),
                 industry=industry,
                 source=source,
-                source_url=f"https://{domain}",
+                source_url=member.get("evidence_url") or f"https://{domain}",
                 personalization_notes=signal_note,
             )
 
@@ -1460,18 +1616,48 @@ Respond ONLY with the JSON array."""
 
             self._remember_prospect(prospect)
             contacts.append(prospect)
+            if owner:
+                await self._observe_likely_owner(company_id, member)
 
-        # The inbox is a last resort for a company Harvey has no contact at.
-        # A named person found here (even one skipped as a duplicate on a
-        # revisit) or already on file from another source means the
-        # company is covered, so its inbox isn't added on top.
-        if not contacts and not named_on_site and await self._company_uncontacted(company_id):
+        # The inbox is the fallback for a company Harvey can't otherwise
+        # reach: nobody named on its site, or a named owner whose address is
+        # only a guess (never sent). A named person found here who is
+        # already a prospect (a revisit), or anyone already on file from
+        # another source, means the company is covered.
+        reachable = any(c.email_status in ("verified", "risky") for c in contacts)
+        if not reachable and (contacts or not named_on_site) \
+                and await self._company_uncontacted(company_id):
             inbox = await self._company_inbox_prospect(
                 company_id, domain, company_name, industry, signal_note,
             )
             if inbox:
                 contacts.append(inbox)
         return contacts
+
+    async def _observe_likely_owner(self, company_id: str, member: dict):
+        """Record LIKELY_OWNER for a company — only when the user confirmed
+        that signal. The site's own evidence travels with it."""
+        if not company_id:
+            return
+        try:
+            confirmed = await self.state.confirmed_signal_codes()
+        except Exception:
+            return
+        if "LIKELY_OWNER" not in (confirmed or set()):
+            return
+        name = f"{member.get('first_name', '')} {member.get('last_name', '')}".strip()
+        explicit = people_mod.is_owner_title(member.get("title", ""))
+        evidence = member.get("evidence") or ""
+        try:
+            await self.state.add_observations([{
+                "signal_code": "LIKELY_OWNER", "company_id": company_id,
+                "collector": "people", "value_num": 1,
+                "value_text": f"{name} — {member.get('title') or 'owner'}: {evidence}"[:300],
+                "confidence": 0.9 if explicit else 0.7,
+                "evidence_url": member.get("evidence_url", ""),
+            }])
+        except Exception as e:
+            logger.debug(f"LIKELY_OWNER observation failed for {company_id}: {e}")
 
     async def _company_uncontacted(self, company_id: str) -> bool:
         """True only when the company is on file and has no prospects yet."""
@@ -1521,42 +1707,58 @@ Respond ONLY with the JSON array."""
         return prospect
 
     async def _find_inbox_address(self, domain: str) -> str:
-        """Best general address published on the company's homepage or contact page."""
-        base, home = await self._resolve_base_url(domain)
-        if not base:
+        """Best general address published on the company's own pages.
+
+        Reads the same pages as the people pass (plus /contact if it wasn't
+        among them), the whole page, not just its top, decoding obfuscated
+        addresses. An address on another domain counts only when that
+        domain is clearly the business's own (it lands on this site).
+        """
+        site = await self._read_site(domain)
+        if not site["base"]:
             return ""
-        domain = domain.lower().removeprefix("www.")
-        pages = [home] if home is not None else []
-        for path in INBOX_PAGES:
-            resp = await self._fetch(f"{base}{path}", timeout=SCRAPE_TIMEOUT, retries=1)
-            if resp is not None:
-                pages.append(resp)
-
-        found: list[str] = []
-        for resp in pages:
-            text = getattr(resp, "text", "") or ""
-            soup = self._safe_soup(text)
-            if soup is not None:
-                for a in soup.find_all("a", href=True):
-                    href = self._attr_str(a.get("href"))
-                    if href.lower().startswith("mailto:"):
-                        found.append(unquote(href[7:].split("?")[0]))
-            found.append(unquote(text[:50000]))
-
-        # Pull clean addresses out of everything found ("%20info@x.com",
-        # a trailing full stop), then keep only general on-domain inboxes.
-        candidates = []
-        for chunk in found:
-            for addr in INBOX_ADDRESS.findall(chunk.lower()):
-                addr = addr.rstrip(".")
-                local, _, adomain = addr.partition("@")
-                if adomain.removeprefix("www.") != domain or local not in INBOX_PREFERRED:
+        domain = self._host(domain)
+        pages = list(site["pages"])
+        if not any("contact" in url.lower() for url, _ in pages[1:]):
+            for path in INBOX_PAGES:
+                url = f"{site['base']}{path}"
+                if people_mod._norm_url(url) in site["tried"]:
                     continue
-                if addr not in candidates:
-                    candidates.append(addr)
+                site["tried"].add(people_mod._norm_url(url))
+                resp = await self._site_fetch(site, url)
+                if resp is not None:
+                    pages.append((url, getattr(resp, "text", "") or ""))
+
+        candidates = []
+        for _, text in pages:
+            for addr in people_mod.emails_on_page(text):
+                local, _, adomain = addr.partition("@")
+                if local not in INBOX_PREFERRED or addr in candidates:
+                    continue
+                adomain = adomain.removeprefix("www.")
+                if adomain != domain and not adomain.endswith("." + domain) \
+                        and not await self._is_own_domain(adomain, site):
+                    continue
+                candidates.append(addr)
         if not candidates:
             return ""
         return min(candidates, key=lambda a: INBOX_PREFERRED.index(a.partition("@")[0]))
+
+    async def _is_own_domain(self, other: str, site: dict) -> bool:
+        """Is ``other`` the business's own second domain? True when its
+        homepage lands on this site (txtroofing.com redirects to
+        texastraditionsroofing.com). One request, cached."""
+        cache = self.__dict__.setdefault("_own_domains", {})
+        if other in cache:
+            return cache[other]
+        cache[other] = False
+        if not re.fullmatch(r"[a-z0-9\-]+(?:\.[a-z0-9\-]+)+", other or ""):
+            return False
+        resp = await self._site_fetch(site, f"https://{other}")
+        if resp is not None:
+            landed = self._host(str(getattr(resp, "url", "") or f"https://{other}"))
+            cache[other] = landed == self._host(site["base"]) and landed != other
+        return cache[other]
 
     # ── Strategy 4: Job boards — companies hiring for signal roles ──
 
@@ -1794,63 +1996,6 @@ Respond ONLY with the JSON array."""
             return []
         return []
 
-    async def _learn_pattern_from_page(self, soup, html: str, domain: str):
-        """Find a real on-domain email on a page and cache the derived pattern.
-
-        Prefers mailto: links (cleanest), falls back to inline addresses.
-        Skips role addresses (info@, sales@) — they don't reveal a
-        person-name pattern.
-        """
-        domain = domain.lower()
-        role_locals = {
-            "info", "sales", "support", "hello", "contact", "admin",
-            "team", "help", "office", "press", "media", "careers", "jobs",
-            "hr", "billing", "noreply", "no-reply", "marketing",
-        }
-        found = []
-        try:
-            for a in soup.find_all("a", href=True):
-                href = self._attr_str(a.get("href"))
-                if href.lower().startswith("mailto:"):
-                    addr = href[7:].split("?")[0].strip().lower()
-                    if "@" in addr:
-                        found.append(addr)
-        except Exception:
-            pass
-        if not found:
-            try:
-                found = [
-                    m.lower() for m in re.findall(
-                        r"[A-Za-z0-9._%+\-]+@[A-Za-z0-9.\-]+\.[A-Za-z]{2,}",
-                        html[:20000],
-                    )
-                ]
-            except Exception:
-                found = []
-
-        for addr in found:
-            local, _, adomain = addr.partition("@")
-            if adomain != domain or local in role_locals or "." not in local:
-                continue
-            # Looks like first.last@ — infer and cache the pattern.
-            from harvey.integrations.email_finder import (
-                infer_pattern_from_email,
-            )
-            parts = local.replace("_", ".").replace("-", ".").split(".")
-            if len(parts) < 2:
-                continue
-            pattern = infer_pattern_from_email(addr, parts[0], parts[-1])
-            if pattern:
-                try:
-                    await self.state.save_email_pattern(
-                        domain, pattern=pattern, source="scraped_mailto",
-                        confidence=0.85,
-                    )
-                    logger.debug(f"Scout: learned pattern {pattern} for {domain}")
-                except Exception as e:
-                    logger.debug(f"save_email_pattern failed: {e}")
-                return
-
     async def _guess_domain(self, company_name: str) -> str:
         """Guess a company's domain from its name and confirm it resolves."""
         name = company_name.lower().strip()
@@ -1918,18 +2063,25 @@ Respond ONLY with the JSON array."""
         return name.replace("-", " ").title()
 
     def _title_matches_icp(self, title: str) -> bool:
-        """Check if a job title matches the ICP target titles."""
+        """Check if a job title matches the ICP target titles.
+
+        Word-based (see people.title_matches): "Vice President" doesn't
+        satisfy "President", and owner synonyms (Proprietor, Principal,
+        Managing Partner, Founder, CEO) satisfy an owner-type ICP.
+        """
         if not title:
             return False
-        title_lower = title.lower()
         if self.config.icp.titles:
-            for target in self.config.icp.titles:
-                t = target.lower().strip()
-                if t and t in title_lower:
-                    return True
-            return False
+            return people_mod.title_matches(title, self.config.icp.titles)
         # No explicit ICP titles → fall back to any senior title.
-        return any(kw in title_lower for kw in _SENIOR_KEYWORDS)
+        title_lower = title.lower()
+        return any(re.search(rf"(?<![\w-]){re.escape(kw)}\b", title_lower)
+                   for kw in _SENIOR_KEYWORDS)
+
+    def _icp_wants_owner(self) -> bool:
+        """Does the ICP target owners (Owner, Founder, President, CEO...)?"""
+        titles = self.config.icp.titles
+        return not titles or people_mod.title_matches("", titles, owner=True)
 
     def _infer_seniority(self, title: str) -> str:
         """Infer seniority level from a job title."""

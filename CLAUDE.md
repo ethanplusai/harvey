@@ -38,7 +38,7 @@ People will ask "how does this work?" — explain it simply:
 
 - **"What does Harvey do?"** → It's like having a tireless sales assistant. Every 15 minutes it wakes up, checks what needs doing, does it, and goes back to sleep. It finds prospects, writes emails, sends campaigns, and responds to replies.
 
-- **"How does it find people?"** → It searches the web (DuckDuckGo, Bing, Google) for companies matching your target profile, visits their websites, and finds team members. For emails, it learns each company's address pattern (from their site, or a free Hunter domain lookup) and verifies a single candidate through a free verification tier — every address is tagged verified / catch-all / guess, and only deliverable ones get sent. No expensive tools needed.
+- **"How does it find people?"** → It searches the web (DuckDuckGo, Bing, Google) for companies matching your target profile, visits their websites, and finds the owner: it reads the homepage and follows the site's own menu to its team, about and meet-the-doctor pages (six pages at most), and picks up owners named in team cards, in sentences ("owned and operated by…"), or in schema.org. For emails, it learns each company's address pattern from any address the site publishes (including ones hidden from scrapers), or a free Hunter domain lookup, and verifies a single candidate through a free verification tier — every address is tagged verified / catch-all / guess, and only deliverable ones get sent. No expensive tools needed.
 
 - **"How does it write emails?"** → It uses proven cold email frameworks (like AIDA and PAS) with strict rules — short, personal, no AI-sounding language. Each email is tailored to the specific person and their company.
 

@@ -193,7 +193,9 @@ ROLE_HINT = re.compile(
     r"director|supervisor|superintendent|foreman|estimator|specialist|"
     r"consultant|coordinator|representative|rep|sales|marketing|operations|"
     r"office|project|account|service|technician|installer|inspector|"
-    r"vice president|vp|executive|lead|head of|chief)\b", re.I)
+    r"vice president|vp|executive|lead|head of|chief|proprietor|attorney|lawyer|"
+    r"dentist|orthodontist|periodontist|endodontist|hygienist|dds|dmd|esq|cpa|"
+    r"administrator|paralegal|associate|co-?owner|co-?founder)\b", re.I)
 
 
 def title_looks_like_role(text: str) -> bool:
@@ -215,6 +217,53 @@ def _strip_code(html: str) -> str:
     html = re.sub(r"(?is)<style\b.*?</style>", " ", html)
     html = re.sub(r"(?s)<!--.*?-->", " ", html)
     return html
+
+
+# Signals that a response is a block / bot-challenge rather than real content.
+# Strong markers only ever appear on a challenge page. Weak ones ("captcha")
+# also appear on real pages that load reCAPTCHA for a contact form, so they
+# count only in the visible text of a short page.
+_BLOCK_MARKERS = (
+    "unusual traffic",
+    "detected unusual activity",
+    "/sorry/index",
+    "/.well-known/sgcaptcha",       # SiteGround's bot challenge (served as a 202)
+    "cf-chl-", "cf_chl_opt",        # Cloudflare's interstitial
+    "px-captcha",                   # PerimeterX / HUMAN
+    "_incapsula_resource", "incapsula incident id",
+    "sucuri website firewall",
+)
+_BLOCK_TITLES = (
+    "just a moment", "attention required", "access denied",
+    "access to this page has been denied", "are you a robot", "security check",
+    "verify you are human", "human verification", "bot verification",
+    "ddos protection", "ddos-guard", "one more step",
+)
+_WEAK_BLOCK_MARKERS = (
+    "captcha", "are you a robot", "verify you are human", "access denied",
+    "enable javascript and cookies to continue",
+)
+
+
+
+def looks_like_challenge(text: str, status: int = 200) -> bool:
+    """A bot challenge or block page — not a real page that happens to load
+    reCAPTCHA for its contact form (which used to read as "blocked" and
+    cost Harvey the whole site). Ordinary words ("access denied", "protected
+    by reCAPTCHA") only count on a short page served as an error or 202."""
+    if not text:
+        return False
+    head = text[:6000]
+    low = head.lower()
+    if any(marker in low for marker in _BLOCK_MARKERS):
+        return True
+    title = re.search(r"(?is)<title[^>]*>(.*?)</title>", head)
+    if title and any(t in title.group(1).strip().lower() for t in _BLOCK_TITLES):
+        return True
+    if status in (202, 403, 429, 503) and len(text) < 15000:
+        visible = re.sub(r"(?s)<[^>]+>", " ", _strip_code(text)).lower()
+        return any(marker in visible for marker in _WEAK_BLOCK_MARKERS)
+    return False
 
 
 def _text(html: str) -> str:
@@ -379,6 +428,9 @@ class ProfileCollector:
         self.timeout = timeout
         self._client: httpx.AsyncClient | None = None
         self.site_names: dict[str, str] = {}
+        # Hosts that answered with a bot challenge (SiteGround's 202,
+        # Cloudflare's "Just a moment...") rather than a page.
+        self.challenged: set[str] = set()
 
     def wants(self, code: str) -> bool:
         return code in self.confirmed
@@ -401,6 +453,10 @@ class ProfileCollector:
         except (httpx.HTTPError, ValueError) as e:
             logger.debug(f"fetch failed {url}: {e}")
             return ""
+        if resp.status_code in (200, 202, 403, 429, 503) and looks_like_challenge(
+                resp.text or "", resp.status_code):
+            self.challenged.add(urlparse(url).netloc.lower().removeprefix("www."))
+            return ""
         if resp.status_code != 200:
             return ""
         ctype = resp.headers.get("content-type", "")
@@ -422,6 +478,8 @@ class ProfileCollector:
             html = await self._get(base)
             if html:
                 return base, html
+            if domain.lower().removeprefix("www.") in self.challenged:
+                break       # every variant lands on the same challenge
         return "", ""
 
     async def _first_present(self, site: str, paths) -> tuple[str, str]:
@@ -481,16 +539,44 @@ class ProfileCollector:
     def _any(html: str, patterns) -> bool:
         return any(re.search(p, html, re.I) for p in patterns)
 
-    def detect_people(self, html: str) -> list[dict]:
-        """Names + titles from a team page. Conservative on purpose."""
-        text_html = _strip_code(html)
+    def detect_people(self, html: str, domain: str = "", site_name: str = "") -> list[dict]:
+        """Names + titles from a team page. Conservative on purpose.
+
+        Two passes: a name in a heading with its title in the text after
+        it, and a name on one line with its title on the next ("Jason
+        Martens<br>Owner and CEO" in a span). Names made of ordinary words
+        ("Team of Experts") and titles that belong to another company (a
+        customer quoted as "Founder at Paperbell") are rejected.
+        """
+        from harvey.collectors.people import (
+            drop_quoted, people_from_lines, split_person_name, title_names_other_org,
+        )
+
+        text_html = _strip_code(drop_quoted(html))
         people, seen = [], set()
+
+        def add(first, last, title, full_name=""):
+            key = (first.lower(), last.lower())
+            if key in seen or len(people) >= 12:
+                return
+            if title_names_other_org(title, domain, site_name):
+                return
+            seen.add(key)
+            people.append({
+                "first_name": first, "last_name": last,
+                "full_name": full_name or f"{first} {last}",
+                "title": title[:80],
+                "is_decision_maker": any(t in title.lower() for t in DECISION_MAKER_TITLES),
+            })
+
         # Name in a heading, title in the nearby text.
         # Tag names match any case; the NAME must not — under a blanket (?i)
         # "Customer care" passes the Firstname Lastname capitalisation test.
         for m in re.finditer(
-            r"(?s)<((?i:h[1-5]|strong|b))[^>]*>\s*([A-Z][a-z'\-]+(?:\s+[A-Z]\.?)?\s+"
-            r"[A-Z][a-zA-Z'\-]+)\s*</(?i:\1)>(?=(.{0,220}))", text_html
+            r"(?s)<((?i:h[1-5]|strong|b))[^>]*>\s*((?:Dr\.?\s+)?[A-Z][a-z'\-]+(?:\s+[A-Z]\.?)?"
+            r"(?:\s+(?:[A-Z][a-zA-Z'\-]+|van|von|de|der|del|la|le|di|da)){1,3}"
+            r"(?:,?\s+(?:DDS|DMD|MD|Esq\.?|CPA|Jr\.?|Sr\.?|II|III))?)\s*</(?i:\1)>(?=(.{0,220}))",
+            text_html
         ):
             # NOTE the lookahead above: capturing the trailing context normally
             # would CONSUME it, so finditer would skip every person whose entry
@@ -513,6 +599,9 @@ class ProfileCollector:
             # match ("Request Service", "Baker History", "HOA Boards").
             if not all(_is_name_token(t) for t in name.split()):
                 continue
+            split = split_person_name(name)
+            if not split:
+                continue
             # A real contact needs a title that reads like a role; a bare
             # heading with no role text is almost always navigation, and a
             # heading followed by a sentence is a feature list.
@@ -520,15 +609,11 @@ class ProfileCollector:
                           if _reads_like_title(c)), "")
             if not title:
                 continue
-            seen.add(name.lower())
-            parts = name.split()
-            people.append({
-                "first_name": parts[0], "last_name": " ".join(parts[1:]),
-                "title": title[:80],
-                "is_decision_maker": any(t in title.lower() for t in DECISION_MAKER_TITLES),
-            })
-            if len(people) >= 12:
-                break
+            add(split[0], split[1], title, re.sub(r"(?i)^dr\.?\s+", "", name))
+        # Name and title on consecutive lines, or "Name, Title" on one.
+        for p in people_from_lines(html, domain, site_name):
+            if all(_is_name_token(t) for t in p["first_name"].split() + p["last_name"].split()):
+                add(p["first_name"], p["last_name"], p["title"], p["full_name"])
         return people
 
     # ── the stage itself ──
@@ -553,7 +638,10 @@ class ProfileCollector:
         site, home = await self._resolve_site(domain)
         if not home:
             # A failure IS an observation — silent failures look like clean results.
-            logger.info(f"profile: {domain} unreachable")
+            if domain in self.challenged:
+                logger.info(f"profile: {domain} answered with a bot challenge (challenged, not unreachable)")
+            else:
+                logger.info(f"profile: {domain} unreachable")
             return obs
         self.site_names[company_id] = site_name_from_html(home, domain)
 
@@ -663,7 +751,8 @@ class ProfileCollector:
         if self.wants("CONTACT_FOUND") or self.wants("DECISION_MAKER_TITLE"):
             turl, thtml = await self._first_present(site, TEAM_PATHS)
             if thtml:
-                for person in self.detect_people(thtml):
+                for person in self.detect_people(thtml, domain=domain,
+                                                 site_name=self.site_names.get(company_id, "")):
                     label = f"{person['first_name']} {person['last_name']}"
                     add("CONTACT_FOUND",
                         text=f"{label} — {person['title']}" if person["title"] else label,

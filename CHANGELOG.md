@@ -55,6 +55,27 @@ minor versions can still change behaviour.
 
 ### Changed
 
+- **Scout reads a company's site the way a person would.** It starts at the
+  homepage and follows the site's own menu to its team, about, our-story,
+  meet-the-doctors or attorneys pages (six pages at most), instead of
+  guessing nine fixed paths and stopping at the first that answered. Owners
+  are read from team cards, sentences ("owned and operated by…"),
+  and schema.org founders, and rank first (a surname in the business name
+  only breaks a tie between owners);
+  at most two people per company become prospects. ICP titles match by
+  whole word, with owner synonyms (Proprietor, Principal, Managing Partner,
+  Founder, CEO). With `LIKELY_OWNER` confirmed, each owner is recorded with
+  its evidence.
+- **Email patterns come from the addresses a site publishes**, including
+  ones hidden behind Cloudflare email protection or a mail link's `data-`
+  attributes, matched to the people the site names. A lone ambiguous
+  address (`jadams@`) teaches nothing, and an address another named person
+  could own (`jsmith@` with both John and Jane Smith there) is never guessed
+  for anyone. A named person's own published address is used as is. With no
+  evidence, a company known to be small (ICP company size, or a
+  local-business listing) is guessed as `first@`, others as `first.last@`. Every address is still graded
+  verified / risky / guess / invalid, and only verified or risky ones are
+  ever sent.
 - **Gmail reads only what's new.** After the first complete read of the
   week, each cycle asks Gmail's history for messages added to the inbox
   since the last check, so a busy mailbox costs what a quiet one does.
@@ -64,6 +85,25 @@ minor versions can still change behaviour.
 
 ### Fixed
 
+- **Scout finds the actual decision maker.** On a test set of 19 small
+  business sites it found the right person on 3; it now finds 17. It no
+  longer turns headings like "Team of Experts" into prospects, reads a
+  bio paragraph as a job title, lets "Vice President" pass for "President",
+  or takes a customer quoted in a testimonial for the owner.
+- **A cached default email pattern no longer blocks better evidence.** A
+  first.last@ guess cached for a domain used to be read first forever, so
+  neither a real address nor a Hunter lookup could replace it. Hunter is
+  asked once per domain, and `j.smith@` is no longer read as first.last@.
+- **The company-inbox fallback finds published inboxes it used to miss**: it
+  reads whole pages (an `info@` 140k characters into a page counted for
+  nothing), schema.org, and an address on the business's own second domain
+  (`admin@txtroofing.com` for texastraditionsroofing.com). It is also used
+  when the named owner's address is only a guess, which is never sent.
+- **reCAPTCHA no longer makes a site look blocked.** Any page mentioning
+  "captcha" in its first 4,000 characters counted as a block, which cost
+  Harvey every site with a protected contact form. Only real challenge
+  pages count now, and a SiteGround or Cloudflare challenge is reported as
+  challenged (not unreachable) without retrying every URL variant.
 - **Gmail reads replies in the charset they were written in** (from #58 by
   xiaoheiai4719-collab). Every reply was decoded as UTF-8, so a reply sent
   as ISO-8859-1 or Windows-1252 ("Je préfère mardi") reached the model
