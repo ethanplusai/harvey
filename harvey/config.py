@@ -70,6 +70,11 @@ class ICPConfig(BaseModel):
     #   "Denver, CO": "39.7392,-104.9903,50"
     # Without one, listings providers can only match on the business name.
     geo_coordinates: dict[str, str] = {}
+    # Extra searches per industry for rank discovery, e.g.
+    #   "roofing contractor": ["roofer", "roof repair"]
+    # Each variant runs in every city alongside the industry itself, so the
+    # estimate grows with it. Empty → each industry is its own one search.
+    keyword_variants: dict[str, list[str]] = {}
 
 
 class WarmupConfig(BaseModel):

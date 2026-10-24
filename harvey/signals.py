@@ -23,16 +23,48 @@ SIGNAL_CATALOG: list[dict] = [
         "code": "SERP_RANK",
         "label": "Search rank position",
         "description": (
-            "Where the business ranks for its core '<service> <city>' search. "
-            "The most useful prospecting signal there is: positions 11-30 are "
-            "the sweet spot — visible enough to be trying, not winning yet. "
-            "Top 10 are already winning (harder sell); 31+ are cheaper but "
-            "less motivated."
+            "Where the business ranks organically for a '<service> <city>' "
+            "search (the search phrase is stored with it). The most useful "
+            "prospecting signal there is: positions 11-30 are the sweet spot — "
+            "visible enough to be trying, not winning yet. Top 10 are already "
+            "winning (harder sell); 31+ are cheaper but less motivated. Rank "
+            "depends on where the searcher stands: this is the view from the "
+            "city centre."
         ),
         "category": "discovery",
         "value_type": "num",
         "collector": "discover",
-        "cost_note": "~$0.0006 per search (paid SERP API, queued endpoint)",
+        "cost_note": "~$0.006 per search at depth 30 (paid SERP API, Live endpoint)",
+        "confidence_floor": 0.0,
+    },
+    {
+        "code": "IN_LOCAL_PACK",
+        "label": "In the Google local 3-pack",
+        "description": (
+            "Holds one of the three map slots above the organic results for a "
+            "'<service> <city>' search (value = slot 1-3; ads excluded). These "
+            "businesses are already winning local search — exclude them to "
+            "find the ones who aren't, or target them with something else."
+        ),
+        "category": "discovery",
+        "value_type": "num",
+        "collector": "discover",
+        "cost_note": "included in the organic rank search above",
+        "confidence_floor": 0.0,
+    },
+    {
+        "code": "MAPS_RANK",
+        "label": "Google Maps rank position",
+        "description": (
+            "Where the business appears in Google Maps for a '<service> <city>' "
+            "search from the city centre (the search phrase is stored with it). "
+            "Outside the top 3 on the map means outside the local pack most "
+            "searchers see. Also finds businesses with no website at all."
+        ),
+        "category": "discovery",
+        "value_type": "num",
+        "collector": "discover",
+        "cost_note": "~$0.002 per Maps search of up to 100 results (paid SERP API)",
         "confidence_floor": 0.0,
     },
     {

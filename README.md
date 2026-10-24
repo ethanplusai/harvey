@@ -154,11 +154,11 @@ harvey run
 
 This is the part that makes Harvey different from a black box, and it is deliberately not skippable.
 
-Harvey knows how to collect **23 signals** about a business. It does not collect any of them until you say so. On first run it *proposes* the catalog; you confirm, skip, or reject each one in the dashboard or from the terminal:
+Harvey knows how to collect **26 signals** about a business. It does not collect any of them until you say so. On first run it *proposes* the catalog; you confirm, skip, or reject each one in the dashboard or from the terminal:
 
 ```bash
 harvey signals                       # review the catalog
-harvey signals --confirm free        # everything that costs nothing (21 of them)
+harvey signals --confirm free        # everything that costs nothing (23 of them)
 harvey signals --confirm SERP_RANK   # a paid one, opted into explicitly
 ```
 
@@ -166,7 +166,8 @@ Every signal shows what it is in plain language, **what it costs**, and how many
 
 | | Signal | What it tells you |
 |---|---|---|
-| **Discovery** | `SERP_RANK` | Where they rank for their own core search. Positions 11–30 are the sweet spot: visible enough to be trying, and losing. |
+| **Discovery** | `SERP_RANK` | Where they rank for their own core search, stored with the search phrase. Positions 11–30 are the sweet spot: visible enough to be trying, and losing. |
+| | `IN_LOCAL_PACK` / `MAPS_RANK` | Whether they hold one of the three map slots above the results, and where they sit in Google Maps. |
 | | `NO_WEBSITE` | They have a listing and a phone and no site. If you sell websites, the highest-intent signal that exists. |
 | | `UNCLAIMED_LISTING` | Nobody has claimed their Google Business Profile. |
 | | `REVIEW_RATING` / `REVIEW_COUNT` | Good but invisible, or visible but struggling. |
@@ -181,7 +182,7 @@ Every signal shows what it is in plain language, **what it costs**, and how many
 
 ### Then a cohort is a query, not a list
 
-Once signals are confirmed, the dashboard's cohort builder turns them into a target set — pick what a good prospect **must have** and what **disqualifies** them, and it counts the matches live:
+Once signals are confirmed, the dashboard's cohort builder turns them into a target set — pick what a good prospect **must have**, what **disqualifies** them, and a **range** for numeric signals (organic rank 11 to 30), and it counts the matches live:
 
 ```
 Has a marketing agency  AND  running Google Ads  AND NOT  already has online booking
@@ -210,7 +211,8 @@ harvey discover               # go
 |---|---|---|---|
 | **OpenStreetMap** *(default)* | free | unlimited, no account | Trying the whole pipeline before paying anyone. Coverage is thin for businesses without a storefront: OSM maps premises, so whole trades are barely present (under 2,000 roofers and under 2,300 plumbers in the entire US). Harvey says so in the UI rather than quietly under-delivering. |
 | **DataForSEO Business Listings** | $0.372 / 1,000 | $1 credit | Local trades, clinics, contractors. Phone, domain, rating, claimed status — and it can filter for businesses with **no website at all**. |
-| **DataForSEO SERP** | $0.0018 / search | $1 credit + free sandbox | Rank as the buying signal. |
+| **DataForSEO SERP** | $0.006 / search at depth 30 (Live, $0.002 per 10 results) | $1 credit + free sandbox | Organic rank as the buying signal, plus who holds the local 3-pack, searched from the city centre. |
+| **DataForSEO Google Maps** | $0.002 / search (up to 100 results) | $1 credit + free sandbox | Map rank, rating, category and claimed status, including businesses with no website. |
 | **Serper** | ~$0.30–1.00 / 1,000 | 2,500 free, no card | The easiest paid one to try. |
 
 **Selling to startups?** Harvey has a built-in YC-startup skill, made of three

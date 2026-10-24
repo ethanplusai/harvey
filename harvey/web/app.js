@@ -229,7 +229,7 @@ const SOURCE_LABELS = {
   company_website: 'Team page', known_company_backfill: 'Team page',
   scraped_mailto: 'Published address', hunter_domain_search: 'Hunter', linkedin_search: 'LinkedIn',
   job_board: 'Job board', web_search: 'Web search', company_inbox: 'Company inbox',
-  osm: 'OpenStreetMap', dataforseo_listings: 'DataForSEO', dataforseo_serp: 'DataForSEO SERP',
+  osm: 'OpenStreetMap', dataforseo_listings: 'DataForSEO', dataforseo_serp: 'DataForSEO SERP', dataforseo_maps: 'DataForSEO Maps',
   serper: 'Serper',
 };
 function sourceLabel(s) {
@@ -992,7 +992,7 @@ function renderDiscoverResult(report, running) {
 
 // ── Cohort builder: a prospect list is a query ──
 
-let _cohort = { require: new Set(), exclude: new Set() };
+let _cohort = { require: new Set(), exclude: new Set(), ranges: {} };
 let _cohortOffset = 0;
 let _cohortGeneration = 0;
 const COHORT_PAGE = 50;
@@ -1024,9 +1024,37 @@ function renderCohortBuilder() {
         '<span class="n">' + (s.companies || 0) + '</span></label>'
     ).join('') + '</div></div>';
 
+  // Numeric signals (ranks, ratings) take a range: "organic rank 11-30".
+  const numeric = confirmed.filter(s => s.value_type === 'num');
+  const bound = (code, side) => {
+    const v = (_cohort.ranges[code] || {})[side];
+    return '<input type="number" class="cohort-bound" placeholder="' + side + '" ' +
+      'value="' + (v === undefined || v === null ? '' : escHtml(String(v))) + '" ' +
+      'aria-label="' + escHtml(code) + ' ' + side + '" ' +
+      'onchange="setCohortRange(' + jsq(code) + ',' + jsq(side) + ',this.value)">';
+  };
+  const rangeCol = numeric.length ?
+    '<div style="height:18px"></div><div><div class="subhead" style="margin-top:0">In range ' +
+      '<span class="muted" style="font-weight:400;text-transform:none;letter-spacing:0">' +
+      '&mdash; e.g. organic rank 11 to 30; leave a side blank for no limit</span></div>' +
+      '<div class="cohort-grid">' +
+      numeric.map(s =>
+        '<div class="cohort-pick cohort-range"><span>' + escHtml(s.label || s.code) + '</span>' +
+          bound(s.code, 'min') + '<span class="muted">to</span>' + bound(s.code, 'max') + '</div>'
+      ).join('') + '</div></div>' : '';
+
   el.innerHTML = col('Must have', 'require', '&mdash; every company in the cohort carries all of these') +
     '<div style="height:18px"></div>' +
-    col('Must not have', 'exclude', '&mdash; disqualifiers');
+    col('Must not have', 'exclude', '&mdash; disqualifiers') + rangeCol;
+}
+
+function setCohortRange(code, side, value) {
+  const r = _cohort.ranges[code] || {min: null, max: null};
+  r[side] = value === '' || isNaN(Number(value)) ? null : Number(value);
+  if (r.min === null && r.max === null) delete _cohort.ranges[code];
+  else _cohort.ranges[code] = r;
+  _cohortOffset = 0;
+  runCohort();
 }
 
 function toggleCohort(key, code, on) {
@@ -1045,14 +1073,15 @@ async function runCohort() {
   const el = document.getElementById('cohort-result');
   if (!el) return;
   const require = [..._cohort.require], exclude = [..._cohort.exclude];
-  if (!require.length) { el.innerHTML = ''; return; }
+  const ranges = _cohortRanges();
+  if (!require.length && !ranges.length) { el.innerHTML = ''; return; }
   // Remove the prior export button as soon as its criteria become stale.
   el.innerHTML = '<p class="muted">Loading cohort…</p>';
 
   const data = await api('/api/cohort', {
     method: 'POST',
     headers: {'Content-Type': 'application/json'},
-    body: JSON.stringify({require: require, exclude: exclude,
+    body: JSON.stringify({require: require, exclude: exclude, ranges: ranges,
                           offset: offset, limit: COHORT_PAGE}),
   });
   if (generation !== _cohortGeneration) return;
@@ -1100,9 +1129,19 @@ async function runCohort() {
   el.innerHTML = html + '</div>';
 }
 
+function _cohortRanges() {
+  return Object.entries(_cohort.ranges || {})
+    .filter(([, r]) => r.min !== null || r.max !== null)
+    .map(([code, r]) => ({code: code, min: r.min, max: r.max}));
+}
+
 async function exportCohort(button) {
   const qs = new URLSearchParams({require: [..._cohort.require].join(','),
                                   exclude: [..._cohort.exclude].join(',')});
+  // Ranges travel as "CODE:min:max", a blank side meaning no limit.
+  const ranges = Object.entries(_cohort.ranges || {})
+    .map(([code, r]) => code + ':' + (r.min ?? '') + ':' + (r.max ?? ''));
+  if (ranges.length) qs.set('ranges', ranges.join(','));
   button.disabled = true;
   button.textContent = 'Exporting…';
   let url;

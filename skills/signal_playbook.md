@@ -65,6 +65,31 @@ businesses.
 - **Angle**: the thing they haven't set up yet that you provide.
 - Keep it low-key — a brand-new company is drowning in vendor pitches.
 
+### Search-rank signal (SERP_RANK, MAPS_RANK, IN_LOCAL_PACK)
+Each rank is stored with the exact search that produced it ("roofer
+Denver, CO"). For a local business owner, "where do I show up when someone
+nearby searches for what I do" is a question they already care about.
+
+- **Always say where you searched from.** Google ranks differently for
+  every searcher's location, device and history, and Harvey searched once,
+  from the city centre. So the wording is "when we searched 'roofer Denver'
+  from downtown Denver, you came up 14th" — never "you rank #14" or "you're
+  on page 2", which they can disprove from their own office in ten seconds.
+- **Quote the search phrase exactly as stored.** Don't swap in a phrase
+  that sounds better; you didn't search for it.
+- **Organic 11-30**: the sweet spot. Visible enough to be trying, not
+  winning. Angle: the gap to page one, and who's above them. "Three of the
+  ten above you were directories" is fine only if you saw that.
+- **Map rank 4+ / not in the local pack**: most local searchers only see
+  the three map slots. Angle: being on the map but below the fold.
+- **In the local pack (IN_LOCAL_PACK)**: they're already winning local
+  search. Don't pitch rank; congratulating them on it is flattery. Use a
+  different signal, or skip them for rank-based offers.
+- **Bad**: "Your SEO is broken and you're losing thousands a month." You
+  don't know their traffic or revenue.
+- A rank is a snapshot. Past about a month, say "recently" or re-check it
+  before quoting a number.
+
 ## Which signal wins when there are several
 
 Rank by recency and actionability: **hiring > funding > tech-gap >

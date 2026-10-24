@@ -145,7 +145,7 @@ Ask the user these questions and build `harvey.yaml` and `skills/product_knowled
 
 ### Step 4: Confirm Signals
 
-Harvey ships a catalog of ~19 signals it knows how to collect, all **proposed** and
+Harvey ships a catalog of ~26 signals it knows how to collect, all **proposed** and
 none active. Nothing is prospected against until the user confirms them.
 
 Send them to `harvey dashboard` → **Signals**, where each one shows a
@@ -159,11 +159,12 @@ harvey signals --confirm SERP_RANK  # the one paid discovery signal
 ```
 
 Most signals are free (they read pages a business already publishes). Only
-`SERP_RANK` and `EMAIL_STATUS` consume credits — the cost note on each row says so.
+`SERP_RANK`, `MAPS_RANK` and `EMAIL_STATUS` consume credits — the cost note on each row says so.
 
 Once signals are confirmed, the **cohort builder** at the bottom of the Signals
 tab turns them into a target list: pick what a good prospect must have (and what
-disqualifies them) and it counts the matches live.
+disqualifies them, and a range for numeric signals like organic rank 11-30) and it
+counts the matches live.
 
 ### Step 5: Find Businesses
 
@@ -185,12 +186,18 @@ side by side: what each source does, what it costs, its free tier, and which
 |---|---|---|---|
 | **OpenStreetMap** (default) | free | unlimited | Trying the whole pipeline with no account. Thin coverage for service-area trades — OSM maps premises, so it has under 2,000 roofers in the entire US. A trial source, not a complete list. |
 | **DataForSEO Business Listings** | $0.372/1k businesses | $1 credit | Local trades, clinics, contractors. Phone + domain + rating + whether the listing is claimed, and it can filter for businesses with **no website at all**. |
-| **DataForSEO SERP** | $0.0018 a search at depth 30 | $1 credit + free sandbox | Rank as the buying signal. Positions 11-30 are the sweet spot. |
+| **DataForSEO SERP** | $0.006 a search at depth 30 (Live, $0.002 per 10 results) | $1 credit + free sandbox | Rank as the buying signal. Positions 11-30 are the sweet spot. Also records who holds the local 3-pack (`IN_LOCAL_PACK`). |
+| **DataForSEO Google Maps** | $0.002 a search (up to 100 results) | $1 credit + free sandbox | Map rank (`MAPS_RANK`), rating, category, claimed status; keeps businesses with no website. |
 | **Serper** | ~$0.30-$1.00/1k | 2,500 free, no card | The easiest paid one to try. |
 
 Cities are geocoded automatically (cached forever, one lookup per city), or set
 `icp.geo_coordinates` in harvey.yaml to control the radius:
-`"Denver, CO": "39.7392,-104.9903,50"`.
+`"Denver, CO": "39.7392,-104.9903,50"`. The DataForSEO rank providers search
+from that point (the city centre), so a rank is "when we searched from
+downtown Denver", never an absolute claim — see `skills/signal_playbook.md`.
+Add more search phrases per industry with `icp.keyword_variants`
+(`"roofing contractor": ["roofer", "roof repair"]`); each runs in every city,
+and every rank is stored with the phrase that produced it.
 
 **Selling to startups:** the `yc` preset (above, or *Look for: YC startups* on
 Discover) searches for companies whose own site says they're backed by Y

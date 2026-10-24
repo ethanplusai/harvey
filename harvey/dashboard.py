@@ -2181,10 +2181,12 @@ COHORT_MAX_PAGE_SIZE = 200
 
 
 async def _cohort_companies(require: list[str], exclude: list[str],
-                            offset: int = 0, limit: int | None = None):
+                            offset: int = 0, limit: int | None = None,
+                            ranges: list[dict] | None = None):
     state = _state()
     await state.init_db()
-    return await state.cohort_companies(require, exclude, offset, limit)
+    return await state.cohort_companies(require, exclude, offset, limit,
+                                        ranges=ranges)
 
 
 def _codes(raw) -> list[str]:
@@ -2199,6 +2201,53 @@ def _codes(raw) -> list[str]:
     if len(codes) > 200 or any(len(c) > 128 for c in codes):
         raise ValueError("too many or oversized signal codes")
     return codes
+
+
+COHORT_MAX_RANGES = 20
+
+
+def _range_bound(raw):
+    if raw is None or raw == "":
+        return None
+    if isinstance(raw, bool) or not isinstance(raw, (int, float, str)):
+        raise ValueError("range bounds must be numbers")
+    value = float(raw)
+    if value != value or abs(value) > 1e12:
+        raise ValueError("range bound is out of bounds")
+    return value
+
+
+def _ranges(raw) -> list[dict]:
+    """Numeric cohort filters: a list of {code, min, max}, or the CSV query
+    form "SERP_RANK:11:30,MAPS_RANK::3". At least one bound per range."""
+    if raw is None or raw == "" or raw == []:
+        return []
+    if isinstance(raw, str):
+        items = []
+        for part in raw.split(","):
+            if not part.strip():
+                continue
+            pieces = part.split(":")
+            if len(pieces) != 3:
+                raise ValueError("ranges look like CODE:min:max")
+            items.append({"code": pieces[0], "min": pieces[1], "max": pieces[2]})
+        raw = items
+    if not isinstance(raw, list) or any(not isinstance(r, dict) for r in raw):
+        raise ValueError("ranges must be a list of {code, min, max}")
+    if len(raw) > COHORT_MAX_RANGES:
+        raise ValueError("too many ranges")
+    out = []
+    for r in raw:
+        code = r.get("code")
+        if not isinstance(code, str) or not code.strip() or len(code) > 128:
+            raise ValueError("each range needs a signal code")
+        low, high = _range_bound(r.get("min")), _range_bound(r.get("max"))
+        if low is None and high is None:
+            raise ValueError(f"range on {code} needs a min or a max")
+        if low is not None and high is not None and low > high:
+            raise ValueError(f"range on {code}: min is above max")
+        out.append({"code": code.strip(), "min": low, "max": high})
+    return out
 
 
 def _cohort_integer(raw, default):
@@ -2219,7 +2268,8 @@ async def preview_cohort(request: Request):
     The payoff for confirming signals: a cohort is a query, not a list. Set
     intersection happens in SQL — intersecting in JS over a capped fetch
     silently returns the wrong answer. ``offset``/``limit`` page through the
-    matches; ``size`` is always the whole cohort.
+    matches; ``size`` is always the whole cohort. ``ranges`` adds numeric
+    filters — ``[{"code": "SERP_RANK", "min": 11, "max": 30}]``.
     """
     try:
         body = await request.json()
@@ -2227,13 +2277,15 @@ async def preview_cohort(request: Request):
             raise ValueError("request body must be an object")
         require = _codes(body.get("require"))
         exclude = _codes(body.get("exclude"))
+        ranges = _ranges(body.get("ranges"))
         offset = max(0, _cohort_integer(body.get("offset"), 0))
         limit = min(max(1, _cohort_integer(body.get("limit"), COHORT_PAGE_SIZE)),
                     COHORT_MAX_PAGE_SIZE)
-        if not require:
+        if not require and not ranges:
             return {"size": 0, "offset": 0, "limit": limit, "companies": []}
 
-        size, rows = await _cohort_companies(require, exclude, offset, limit)
+        size, rows = await _cohort_companies(require, exclude, offset, limit,
+                                             ranges=ranges)
         return {"size": size, "offset": offset, "limit": limit,
                 "companies": rows}
     except (ValueError, TypeError) as e:
@@ -2251,7 +2303,7 @@ def _csv_cell(value):
 
 
 @app.get("/api/cohort.csv")
-async def export_cohort(require: str = "", exclude: str = ""):
+async def export_cohort(require: str = "", exclude: str = "", ranges: str = ""):
     """The whole cohort as a CSV download — every match, not just one page."""
     import csv
     import io
@@ -2262,8 +2314,9 @@ async def export_cohort(require: str = "", exclude: str = ""):
     try:
         codes = _codes(require)
         excluded = _codes(exclude)
-        if codes:
-            _, rows = await _cohort_companies(codes, excluded)
+        bounds = _ranges(ranges)
+        if codes or bounds:
+            _, rows = await _cohort_companies(codes, excluded, ranges=bounds)
             for r in rows:
                 writer.writerow([_csv_cell(r.get(k)) for k in
                                  ("name", "domain", "website", "industry", "location")])

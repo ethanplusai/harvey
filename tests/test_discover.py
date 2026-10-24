@@ -146,8 +146,8 @@ def test_estimates_match_published_pricing():
     q = [D.DiscoveryQuery(term="roofer", location="Denver", limit=1000, depth=30)]
     # DataForSEO's own worked example: 1,000 items = $0.012 + $0.36 = $0.372
     assert D.estimate_cost("dataforseo_listings", q) == pytest.approx(0.372)
-    # SERP billing is base price x pages; depth 30 is three pages.
-    assert D.estimate_cost("dataforseo_serp", q) == pytest.approx(0.0018)
+    # SERP billing is the Live price x pages; depth 30 is three pages.
+    assert D.estimate_cost("dataforseo_serp", q) == pytest.approx(0.006)
     assert D.estimate_cost("osm", q) == 0.0
 
 

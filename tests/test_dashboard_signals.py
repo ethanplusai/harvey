@@ -296,7 +296,7 @@ def test_cost_notes_are_machine_classifiable():
     chip both key off the cost note. A signal that costs credits must not
     read as free — that is how someone accidentally turns on paid collection.
     """
-    paid = {"SERP_RANK", "EMAIL_STATUS", "EMAIL_PATTERN", "FOUND_IN_SERP"}
+    paid = {"SERP_RANK", "MAPS_RANK", "EMAIL_STATUS", "EMAIL_PATTERN", "FOUND_IN_SERP"}
     for sig in SIGNAL_CATALOG:
         free = sig["cost_note"].lower().startswith(("free", "included"))
         if sig["code"] in paid:
@@ -503,3 +503,51 @@ const page = (name, offset) => ({size: 100, offset, companies: [{name}]});
     assert 'LATEST' in data['latest'] and 'STALE' not in data['latest']
     assert data['afterOld'] == data['latest']
     assert data['cleared'] == data['afterClear'] == ''
+
+
+# ── Cohort ranges: "organic rank 11-30" ──
+
+
+async def _seed_ranks(db_path):
+    state = StateManager(str(db_path))
+    await state.init_db()
+    from harvey.signals import seed_signal_catalog
+    await seed_signal_catalog(state)
+    from harvey.models import Company
+    for name, rank in (("Top", 3), ("Mid", 14), ("Deep", 45)):
+        cid = await state.add_company(Company(name=name, domain=f"{name.lower()}.com"))
+        await state.add_observation("SERP_RANK", company_id=cid, collector="discover",
+                                    value_num=rank, value_text="roofer Denver")
+
+
+def test_cohort_range_filter_api(client):
+    import asyncio
+    asyncio.run(_seed_ranks(client.db_path))
+    data = client.post("/api/cohort", json={
+        "ranges": [{"code": "SERP_RANK", "min": 11, "max": 30}]}).json()
+    assert data["size"] == 1 and data["companies"][0]["name"] == "Mid"
+    # A range alone is a cohort; nothing at all is still empty.
+    assert client.post("/api/cohort", json={}).json()["size"] == 0
+
+    r = client.get("/api/cohort.csv", params={"ranges": "SERP_RANK:11:30"})
+    assert r.status_code == 200
+    assert [line.split(",")[0] for line in r.text.strip().splitlines()[1:]] == ["Mid"]
+    r = client.get("/api/cohort.csv", params={"ranges": "SERP_RANK::10"})
+    assert [line.split(",")[0] for line in r.text.strip().splitlines()[1:]] == ["Top"]
+
+
+@pytest.mark.parametrize("ranges", [
+    "SERP_RANK", [{"code": "SERP_RANK", "min": "x"}], [{"min": 1}],
+    [{"code": "SERP_RANK"}], [{"code": "SERP_RANK", "min": 30, "max": 11}],
+    [{"code": "SERP_RANK", "min": True}], [{"code": "S" * 129, "min": 1}],
+    [{"code": "SERP_RANK", "min": 1}] * 21,
+])
+def test_cohort_invalid_ranges_are_client_errors(client, ranges):
+    response = client.post("/api/cohort", json={"ranges": ranges})
+    assert response.status_code == 400
+
+
+def test_signals_api_marks_numeric_signals_for_the_range_ui(client):
+    data = client.get("/api/signals").json()
+    sigs = {s["code"]: s for g in data["groups"] for s in g["signals"]}
+    assert sigs["SERP_RANK"]["value_type"] == "num"
