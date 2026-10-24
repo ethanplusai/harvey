@@ -9,6 +9,19 @@ minor versions can still change behaviour.
 
 ### Added
 
+- **Opt-in OpenCode Go brain.** Set `brain.provider: opencode` (or pick it in
+  `harvey setup`, or `harvey train --provider opencode --model deepseek-v4.1-flash`)
+  to think with an OpenCode Go subscription. Harvey calls the Go inference API
+  directly over HTTPS with `OPENCODE_API_KEY` from `.env`: no CLI, no tools, no
+  session store, and it works on Windows. Chat-completions, Anthropic Messages,
+  OpenAI Responses and Google model endpoints are selected from the model id;
+  the model must be in the Go catalog. Go reports the allowance each call
+  consumed, and Harvey records it per call, showing the plan's 5-hour (20%),
+  weekly (50%) and monthly (100%) windows in `harvey usage` and the dashboard.
+  A rejected key or model pauses the provider with an actionable message; a
+  usage limit pauses for an hour. There is no automatic fallback to Claude or
+  Codex. See "Using OpenCode Go instead" in the README.
+
 - **Open roles from the job board a company actually uses.** When a
   company's own site links or embeds a Greenhouse, Lever, Ashby or Workable
   board, profiling reads that board's public JSON feed (one request, capped

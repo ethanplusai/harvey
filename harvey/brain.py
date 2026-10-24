@@ -1,10 +1,10 @@
 """Brain — Harvey's thinking engine.
 
 Runs on the operator's Claude subscription (Claude Code headless, the
-default) or, when ``brain.provider: codex`` is configured, their ChatGPT
-subscription through an isolated Codex runtime (see harvey/codex.py). The
-provider is fixed per Brain; a failing provider never falls back to the
-other one.
+default), their ChatGPT subscription through an isolated Codex runtime
+(see harvey/codex.py), or their OpenCode Go subscription through the Go
+inference API (see harvey/opencode.py). The provider is fixed per Brain; a
+failing provider never falls back to another one.
 """
 
 import asyncio
@@ -39,7 +39,11 @@ _NON_RETRYABLE_PATTERNS = (
 )
 
 
-PROVIDER_LABELS = {"claude": "Claude", "codex": "Codex"}
+PROVIDER_LABELS = {
+    "claude": "Claude",
+    "codex": "Codex",
+    "opencode": "OpenCode Go",
+}
 
 # Settings key holding the brain's last health transition, for `harvey
 # status` and the dashboard: {"provider", "status": "ok"|"paused", "reason",
@@ -50,6 +54,8 @@ BRAIN_STATUS_KEY = "brain_status"
 # CLI version, model choice, an unsafe Codex config layer). After one, the
 # Brain stops starting runtimes until something changes.
 _PERSISTENT_CODEX_KINDS = {"setup", "auth", "isolation"}
+# OpenCode Go failures that repeat until the operator fixes the key/model.
+_PERSISTENT_OPENCODE_KINDS = {"setup", "auth", "isolation"}
 # Re-check a paused provider at least this often even if nothing changed
 # on disk (e.g. a managed config layer was fixed).
 PROVIDER_RECHECK_SECONDS = 1800
@@ -88,6 +94,7 @@ class Brain:
         self.provider = self.config.provider
         self.model = self.config.model
         self.codex = None
+        self.opencode = None
         # Whether the last think_json got no reply at all (an outage, logout,
         # rate limit or timeout), as opposed to a reply that wasn't valid
         # JSON. Callers that count model failures must not count outages.
@@ -105,6 +112,21 @@ class Brain:
                 model=self.model, reasoning_effort=self.config.reasoning_effort
             )
             self.quota = CodexQuotaClient(self.codex)
+        elif self.provider == "opencode":
+            from harvey.opencode import (
+                DEFAULT_MODEL, OpenCodeClient, OpenCodeQuotaClient,
+            )
+            self.opencode = OpenCodeClient(
+                model=self.model or DEFAULT_MODEL,
+                base_url=self.config.base_url,
+                max_tokens=self.config.max_tokens,
+            )
+            # Keep the resolved model visible to status/logs even when the
+            # config left it blank.
+            self.model = self.opencode.model
+            self.quota = OpenCodeQuotaClient(
+                self.state, self.model,
+                monthly_limit_usd=self.config.monthly_limit_usd)
         else:
             # Lazy import avoids a cycle (quota -> usage -> state).
             from harvey.integrations.quota import QuotaClient
@@ -137,6 +159,8 @@ class Brain:
         PROVIDER_RECHECK_SECONDS, so a persistent problem doesn't start
         runtimes every heartbeat.
         """
+        if self.provider == "opencode":
+            return await self._opencode_preflight()
         if self.provider != "codex":
             return await self._claude_preflight()
         from harvey.codex import CodexError
@@ -193,9 +217,59 @@ class Brain:
             await self._mark_available()
         return ""
 
+    async def _opencode_preflight(self) -> str:
+        """OpenCode Go: key present, model in the Go catalog (no prompt sent).
+
+        The catalog endpoint is public, so a wrong key is not caught here;
+        the first real call surfaces it as an auth pause, the same way
+        Claude's login is checked by its first call rather than by preflight.
+        """
+        from harvey.opencode import OpenCodeError
+
+        # A rejected key cannot be checked by the (public) catalog endpoint,
+        # so keep an auth/model pause sticky until the key or model changes,
+        # or the periodic re-check is due. Otherwise every heartbeat would
+        # clear the pause and spend one failing call.
+        if self.unavailable:
+            unchanged = self._fingerprint() == self._unavailable_fingerprint
+            recent = time.monotonic() - self._unavailable_at < PROVIDER_RECHECK_SECONDS
+            if unchanged and recent:
+                return self.unavailable
+
+        try:
+            await self.opencode.preflight()
+        except OpenCodeError as e:
+            if e.kind in _PERSISTENT_OPENCODE_KINDS:
+                await self._mark_unavailable(e)
+                return self.unavailable
+            return str(e)
+        except Exception as e:
+            return f"OpenCode Go preflight failed unexpectedly ({type(e).__name__})."
+        if self.unavailable:
+            await self._mark_available()
+        elif not self._status_synced:
+            logger.info(
+                f"OpenCode Go ready: key present and model {self.model} in the "
+                "Go catalog (no prompt sent).")
+            self._status_synced = True
+            try:
+                stored = parse_brain_status(await self.state.get_setting(BRAIN_STATUS_KEY))
+            except Exception:
+                stored = {}
+            until = stored.get("until")
+            if (stored.get("status") == "paused" and stored.get("kind") == "usage_limit"
+                    and isinstance(until, (int, float)) and until > time.time()):
+                self._usage_limited_until = time.monotonic() + (until - time.time())
+                self._usage_pause_recorded = True
+            elif stored.get("status") == "paused":
+                await self._mark_available()
+        return ""
+
     def _fingerprint(self):
         if self.provider == "codex":
             return self.codex.fingerprint()
+        if self.provider == "opencode":
+            return self.opencode.fingerprint()
         from harvey.claude_runtime import fingerprint
         return fingerprint()
 
@@ -262,6 +336,11 @@ class Brain:
         ``agent``/``task`` label the call in the usage_events ledger so the
         dashboard can attribute tokens and cost to specific work.
         """
+        if self.provider == "opencode":
+            return await self._think_opencode(
+                prompt, session_id=session_id, timeout=timeout,
+                max_retries=max_retries, agent=agent, task=task,
+            )
         if self.provider == "codex":
             return await self._think_codex(
                 prompt, session_id=session_id, timeout=timeout,
@@ -481,6 +560,103 @@ class Brain:
             f"Last error: {last_error[:200]}"
         )
         return ""
+
+    async def _think_opencode(
+        self,
+        prompt: str,
+        session_id: str | None,
+        timeout: float,
+        max_retries: int,
+        agent: str,
+        task: str,
+    ) -> str:
+        """One OpenCode Go HTTPS call per attempt (see harvey/opencode.py)."""
+        from harvey.opencode import OpenCodeError
+
+        paused = self.paused_reason
+        if paused:
+            logger.debug(f"OpenCode Go call skipped: {paused}")
+            return ""
+        logger.debug(f"Brain call via OpenCode Go (label={session_id})")
+        last_error = ""
+        for attempt in range(max_retries + 1):
+            if attempt > 0:
+                delay = RETRY_BASE_DELAY * (2 ** (attempt - 1))
+                logger.info(
+                    f"Retrying OpenCode Go call in {delay:.0f}s "
+                    f"(attempt {attempt + 1}/{max_retries + 1})..."
+                )
+                await asyncio.sleep(delay)
+            try:
+                result = await self.opencode.run(
+                    prompt, session_id=session_id or "", timeout=timeout)
+            except OpenCodeError as e:
+                last_error = str(e)
+                if e.kind == "usage_limit":
+                    await self._start_usage_pause()
+                    invalidate = getattr(self.quota, "invalidate", None)
+                    if invalidate:
+                        invalidate()
+                    return ""
+                if e.kind in _PERSISTENT_OPENCODE_KINDS:
+                    logger.error(f"OpenCode Go call failed: {e}")
+                    await self._mark_unavailable(e)
+                    return ""
+                if e.retryable:
+                    logger.warning(f"OpenCode Go call failed: {e}")
+                    continue
+                logger.error(f"OpenCode Go call failed: {e}")
+                return ""
+            except Exception as e:
+                # Not expected (the adapter reports failures as
+                # OpenCodeError); log only the type, since messages could
+                # carry call details. CancelledError is not an Exception.
+                logger.error(
+                    f"OpenCode Go call failed unexpectedly ({type(e).__name__}).")
+                return ""
+
+            try:
+                await self.state.increment_usage(provider="opencode")
+            except Exception as e:
+                logger.warning(f"Failed to record usage counter: {e}")
+            try:
+                await self._record_opencode_usage(
+                    result, agent=agent, task=task, label=session_id or "")
+            except Exception as e:
+                logger.warning(f"Failed to record usage event: {e}")
+            return result.text
+
+        logger.error(
+            f"OpenCode Go call failed after {max_retries + 1} attempts. "
+            f"Last error: {last_error[:200]}"
+        )
+        return ""
+
+    async def _record_opencode_usage(self, result, agent: str, task: str, label: str):
+        """One usage row per OpenCode Go call.
+
+        ``cost_usd`` is the allowance Go says the call consumed, not a
+        per-token bill: Go plans are subscriptions, and the allowance is what
+        the 5-hour/weekly/monthly limits meter.
+        """
+        if not agent and label.startswith("harvey-"):
+            agent = label[len("harvey-"):].split("-")[0]
+        usage = result.usage or {}
+        await self.state.record_usage_event(
+            agent=agent,
+            task=task or label,
+            session_id=result.request_id or label,
+            model=result.model,
+            input_tokens=usage.get("input_tokens", 0),
+            output_tokens=usage.get("output_tokens", 0),
+            cache_read_tokens=usage.get("cache_read_tokens", 0),
+            cache_creation_tokens=usage.get("cache_creation_tokens", 0),
+            cost_usd=result.cost_usd,
+            duration_ms=result.duration_ms,
+            num_turns=1,
+            source="opencode_go_api",
+            provider="opencode",
+        )
 
     async def _record_codex_usage(self, result, agent: str, task: str, label: str):
         """One usage row per Codex call. ChatGPT plans aren't billed per

@@ -276,7 +276,7 @@
 
 <!-- Usage -->
 <div id="usage" class="section">
-  <div class="section-head"><div><h2>Usage</h2><p>Model usage on your subscription (Claude or Codex): calls and tokens by provider, agent and task. Subscription plans aren't billed per token, so there are no dollar costs here.</p></div></div>
+  <div class="section-head"><div><h2>Usage</h2><p>Model usage on your subscription (Claude, Codex or OpenCode Go): calls and tokens by provider, agent and task. Subscription plans aren't billed per token, so there are no dollar costs here; OpenCode Go's allowance is estimated from the usage it reports per call.</p></div></div>
   <div id="usage-quota" class="card" style="display:none"></div>
   <div class="stats-grid" id="usage-stats"></div>
   <div class="card" id="usage-daily" style="display:none"></div>
@@ -462,14 +462,14 @@
   <div class="help-section">
     <h2>What is Harvey?</h2>
     <p>Harvey is an autonomous AI sales agent. Once set up, Harvey runs on its own: finds people who match your ideal customer, writes personalized cold emails, sends them through your email platform, reads every reply, handles objections, and works toward booking a meeting. You review everything through this dashboard.</p>
-    <p>Harvey runs on your Claude Max subscription (or, if you opt in, your ChatGPT plan through Codex), so there are no extra AI costs. Everything stays on your machine in one folder.</p>
+    <p>Harvey runs on your Claude Max subscription, your ChatGPT plan through Codex, or your OpenCode Go plan through its inference API, so there are no extra AI costs. Everything stays on your machine in one folder.</p>
   </div>
 
   <div class="help-section">
     <h2>Getting started</h2>
     <p>There are three things to do:</p>
     <pre>1. Go to the Settings tab and connect an email provider (Gmail recommended)
-2. Train Harvey on your product (through Claude or the command line)
+2. Train Harvey on your product (through your configured brain or the command line)
 3. Go to the Controls tab and click Start</pre>
     <p>Today shows exactly what's done and what still needs to happen.</p>
   </div>
@@ -544,8 +544,13 @@
     </details>
 
     <details>
+      <summary>OpenCode Go calls fail</summary>
+      <div class="faq-body">With <code>brain.provider: opencode</code>, Harvey calls the Go inference API directly with <code>OPENCODE_API_KEY</code> from <code>.env</code>. A <code>401</code> means the key is missing or rejected; check it in the OpenCode Console under Go. A <code>429</code> or an "allowance" message means the model's 5-hour or weekly limit is used up; Harvey pauses and resumes after it resets. If the model is rejected, choose one from the Go catalog (for example <code>deepseek-v4.1-flash</code>, <code>glm-5.3-flash</code> or <code>kimi-k2.7-code</code>). Harvey never falls back to Claude or Codex on its own.</div>
+    </details>
+
+    <details>
       <summary>Codex calls fail</summary>
-      <div class="faq-body">With <code>brain.provider: codex</code>, set <code>brain.model</code> to an available model ID, including Luna, Sol, or Terra (for example <code>gpt-6.1-sol</code>), or leave it blank to select a listed model. Harvey runs these models without tools; <code>gpt-5.5</code> also remains supported when present in your account's catalog. Run <code>codex login</code> and choose "Sign in with ChatGPT" (API-key logins are refused). Harvey never renews your Codex login: if the log says it has expired or is due for renewal, use Codex once or run <code>codex login</code>. Harvey needs Codex CLI 0.159.3 on macOS or Linux (Codex isn't supported on Windows; use Claude there) and refuses other versions. While Codex can't be used, Harvey pauses (Today shows "Codex is paused" and why), leaves replies and queued emails untouched, and resumes once it's fixed; <code>harvey status --check</code> checks on demand. If the log says isolation could not be verified, a Codex config layer is forcing a tool, hook, MCP server or custom endpoint back on — Harvey refuses to send prompts until it is removed. Harvey never falls back to Claude on its own.</div>
+      <div class="faq-body">With <code>brain.provider: codex</code>, set <code>brain.model</code> to an available model ID, including Luna, Sol, or Terra (for example <code>gpt-6.1-sol</code>), or leave it blank to select a listed model. Harvey runs these models without tools; <code>gpt-5.5</code> also remains supported when present in your account's catalog. Run <code>codex login</code> and choose "Sign in with ChatGPT" (API-key logins are refused). Harvey never renews your Codex login: if the log says it has expired or is due for renewal, use Codex once or run <code>codex login</code>. Harvey needs Codex CLI 0.159.3 on macOS or Linux (Codex isn't supported on Windows; use Claude or OpenCode Go there) and refuses other versions. While Codex can't be used, Harvey pauses (Today shows "Codex is paused" and why), leaves replies and queued emails untouched, and resumes once it's fixed; <code>harvey status --check</code> checks on demand. If the log says isolation could not be verified, a Codex config layer is forcing a tool, hook, MCP server or custom endpoint back on — Harvey refuses to send prompts until it is removed. Harvey never falls back to Claude on its own.</div>
     </details>
 
     <details>

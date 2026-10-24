@@ -515,10 +515,18 @@ MIGRATIONS: list[str] = [
     -- knows about the recipient. Empty until then.
     ALTER TABLE prospects ADD COLUMN timezone TEXT DEFAULT '';
     """,
+    # ── v15: OpenCode Go calls count separately from Claude and Codex ──
+    """
+    ALTER TABLE usage_log ADD COLUMN opencode_calls INTEGER DEFAULT 0;
+    """,
 ]
 
-BRAIN_PROVIDERS = ("claude", "codex")
-_USAGE_LOG_COLUMN = {"claude": "claude_calls", "codex": "codex_calls"}
+BRAIN_PROVIDERS = ("claude", "codex", "opencode")
+_USAGE_LOG_COLUMN = {
+    "claude": "claude_calls",
+    "codex": "codex_calls",
+    "opencode": "opencode_calls",
+}
 
 # When a company was last profiled: the newer of the explicit check stamp
 # (set on every attempt, reachable or not) and its latest profile observation
@@ -2511,6 +2519,30 @@ class StateManager:
     async def usage_by_provider(self, days: int = 30) -> list[dict]:
         return await self._usage_grouped("provider", "provider", days)
 
+    async def usage_spend(self, provider: str, model: str,
+                          since: str) -> tuple[float, str]:
+        """Allowance spent by one provider/model since a UTC timestamp.
+
+        Returns ``(spend_usd, oldest_created_at)``. The OpenCode Go quota
+        client uses the oldest row to show when a rolling window frees up.
+        """
+        sql = (
+            "SELECT COALESCE(SUM(cost_usd), 0) AS spend, "
+            "MIN(created_at) AS oldest FROM usage_events "
+            "WHERE provider = ? AND created_at >= ? AND is_error = 0"
+        )
+        params: list = [provider, since]
+        if model:
+            sql += " AND model = ?"
+            params.append(model)
+        async with self._connect() as db:
+            db.row_factory = aiosqlite.Row
+            async with db.execute(sql, tuple(params)) as cursor:
+                row = await cursor.fetchone()
+        if not row:
+            return 0.0, ""
+        return float(row["spend"] or 0.0), str(row["oldest"] or "")
+
     async def usage_by_day(self, days: int = 30) -> list[dict]:
         sql = (
             f"SELECT date(created_at) AS day, {self._USAGE_SUM} "
@@ -2560,11 +2592,13 @@ class StateManager:
             ) as cursor:
                 open_conversations = (await cursor.fetchone())[0]
             async with db.execute(
-                "SELECT claude_calls, codex_calls FROM usage_log WHERE date = ?", (today,)
+                "SELECT claude_calls, codex_calls, opencode_calls "
+                "FROM usage_log WHERE date = ?", (today,)
             ) as cursor:
                 usage_row = await cursor.fetchone()
                 usage_today = (usage_row[0] or 0) if usage_row else 0
                 codex_today = (usage_row[1] or 0) if usage_row else 0
+                opencode_today = (usage_row[2] or 0) if usage_row else 0
 
         return {
             "prospects": prospect_counts,
@@ -2579,7 +2613,11 @@ class StateManager:
             "active_campaigns": active_campaigns,
             "open_conversations": open_conversations,
             "usage_today": usage_today,  # Claude calls (kept for compatibility)
-            "usage_today_by_provider": {"claude": usage_today, "codex": codex_today},
+            "usage_today_by_provider": {
+                "claude": usage_today,
+                "codex": codex_today,
+                "opencode": opencode_today,
+            },
             # Companies discovered but not yet read. The heartbeat profiles
             # these every cycle — it is free, so it never competes with the
             # Claude budget the rest of the loop is rationing.

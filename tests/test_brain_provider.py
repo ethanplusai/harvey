@@ -369,7 +369,8 @@ async def test_existing_usage_rows_become_claude(tmp_path):
     assert await sm.get_usage_today("codex") == 0
     summary = await sm.get_state_summary()
     assert summary["usage_today"] == 7
-    assert summary["usage_today_by_provider"] == {"claude": 7, "codex": 0}
+    assert summary["usage_today_by_provider"] == {
+        "claude": 7, "codex": 0, "opencode": 0}
     with pytest.raises(ValueError):
         await sm.record_usage_event(provider="gemini")
 

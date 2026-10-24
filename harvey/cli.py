@@ -215,6 +215,7 @@ def cmd_status(args):
         by_provider = summary.get("usage_today_by_provider", {})
         print(f"  Claude calls today:   {by_provider.get('claude', summary['usage_today'])}")
         print(f"  Codex calls today:    {by_provider.get('codex', 0)}")
+        print(f"  OpenCode Go calls:    {by_provider.get('opencode', 0)}")
         from harvey.config import compliance_notice, load_config, sending_notice
         loaded = None
         try:
@@ -282,11 +283,15 @@ def cmd_status(args):
                 elif brain.provider == "codex":
                     print(f"  Brain:                {label} ready (CLI, isolation, login, "
                           "model and account checked; no prompt sent)")
+                elif brain.provider == "opencode":
+                    print(f"  Brain:                {label} ready (key and Go model "
+                          "catalog checked; the key is checked by its first call)")
                 else:
                     print(f"  Brain:                {label} CLI isolation flags present "
                           "(login not checked: Claude is checked by its first call)")
         elif brain_status.get("status") == "paused":
-            label = {"claude": "Claude", "codex": "Codex"}.get(brain_status.get("provider"), "Brain")
+            label = {"claude": "Claude", "codex": "Codex",
+                     "opencode": "OpenCode Go"}.get(brain_status.get("provider"), "Brain")
             print(f"  Brain:                {label} PAUSED since {brain_status.get('since', '?')}")
             print(f"                        {brain_status.get('reason', '')}")
         print()
@@ -325,15 +330,22 @@ def cmd_usage(args):
             elif provider == "claude":
                 from harvey.integrations.quota import QuotaClient
                 windows = await QuotaClient().get_utilization()
+            elif provider == "opencode":
+                from harvey.opencode import OpenCodeQuotaClient
+                windows = await OpenCodeQuotaClient(
+                    state, brain_config.model,
+                    monthly_limit_usd=brain_config.monthly_limit_usd,
+                ).get_utilization()
         except Exception:
             pass
 
-        label = {"claude": "Claude", "codex": "Codex"}.get(provider, "Brain")
+        label = {"claude": "Claude", "codex": "Codex",
+                 "opencode": "OpenCode Go"}.get(provider, "Brain")
         print(f"\n  {label} Usage")
         print("  " + "=" * 52)
         if windows:
             labels = {"five_hour": "5-hour window", "seven_day": "Weekly",
-                      "limit_reached": "Usage limit"}
+                      "monthly": "Monthly allowance", "limit_reached": "Usage limit"}
             for key, w in windows.items():
                 resets = f"  (resets {w['resets_at']})" if w.get("resets_at") else ""
                 print(f"  {labels.get(key, key):<16} {w['utilization']:5.1f}% used{resets}")
@@ -342,6 +354,10 @@ def cmd_usage(args):
                   "version, and network).")
         elif provider == "claude":
             print("  Quota gauge unavailable (run 'claude login' or check network).")
+        elif provider == "opencode":
+            print("  Allowance unavailable (check OPENCODE_API_KEY, the model's Go "
+                  "plan limit, and network). Until it can be read, budgets count "
+                  "Harvey's own calls.")
 
         totals = await state.usage_totals()
         print()
@@ -357,9 +373,12 @@ def cmd_usage(args):
         by_provider = await state.usage_by_provider(days=args.days)
         if len(by_provider) > 1 or (by_provider and by_provider[0]["provider"] != "claude"):
             print(f"\n  By provider (last {args.days} days):")
+            provider_names = {"claude": "Claude", "codex": "Codex",
+                              "opencode": "OpenCode Go"}
             for row in by_provider:
+                name = provider_names.get(row["provider"], row["provider"])
                 print(
-                    f"    {row['provider']:<14} {row['calls']:>5} calls  "
+                    f"    {name:<14} {row['calls']:>5} calls  "
                     f"{row['output_tokens']:>10,} out tokens"
                 )
 
@@ -853,7 +872,7 @@ def main():
         help="Max pages to crawl (default: 100)",
     )
     sub.add_argument(
-        "--provider", choices=["claude", "codex"], default=None,
+        "--provider", choices=["claude", "codex", "opencode"], default=None,
         help="Subscription to think with (default: the one in your config, else claude)",
     )
     sub.add_argument("--model", default=None, help="Model for this provider (default: provider default)")
@@ -878,7 +897,8 @@ def main():
     sub.add_argument(
         "--check", action="store_true",
         help="Also check the configured brain now (Codex: CLI version, isolation "
-             "and login; Claude: CLI isolation flags; no model call)",
+             "and login; OpenCode Go: key and model catalog; Claude: CLI isolation "
+             "flags; no model call)",
     )
     sub.set_defaults(func=cmd_status)
 
@@ -977,7 +997,8 @@ def main():
     sub.set_defaults(func=cmd_warmup)
 
     # harvey usage
-    sub = subparsers.add_parser("usage", help="Show brain usage and quota (Claude or Codex)")
+    sub = subparsers.add_parser(
+        "usage", help="Show brain usage and quota (Claude, Codex or OpenCode Go)")
     sub.add_argument("--days", type=int, default=30, help="Breakdown window (default: 30)")
     sub.set_defaults(func=cmd_usage)
 

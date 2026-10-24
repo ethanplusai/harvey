@@ -1,4 +1,4 @@
-"""Harvey — an autonomous sales agent that runs on your Claude subscription."""
+"""Harvey — an autonomous sales agent that runs on your AI subscription."""
 
 import sys
 

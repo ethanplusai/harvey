@@ -327,6 +327,13 @@ def brain_section(brain_config: BrainConfig) -> dict:
         section["model"] = brain_config.model
     if brain_config.reasoning_effort:
         section["reasoning_effort"] = brain_config.reasoning_effort
+    if brain_config.provider == "opencode":
+        if brain_config.base_url:
+            section["base_url"] = brain_config.base_url
+        if brain_config.max_tokens != 8192:
+            section["max_tokens"] = brain_config.max_tokens
+        if brain_config.monthly_limit_usd:
+            section["monthly_limit_usd"] = brain_config.monthly_limit_usd
     return section
 
 
