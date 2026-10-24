@@ -39,7 +39,7 @@ _NON_RETRYABLE_PATTERNS = (
 )
 
 
-PROVIDER_LABELS = {"claude": "Claude", "codex": "Codex"}
+PROVIDER_LABELS = {"claude": "Claude", "codex": "Codex", "agy": "Antigravity (agy)"}
 
 # Settings key holding the brain's last health transition, for `harvey
 # status` and the dashboard: {"provider", "status": "ok"|"paused", "reason",
@@ -101,6 +101,9 @@ class Brain:
                 model=self.model, reasoning_effort=self.config.reasoning_effort
             )
             self.quota = CodexQuotaClient(self.codex)
+        elif self.provider == "agy":
+            self.quota = None
+            self.model = self.model or "gemini-3.8-flash-high"
         else:
             # Lazy import avoids a cycle (quota -> usage -> state).
             from harvey.integrations.quota import QuotaClient
@@ -120,19 +123,12 @@ class Brain:
         return ""
 
     async def preflight(self) -> str:
-        """Can this Brain be used right now? Returns "" or the reason not.
-
-        Codex only (Claude keeps its existing behaviour): runs the adapter's
-        full pre-prompt check (CodexClient.preflight): CLI version, route and
-        lockdown attested with no login in the runtime, the native login read
-        only (expiry, renewal), then with the access-only copy the configured
-        model against the catalog, the ChatGPT account, and a started
-        tool-less thread. No turn, so no inference; nothing is written to the
-        native login. While paused, the check is repeated only when the login
-        file or the Codex executable changes, or every
-        PROVIDER_RECHECK_SECONDS, so a persistent problem doesn't start
-        runtimes every heartbeat.
-        """
+        """Can this Brain be used right now? Returns "" or the reason not."""
+        if self.provider == "agy":
+            import shutil
+            if not shutil.which("agy"):
+                return "Antigravity CLI ('agy') not found in PATH."
+            return ""
         if self.provider != "codex":
             return ""
         from harvey.codex import CodexError
@@ -239,6 +235,11 @@ class Brain:
         """
         if self.provider == "codex":
             return await self._think_codex(
+                prompt, session_id=session_id, timeout=timeout,
+                max_retries=max_retries, agent=agent, task=task,
+            )
+        if self.provider == "agy":
+            return await self._think_agy(
                 prompt, session_id=session_id, timeout=timeout,
                 max_retries=max_retries, agent=agent, task=task,
             )
@@ -441,6 +442,157 @@ class Brain:
         )
         return ""
 
+    async def _think_agy(
+        self,
+        prompt: str,
+        session_id: str | None,
+        timeout: float,
+        max_retries: int,
+        agent: str,
+        task: str,
+    ) -> str:
+        """Send a prompt to Antigravity CLI (agy) and return the response."""
+        model = self.model or "gemini-3.8-flash-high"
+        cmd = [
+            "agy",
+            "--output-format", "json",
+            "--disable-slash-commands",
+            "--model", model,
+            "--print", prompt,
+        ]
+
+        logger.debug(f"Brain call via agy (model={model}, session={session_id}): {prompt[:100]}...")
+
+        last_error = ""
+        for attempt in range(max_retries + 1):
+            if attempt > 0:
+                delay = RETRY_BASE_DELAY * (2 ** (attempt - 1))
+                logger.info(
+                    f"Retrying agy brain call in {delay:.0f}s "
+                    f"(attempt {attempt + 1}/{max_retries + 1})..."
+                )
+                await asyncio.sleep(delay)
+
+            process = None
+            try:
+                process = await asyncio.create_subprocess_exec(
+                    *cmd,
+                    stdin=asyncio.subprocess.DEVNULL,
+                    stdout=asyncio.subprocess.PIPE,
+                    stderr=asyncio.subprocess.PIPE,
+                )
+                try:
+                    stdout, stderr = await asyncio.wait_for(
+                        process.communicate(),
+                        timeout=timeout,
+                    )
+                except asyncio.TimeoutError:
+                    logger.error(f"agy call timed out after {timeout:.0f}s. Killing process.")
+                    try:
+                        process.kill()
+                        await process.wait()
+                    except ProcessLookupError:
+                        pass
+                    last_error = "timeout"
+                    continue
+
+                if process.returncode != 0:
+                    error = stderr.decode(errors="replace").strip()
+                    logger.error(f"agy exited with code {process.returncode}: {error[:300]}")
+                    last_error = error
+                    continue
+
+                raw = stdout.decode(errors="replace").strip()
+                response, payload = self._parse_agy_payload(raw)
+
+                try:
+                    await self.state.increment_usage(provider="agy")
+                except Exception as e:
+                    logger.warning(f"Failed to record usage counter: {e}")
+
+                try:
+                    await self._record_agy_usage(
+                        payload, agent=agent, task=task, label=session_id or "", model=model
+                    )
+                except Exception as e:
+                    logger.warning(f"Failed to record usage event: {e}")
+
+                logger.debug(f"agy brain response: {response[:200]}...")
+                return response
+
+            except FileNotFoundError:
+                logger.error("Antigravity CLI ('agy') not found in PATH.")
+                return ""
+            except asyncio.CancelledError:
+                if process is not None:
+                    try:
+                        process.kill()
+                    except ProcessLookupError:
+                        pass
+                    raise
+            except Exception as e:
+                logger.error(f"agy brain error: {e}")
+                last_error = str(e)
+                continue
+
+        logger.error(
+            f"agy brain call failed after {max_retries + 1} attempts. "
+            f"Last error: {str(last_error)[:200]}"
+        )
+        return ""
+
+    @staticmethod
+    def _parse_agy_payload(raw: str) -> tuple[str, dict | None]:
+        try:
+            payload = json.loads(raw)
+        except json.JSONDecodeError:
+            return raw, None
+        if not isinstance(payload, dict):
+            return raw, None
+        response = payload.get("response")
+        if response is not None:
+            return str(response).strip(), payload
+        if "result" in payload:
+            return str(payload.get("result") or "").strip(), payload
+        return raw, payload
+
+    async def _record_agy_usage(
+        self, payload: dict | None, agent: str, task: str, label: str, model: str
+    ):
+        if not agent and label.startswith("harvey-"):
+            agent = label[len("harvey-"):].split("-")[0]
+
+        session = ""
+        duration_ms = 0
+        input_tokens = 0
+        output_tokens = 0
+        num_turns = 1
+
+        if isinstance(payload, dict):
+            session = str(payload.get("conversation_id") or "")
+            duration_s = payload.get("duration_seconds")
+            if isinstance(duration_s, (int, float)):
+                duration_ms = int(duration_s * 1000)
+            num_turns = int(payload.get("num_turns") or 1)
+            usage = payload.get("usage")
+            if isinstance(usage, dict):
+                input_tokens = int(usage.get("input_tokens") or 0)
+                output_tokens = int(usage.get("output_tokens") or 0)
+
+        await self.state.record_usage_event(
+            agent=agent,
+            task=task or label,
+            session_id=session,
+            model=model,
+            duration_ms=duration_ms,
+            num_turns=num_turns,
+            input_tokens=input_tokens,
+            output_tokens=output_tokens,
+            cost_usd=0.0,
+            source="agy_cli",
+            provider="agy",
+        )
+
     async def _record_codex_usage(self, result, agent: str, task: str, label: str):
         """One usage row per Codex call. ChatGPT plans aren't billed per
         token, so cost is recorded as 0 rather than estimated."""
@@ -604,7 +756,7 @@ class Brain:
             # not be mistaken for room to spend.
             logger.info(f"{self.paused_reason}; waiting for it to reset.")
             return False
-        if max_percent is not None:
+        if max_percent is not None and self.quota is not None:
             try:
                 windows = await self.quota.get_utilization()
             except Exception as e:

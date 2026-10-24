@@ -196,15 +196,22 @@ def cmd_status(args):
         print(f"  Draft campaigns:      {summary['draft_campaigns']}")
         print(f"  Active campaigns:     {summary['active_campaigns']}")
         print(f"  Open conversations:   {summary['open_conversations']}")
-        by_provider = summary.get("usage_today_by_provider", {})
-        print(f"  Claude calls today:   {by_provider.get('claude', summary['usage_today'])}")
-        print(f"  Codex calls today:    {by_provider.get('codex', 0)}")
         from harvey.brain import BRAIN_STATUS_KEY, Brain, active_brain_status
         from harvey.config import ConfigError, load_brain_config
         try:
             brain_config = load_brain_config()
         except ConfigError as e:
             brain_config, config_error = None, e
+
+        by_provider = summary.get("usage_today_by_provider", {})
+        active_p = brain_config.provider if brain_config else "claude"
+        if active_p == "agy":
+            print(f"  Antigravity calls:    {by_provider.get('agy', 0)}")
+        elif active_p == "codex":
+            print(f"  Codex calls today:    {by_provider.get('codex', 0)}")
+        else:
+            print(f"  Claude calls today:   {by_provider.get('claude', summary['usage_today'])}")
+
         # Only the configured provider's health: an old Codex pause says
         # nothing once harvey.yaml has switched to Claude.
         brain_status = active_brain_status(
@@ -226,11 +233,13 @@ def cmd_status(args):
                 elif brain.provider == "codex":
                     print(f"  Brain:                {label} ready (CLI, isolation, login, "
                           "model and account checked; no prompt sent)")
+                elif brain.provider == "agy":
+                    print(f"  Brain:                {label} ready (Antigravity CLI found; model: {brain.model})")
                 else:
                     print(f"  Brain:                {label} (not checked: Claude is checked "
                           "by its first call)")
         elif brain_status.get("status") == "paused":
-            label = {"claude": "Claude", "codex": "Codex"}.get(brain_status.get("provider"), "Brain")
+            label = {"claude": "Claude", "codex": "Codex", "agy": "Antigravity (agy)"}.get(brain_status.get("provider"), "Brain")
             print(f"  Brain:                {label} PAUSED since {brain_status.get('since', '?')}")
             print(f"                        {brain_status.get('reason', '')}")
         print()

@@ -1,59 +1,158 @@
+# persona:
+#   name: "Harvey"
+#   company: "Your Company"
+#   role: "Business Development"
+#   email: "harvey@yourcompany.com"
+#   linkedin: "linkedin.com/in/harvey-yourcompany"
+#   tone: "professional, consultative, confident"
+
+# product:
+#   name: "Your Product"
+#   description: "Describe what your product does and who it's for"
+#   pricing: "Starting at $X/mo"
+#   key_benefits:
+#     - "Benefit 1"
+#     - "Benefit 2"
+#     - "Benefit 3"
+#   objection_responses:
+#     "too expensive": "I understand budget is important. Most of our clients see ROI within 30 days..."
+#     "already have a solution": "That makes sense. Curious — what's the one thing you wish it did better?"
+#     "not interested": "No worries at all. Mind if I ask what your current approach looks like?"
+#   offer:
+#     primary: ""                    # Main offer (e.g., "Monthly subscription starting at $99/mo")
+#     entry: ""                      # Low-commitment entry (e.g., "14-day free trial", "Free audit")
+#     goal: "book_call"              # Goal of outreach: book_call, start_trial, get_reply
+#     booking_method: "calendar_link" # calendar_link, suggest_times, ask_preference
+#     booking_url: ""                # Calendar link URL (if using calendar_link method)
+#     meeting_duration: "15 minutes" # How long the call is
+#     meeting_owner: ""              # Who takes the meeting (name or role)
+
+# icp:
+#   industries:
+#     - "SaaS"
+#     - "Marketing Agency"
+#   company_size: "10-200 employees"
+#   titles:
+#     - "VP Marketing"
+#     - "Head of Growth"
+#     - "CMO"
+#     - "Director of Marketing"
+#   geography:
+#     - "United States"
+#   # Roles that signal a company is in-market RIGHT NOW (a company hiring a
+#   # "Head of Growth" is shopping for growth tooling). Used for careers-page
+#   # scanning and job-board discovery. Empty = fall back to titles above.
+#   hiring_signals: []
+
+# channels:
+#   email:
+#     enabled: true
+#     provider: "gmail"          # gmail (recommended) | microsoft | smtp | instantly
+#     max_daily_sends: 50
+#     require_approval: true      # native providers: emails wait in the Outbox
+#     send_to_risky: false        # also send to catch-all domains (off = safest)
+#     max_bounce_rate: 0.05       # pause all sending if bounces exceed this
+#   linkedin:
+#     enabled: true
+#     max_daily_connections: 20
+#     max_daily_messages: 10
+
+# usage:
+#   max_daily_claude_percent: 80
+#   heartbeat_interval_minutes: 15
+#   quiet_hours:
+#     start: "22:00"
+#     end: "07:00"
+#     timezone: "America/New_York"
+
+# # Optional: check each new recipient with Precleared (precleared.dev) before
+# # the first cold email: may cold marketing email go to this address under UK
+# # PECR, US CAN-SPAM, Canada's CASL, Germany's UWG and France's rules? Any other
+# # answer holds the email back, with the reason in the Outbox. One check per
+# # address; 10 a day free without a key, 25 with a free key (PRECLEARED_API_KEY
+# # in .env). Applies to the native providers (gmail, smtp).
+# compliance:
+#   precleared:
+#     enabled: false
+#     sender_country: ""          # GB or US: where your business is based
+#     address_source: "unknown"   # published | bought | scraped | given | unknown
+
+
 persona:
-  name: "Harvey"
-  company: "Your Company"
-  role: "Business Development"
-  email: "harvey@yourcompany.com"
-  linkedin: "linkedin.com/in/harvey-yourcompany"
-  tone: "professional, consultative, confident"
+  name: "Adarsh"
+  company: "SolveEase"
+  role: "Co-founder, Sales & Product Strategy"
+  email: "adarsh@solveease.in"
+  linkedin: "linkedin.com/in/adarsh-maurya-dev"
+  tone: "respectful, plain-spoken, consultative, confident; no tech jargon, ROI and time-saved first"
 
 product:
-  name: "Your Product"
-  description: "Describe what your product does and who it's for"
-  pricing: "Starting at $X/mo"
+  name: "SolveEase AI & Automation Services"
+  description: "SolveEase is a New Delhi engineering studio (IIT Delhi Tryst 2025 winners, 4.8/5 on Clutch, official Meta Tech Provider) that helps established Indian businesses automate manual operations and stop losing revenue to slow follow-ups. We build WhatsApp automation (campaigns, AI auto-replies, shared team inbox that works alongside the existing WhatsApp Business app), AI agents for support and sales, custom internal tools and ERPs, and high-converting websites. Senior-only team, scoped sprints, weekly demos, and you own 100% of the code. Built for owner-led, revenue-strong businesses in manufacturing, distribution, logistics, real estate, healthcare and retail that run on people and spreadsheets today and are ready to modernise."
+  pricing: "Variable, based on project scope. Do NOT mention pricing or any figures in the first outreach email or early replies; pricing is discussed only after the intro meeting. If asked early, say it depends on scope and we cover it on the call."
   key_benefits:
-    - "Benefit 1"
-    - "Benefit 2"
-    - "Benefit 3"
+    - "Stop revenue leaking through slow replies and manual follow-ups: WhatsApp automation and AI auto-replies answer leads and customers 24/7 while your team keeps using the WhatsApp Business app they already know"
+    - "Replace spreadsheets and manual back-office work with a custom tool or ERP built around how your business actually runs, delivered in 4-8 weeks with weekly demos and a clearly agreed scope"
+    - "Zero tech burden on your side: senior engineers (no juniors), direct WhatsApp/Slack access to your lead developer, full code ownership, NDA before discovery and training for your team at launch"
   objection_responses:
-    "too expensive": "I understand budget is important. Most of our clients see ROI within 30 days..."
-    "already have a solution": "That makes sense. Curious — what's the one thing you wish it did better?"
-    "not interested": "No worries at all. Mind if I ask what your current approach looks like?"
+    "too expensive": "That's a fair concern, and it's why we don't quote blind. Pricing depends on scope, so we first spend 15 minutes understanding the one process costing you the most today, and only then discuss numbers that make sense for you. Would that be useful?"
+    "already have a solution": "That makes sense. Curious, what's the one thing you wish it did better, or the manual step your team still handles by hand? We often work alongside existing tools rather than replacing them."
+    "not interested": "No worries at all. Mind if I ask how your team currently handles customer enquiries and follow-ups? If it's already running smoothly, I'll step back."
   offer:
-    primary: ""                    # Main offer (e.g., "Monthly subscription starting at $99/mo")
-    entry: ""                      # Low-commitment entry (e.g., "14-day free trial", "Free audit")
+    primary: "Scoped WhatsApp automation / AI agent / custom internal tool build, live in 4-8 weeks (pricing shared after the intro call)"
+    entry: "Free 15-minute scoping call where we map your top repetitive process and show where leads or revenue are leaking, with no obligation"
     goal: "book_call"              # Goal of outreach: book_call, start_trial, get_reply
     booking_method: "calendar_link" # calendar_link, suggest_times, ask_preference
-    booking_url: ""                # Calendar link URL (if using calendar_link method)
+    booking_url: "https://calendly.com/adarsh-solveease/30min"                # Calendar link URL (if using calendar_link method)
     meeting_duration: "15 minutes" # How long the call is
-    meeting_owner: ""              # Who takes the meeting (name or role)
+    meeting_owner: "Adarsh Maurya, Co-founder"
 
 icp:
   industries:
-    - "SaaS"
-    - "Marketing Agency"
-  company_size: "10-200 employees"
+    - "Manufacturing (SME and mid-size: auto components, packaging, textiles, FMCG, industrial products)"
+    - "Wholesale, Distribution and Trading"
+    - "Logistics, Transport and Freight"
+    - "Real Estate, Construction and Architecture"
+    - "Healthcare (multi-location clinics, diagnostics, hospitals)"
+    - "Retail, D2C and Traditional Brands (jewellery, sweets, apparel, home goods)"
+    - "Education and Coaching Institutes"
+    - "Professional Services (CA, legal, consulting firms)"
+  company_size: "20-500 employees"
   titles:
-    - "VP Marketing"
-    - "Head of Growth"
-    - "CMO"
-    - "Director of Marketing"
+    - "Founder"
+    - "Owner"
+    - "Managing Director"
+    - "Director"
+    - "CEO"
+    - "Chairman"
+    - "Partner"
+    - "COO"
+    - "Head of Operations"
+    - "General Manager"
   geography:
-    - "United States"
+    - "India (Delhi NCR, Mumbai, Pune, Ahmedabad, Surat, Jaipur, Ludhiana, Indore, Bengaluru, Hyderabad, Chennai)"
   # Roles that signal a company is in-market RIGHT NOW (a company hiring a
   # "Head of Growth" is shopping for growth tooling). Used for careers-page
   # scanning and job-board discovery. Empty = fall back to titles above.
-  hiring_signals: []
+  hiring_signals:
+    - "Digital Marketing Manager"
+    - "IT Manager"
+    - "ERP Consultant"
+    - "CRM Manager"
+    - "Head of Digital Transformation"
+    - "Business Analyst"
+    - "Customer Support Executive"
 
 channels:
   email:
     enabled: true
     provider: "gmail"          # gmail (recommended) | microsoft | smtp | instantly
-    max_daily_sends: 50
+    max_daily_sends: 30
     require_approval: true      # native providers: emails wait in the Outbox
     send_to_risky: false        # also send to catch-all domains (off = safest)
     max_bounce_rate: 0.05       # pause all sending if bounces exceed this
   linkedin:
-    enabled: true
+    enabled: false
     max_daily_connections: 20
     max_daily_messages: 10
 
@@ -61,9 +160,9 @@ usage:
   max_daily_claude_percent: 80
   heartbeat_interval_minutes: 15
   quiet_hours:
-    start: "22:00"
-    end: "07:00"
-    timezone: "America/New_York"
+    start: "21:00"
+    end: "08:00"
+    timezone: "Asia/Kolkata"
 
 # Optional: check each new recipient with Precleared (precleared.dev) before
 # the first cold email: may cold marketing email go to this address under UK

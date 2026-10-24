@@ -77,8 +77,13 @@ def _check_codex_cli() -> bool:
     return shutil.which("codex") is not None
 
 
+def _check_agy_cli() -> bool:
+    """Check if Antigravity CLI (agy) is installed and accessible."""
+    return shutil.which("agy") is not None
+
+
 async def _test_claude(brain: Brain) -> bool:
-    """Test that the configured brain answers (Claude or Codex)."""
+    """Test that the configured brain answers (Claude, Codex, or agy)."""
     response = await brain.think(
         "Respond with exactly: HARVEY_READY",
         session_id="harvey-setup-test",
@@ -87,12 +92,14 @@ async def _test_claude(brain: Brain) -> bool:
 
 
 def _ask_brain_config() -> BrainConfig:
-    """Ask which subscription Harvey thinks with. Claude is the default."""
-    _print_harvey("I think with an AI subscription you already pay for:")
+    """Ask which subscription Harvey thinks with. Claude is default; agy and codex supported."""
+    _print_harvey("I think with an AI tool/subscription:")
+    print("    agy    — Antigravity CLI (Gemini Flash models)")
     print("    claude — your Claude plan, via Claude Code (default)")
     print("    codex  — your ChatGPT plan, via the Codex CLI")
+    default_provider = "agy" if _check_agy_cli() and not _check_claude_cli() else "claude"
     while True:
-        provider = _ask("Which one? (claude/codex)", default="claude").lower()
+        provider = _ask("Which one? (agy/claude/codex)", default=default_provider).lower()
         if provider == "codex":
             from harvey.codex import CodexError, require_supported_platform
             try:
@@ -100,16 +107,20 @@ def _ask_brain_config() -> BrainConfig:
             except CodexError as e:
                 print(f"    ({e})")
                 continue
-        if provider in ("claude", "codex"):
+        if provider in ("claude", "codex", "agy"):
             break
-        print("    (type claude or codex)")
+        print("    (type agy, claude, or codex)")
     if provider == "codex":
         from harvey.codex import SUGGESTED_MODEL
         print(f"    {SUGGESTED_MODEL} is the Codex model Harvey has verified as text-only")
         print("    (no code-execution tools). Press Enter to use it, or type another.")
+    elif provider == "agy":
+        print("    gemini-3.8-flash-high is the recommended fast model for Antigravity.")
     while True:
         if provider == "codex":
             model = _ask("Model", default=SUGGESTED_MODEL, required=False)
+        elif provider == "agy":
+            model = _ask("Model", default="gemini-3.8-flash-high", required=False)
         else:
             model = _ask("Model (leave blank for the default)", required=False)
         try:

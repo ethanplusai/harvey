@@ -205,7 +205,7 @@ class UsageConfig(BaseModel):
         return v
 
 
-BRAIN_PROVIDERS = ("claude", "codex")
+BRAIN_PROVIDERS = ("claude", "codex", "agy")
 CODEX_REASONING_EFFORTS = ("minimal", "low", "medium", "high", "xhigh")
 
 # Model names are passed to a CLI, so they must look like a model name and
@@ -217,14 +217,22 @@ class BrainConfig(BaseModel):
     """Which subscription Harvey thinks with.
 
     ``claude`` (default) runs Claude Code headless on your Claude plan.
-    ``codex`` runs Codex on your ChatGPT plan. There is never an automatic
-    fallback between them, and an explicit ``model`` only affects Harvey —
-    your own Claude Code / Codex settings are never read or changed.
+    ``codex`` runs Codex on your ChatGPT plan.
+    ``agy`` runs Antigravity CLI on Gemini / Antigravity models.
+    There is never an automatic fallback between them, and an explicit ``model``
+    only affects Harvey — your own Claude Code / Codex / agy settings are never
+    read or changed.
     """
 
     provider: str = "claude"
     model: str = ""  # empty = the provider's own default
     reasoning_effort: str = ""  # codex only; empty = model default
+
+    @model_validator(mode="after")
+    def _default_model_by_provider(self):
+        if self.provider == "agy" and not self.model:
+            self.model = "gemini-3.8-flash-high"
+        return self
 
     @field_validator("provider", mode="before")
     @classmethod

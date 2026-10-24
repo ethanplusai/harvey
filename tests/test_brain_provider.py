@@ -366,7 +366,7 @@ async def test_existing_usage_rows_become_claude(tmp_path):
     assert await sm.get_usage_today("codex") == 0
     summary = await sm.get_state_summary()
     assert summary["usage_today"] == 7
-    assert summary["usage_today_by_provider"] == {"claude": 7, "codex": 0}
+    assert summary["usage_today_by_provider"] == {"claude": 7, "codex": 0, "agy": 0}
     with pytest.raises(ValueError):
         await sm.record_usage_event(provider="gemini")
 
@@ -744,3 +744,32 @@ def test_cli_status_hides_another_providers_pause(monkeypatch, tmp_path, capsys)
                       config=BrainConfig(provider="codex", model="gpt-5.5"),
                       setting=_STALE_CODEX_PAUSE)
     assert "Codex PAUSED" in out
+
+
+def test_agy_brain_config():
+    cfg = BrainConfig(provider="agy")
+    assert cfg.provider == "agy"
+    assert cfg.model == "gemini-3.8-flash-high"
+
+
+@pytest.mark.asyncio
+async def test_agy_think_mocked(state, monkeypatch):
+    class _FakeAgyProc:
+        returncode = 0
+        async def communicate(self):
+            return b'{"status": "SUCCESS", "response": "OK_AGY", "duration_seconds": 1.0, "usage": {"input_tokens": 10, "output_tokens": 5}}', b""
+
+    captured = {}
+    async def fake_exec(*cmd, **kwargs):
+        captured["cmd"] = list(cmd)
+        return _FakeAgyProc()
+
+    monkeypatch.setattr(brain_mod.asyncio, "create_subprocess_exec", fake_exec)
+    brain = Brain(state, BrainConfig(provider="agy", model="gemini-3.8-flash-high"))
+    res = await brain.think("test prompt")
+    assert res == "OK_AGY"
+    assert "agy" in captured["cmd"][0]
+    assert "--model" in captured["cmd"]
+    assert "gemini-3.8-flash-high" in captured["cmd"]
+    assert await state.get_usage_today("agy") == 1
+
