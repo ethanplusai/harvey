@@ -515,10 +515,18 @@ MIGRATIONS: list[str] = [
     -- knows about the recipient. Empty until then.
     ALTER TABLE prospects ADD COLUMN timezone TEXT DEFAULT '';
     """,
+    # ── v15: which subscription each call ran on (add gemini_calls) ──
+    """
+    ALTER TABLE usage_log ADD COLUMN gemini_calls INTEGER DEFAULT 0;
+    """,
 ]
 
-BRAIN_PROVIDERS = ("claude", "codex")
-_USAGE_LOG_COLUMN = {"claude": "claude_calls", "codex": "codex_calls"}
+BRAIN_PROVIDERS = ("claude", "codex", "gemini")
+_USAGE_LOG_COLUMN = {
+    "claude": "claude_calls",
+    "codex": "codex_calls",
+    "gemini": "gemini_calls",
+}
 
 # When a company was last profiled: the newer of the explicit check stamp
 # (set on every attempt, reachable or not) and its latest profile observation
@@ -2392,7 +2400,9 @@ class StateManager:
 
     async def get_usage_today(self, provider: str = "claude") -> int:
         """Brain calls made today on one provider's subscription."""
-        column = _USAGE_LOG_COLUMN[provider]
+        column = _USAGE_LOG_COLUMN.get(provider)
+        if not column:
+            return 0
         today = date.today().isoformat()
         async with self._connect() as db:
             async with db.execute(
@@ -2402,7 +2412,9 @@ class StateManager:
                 return (row[0] or 0) if row else 0
 
     async def increment_usage(self, provider: str = "claude"):
-        column = _USAGE_LOG_COLUMN[provider]
+        column = _USAGE_LOG_COLUMN.get(provider)
+        if not column:
+            return
         today = date.today().isoformat()
         async with self._connect() as db:
             await db.execute(
@@ -2560,11 +2572,12 @@ class StateManager:
             ) as cursor:
                 open_conversations = (await cursor.fetchone())[0]
             async with db.execute(
-                "SELECT claude_calls, codex_calls FROM usage_log WHERE date = ?", (today,)
+                "SELECT claude_calls, codex_calls, gemini_calls FROM usage_log WHERE date = ?", (today,)
             ) as cursor:
                 usage_row = await cursor.fetchone()
                 usage_today = (usage_row[0] or 0) if usage_row else 0
                 codex_today = (usage_row[1] or 0) if usage_row else 0
+                gemini_today = (usage_row[2] or 0) if usage_row else 0
 
         return {
             "prospects": prospect_counts,
@@ -2579,7 +2592,11 @@ class StateManager:
             "active_campaigns": active_campaigns,
             "open_conversations": open_conversations,
             "usage_today": usage_today,  # Claude calls (kept for compatibility)
-            "usage_today_by_provider": {"claude": usage_today, "codex": codex_today},
+            "usage_today_by_provider": {
+                "claude": usage_today,
+                "codex": codex_today,
+                "gemini": gemini_today,
+            },
             # Companies discovered but not yet read. The heartbeat profiles
             # these every cycle — it is free, so it never competes with the
             # Claude budget the rest of the loop is rationing.

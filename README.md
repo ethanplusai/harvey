@@ -1,10 +1,10 @@
 # Harvey
 
-**An autonomous sales agent that runs on your Claude Code or Codex subscription.**
+**An autonomous sales agent that runs on your Google Gemini, Claude Code, or Codex subscription.**
 
 Harvey finds businesses worth selling to, learns something specific about each one, writes cold email that references it, sends it, reads the replies, and works the conversation toward a meeting. It runs on your machine, in a loop, on its own.
 
-The unusual part: **there is no model API bill.** Harvey uses your Claude Pro or Max subscription through Claude Code, or your ChatGPT subscription through Codex. Model calls use the plan you already pay for, without an API key or per-token API billing. Claude is the default; [Codex is an opt-in provider on macOS and Linux](#using-a-chatgpt-plan-instead-codex).
+The unusual part: **there is no bloated SaaS bill.** Harvey can think through Google Gemini (via direct REST API and your API key), Claude Pro or Max through Claude Code, or ChatGPT through Codex. Claude is the default; [Google Gemini & Antigravity](#using-google-gemini--antigravity) and [Codex (macOS/Linux)](#using-a-chatgpt-plan-instead-codex) are first-class opt-in providers.
 
 ```
 $ harvey run
@@ -46,6 +46,7 @@ confirmed signals, searching contacts, and the same screen in dark mode:
 - [The dashboard](#the-dashboard)
 - [How the data is stored](#how-the-data-is-stored)
 - [Configuration](#configuration)
+- [Using Google Gemini & Antigravity](#using-google-gemini--antigravity)
 - [Using a ChatGPT plan instead (Codex)](#using-a-chatgpt-plan-instead-codex)
 - [Legal and deliverability](#legal-and-deliverability)
 - [Troubleshooting](#troubleshooting)
@@ -575,6 +576,33 @@ Prospect CSV exports exclude opted-out contacts, including when using
 raw-data export for inspection: it includes opted-out and unverified contacts
 and should not be imported as an outreach list. The dashboard's prospect CSV
 download follows the same policy; `?all=true` selects its raw export.
+
+
+## Using Google Gemini & Antigravity
+
+Claude is the default brain provider. If you want to run Harvey using Google Gemini or Antigravity, Harvey connects directly to the Google Gemini REST API (`v1beta`) with zero external SDKs.
+
+```bash
+# In .env:
+GEMINI_API_KEY=your_gemini_api_key   # from https://aistudio.google.com/apikey
+
+# In harvey.yaml:
+brain:
+  provider: gemini
+  model: gemini-2.5-flash             # recommended default (or gemini-2.5-pro)
+```
+
+You can also specify Gemini when training:
+```bash
+harvey train https://example.com --provider gemini --model gemini-2.5-flash
+```
+
+What to know:
+- **Zero new SDK dependencies.** Harvey uses its existing async `httpx` stack to communicate with Gemini REST API `v1beta`. No conflicting dependencies or extra installs.
+- **Cross-platform support.** Works on Windows, macOS, Linux, and inside Google Antigravity and Gemini CLI environments.
+- **Strict prompt isolation.** All model calls are explicitly text-only and tool-less, preventing untrusted text from scraped sites or prospect replies from triggering tool executions.
+- **Full observability.** Usage and latency are tracked per agent and task in SQLite `usage_events`. If a rate limit (HTTP 429) is encountered, Harvey cleanly triggers a sticky usage pause.
+- **Preflight check.** `harvey status --check` validates your API key and connectivity with zero inference cost.
 
 
 ## Using a ChatGPT plan instead (Codex)

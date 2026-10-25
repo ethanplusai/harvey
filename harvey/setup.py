@@ -135,8 +135,9 @@ def _ask_brain_config() -> BrainConfig:
     _print_harvey("I think with an AI subscription you already pay for:")
     print("    claude — your Claude plan, via Claude Code (default)")
     print("    codex  — your ChatGPT plan, via the Codex CLI")
+    print("    gemini — Google Gemini, via official REST API")
     while True:
-        provider = _ask("Which one? (claude/codex)", default="claude").lower()
+        provider = _ask("Which one? (claude/codex/gemini)", default="claude").lower()
         if provider == "codex":
             from harvey.codex import CodexError, require_supported_platform
             try:
@@ -144,9 +145,9 @@ def _ask_brain_config() -> BrainConfig:
             except CodexError as e:
                 print(f"    ({e})")
                 continue
-        if provider in ("claude", "codex"):
+        if provider in ("claude", "codex", "gemini"):
             break
-        print("    (type claude or codex)")
+        print("    (type claude, codex, or gemini)")
     if provider == "codex":
         from harvey.codex import SUGGESTED_MODEL
         print(f"    {SUGGESTED_MODEL} is the Codex model Harvey has verified as text-only")
@@ -242,8 +243,40 @@ class SetupWizard:
         self.brain_config = _ask_brain_config()
         if self.brain_config.provider == "codex":
             await self._check_codex()
+        elif self.brain_config.provider == "gemini":
+            await self._check_gemini()
         else:
             await self._check_claude()
+
+    async def _check_gemini(self):
+        existing_key = (
+            os.getenv("GEMINI_API_KEY")
+            or os.getenv("GOOGLE_API_KEY")
+            or self.env_vars.get("GEMINI_API_KEY", "")
+        )
+        if not existing_key:
+            _print_harvey("I connect directly to Google Gemini via official REST API.")
+            print("         Get an API key at: https://aistudio.google.com/apikey\n")
+            key = _ask("Gemini API key", required=True, secret=True)
+            self.env_vars["GEMINI_API_KEY"] = key
+        else:
+            self.env_vars["GEMINI_API_KEY"] = existing_key
+
+        print("\n  Testing Google Gemini connectivity...", end=" ", flush=True)
+        from harvey.gemini_runtime import GeminiClient
+
+        client = GeminiClient(
+            api_key=self.env_vars["GEMINI_API_KEY"],
+            model=self.brain_config.model,
+        )
+        err = await client.preflight()
+        if not err:
+            print("✓ Working")
+        else:
+            print("✗ Failed")
+            _print_harvey(f"Could not connect to Gemini: {err}")
+            print("         Please check your API key and network connection.")
+            raise SystemExit(1)
 
     async def _check_claude(self):
         # Check Claude CLI
@@ -817,8 +850,11 @@ class SetupWizard:
         # Show what's configured
         checks = {
             ("Codex CLI (ChatGPT plan)" if self.brain_config.provider == "codex"
-             else "Claude Code CLI"): (_check_codex_cli() if self.brain_config.provider == "codex"
-                                      else _check_claude_cli()),
+             else ("Google Gemini REST API" if self.brain_config.provider == "gemini"
+                   else "Claude Code CLI")): (
+                       _check_codex_cli() if self.brain_config.provider == "codex"
+                       else (bool(self.env_vars.get("GEMINI_API_KEY")) if self.brain_config.provider == "gemini"
+                             else _check_claude_cli())),
             "Instantly API": bool(self.env_vars.get("INSTANTLY_API_KEY")),
             "LinkedIn": bool(self.env_vars.get("LINKEDIN_EMAIL")),
             "Cloudflare Crawl": bool(self.env_vars.get("CLOUDFLARE_ACCOUNT_ID")),

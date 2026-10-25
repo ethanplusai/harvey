@@ -501,10 +501,10 @@ class UsageConfig(BaseModel):
         return v
 
 
-BRAIN_PROVIDERS = ("claude", "codex")
+BRAIN_PROVIDERS = ("claude", "codex", "gemini")
 CODEX_REASONING_EFFORTS = ("minimal", "low", "medium", "high", "xhigh")
 
-# Model names are passed to a CLI, so they must look like a model name and
+# Model names are passed to a CLI or API, so they must look like a model name and
 # never like a flag ("-x") or anything a shell would treat specially.
 _MODEL_NAME_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._:/\[\]-]{0,127}$")
 
@@ -513,14 +513,21 @@ class BrainConfig(BaseModel):
     """Which subscription Harvey thinks with.
 
     ``claude`` (default) runs Claude Code headless on your Claude plan.
-    ``codex`` runs Codex on your ChatGPT plan. There is never an automatic
-    fallback between them, and an explicit ``model`` only affects Harvey —
-    your own Claude Code / Codex settings are never read or changed.
+    ``codex`` runs Codex on your ChatGPT plan.
+    ``gemini`` runs Google Gemini via REST API.
+    There is never an automatic fallback between them, and an explicit ``model``
+    only affects Harvey — your own settings are never read or changed.
     """
 
     provider: str = "claude"
     model: str = ""  # empty = the provider's own default
     reasoning_effort: str = ""  # codex only; empty = model default
+
+    @model_validator(mode="after")
+    def _default_gemini_model(self):
+        if self.provider == "gemini" and not self.model:
+            self.model = "gemini-2.5-flash"
+        return self
 
     @field_validator("provider", mode="before")
     @classmethod
@@ -603,6 +610,8 @@ class EnvConfig(BaseModel):
     m365_tenant_id: str = ""
     # Optional: only used when compliance.precleared.enabled is true.
     precleared_api_key: str = ""
+    # Brain Provider (Gemini)
+    gemini_api_key: str = ""
 
 
 def _format_validation_error(e: ValidationError) -> str:
@@ -716,6 +725,7 @@ def load_env() -> EnvConfig:
         m365_client_id=os.getenv("M365_CLIENT_ID", "").strip(),
         m365_tenant_id=os.getenv("M365_TENANT_ID", "").strip(),
         precleared_api_key=os.getenv("PRECLEARED_API_KEY", "").strip(),
+        gemini_api_key=(os.getenv("GEMINI_API_KEY") or os.getenv("GOOGLE_API_KEY") or "").strip(),
     )
     return env
 

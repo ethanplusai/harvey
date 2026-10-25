@@ -69,6 +69,8 @@ def test_load_brain_config(tmp_path):
     path.write_text(yaml.dump({"brain": {"provider": "codex", "model": "gpt-5.5"}}))
     assert load_brain_config(str(path)) == BrainConfig(provider="codex", model="gpt-5.5")
     path.write_text(yaml.dump({"brain": {"provider": "gemini"}}))
+    assert load_brain_config(str(path)) == BrainConfig(provider="gemini", model="gemini-2.5-flash")
+    path.write_text(yaml.dump({"brain": {"provider": "unsupported_provider"}}))
     with pytest.raises(ConfigError):  # never silently becomes Claude
         load_brain_config(str(path))
 
@@ -367,11 +369,15 @@ async def test_existing_usage_rows_become_claude(tmp_path):
     assert [(r["provider"], r["output_tokens"]) for r in rows] == [("claude", 5)]
     assert await sm.get_usage_today("claude") == 7
     assert await sm.get_usage_today("codex") == 0
+    assert await sm.get_usage_today("gemini") == 0
     summary = await sm.get_state_summary()
     assert summary["usage_today"] == 7
-    assert summary["usage_today_by_provider"] == {"claude": 7, "codex": 0}
+    assert summary["usage_today_by_provider"] == {"claude": 7, "codex": 0, "gemini": 0}
+    await sm.increment_usage("gemini")
+    assert await sm.get_usage_today("gemini") == 1
+    assert await sm.record_usage_event(provider="gemini", model="gemini-2.5-flash", output_tokens=3) is True
     with pytest.raises(ValueError):
-        await sm.record_usage_event(provider="gemini")
+        await sm.record_usage_event(provider="unknown_provider")
 
 
 # ── training and setup preserve the selection ──
@@ -422,6 +428,10 @@ def test_cli_train_flags_select_the_provider(monkeypatch):
     cli.cmd_train(args)
     assert seen["config"] == BrainConfig(provider="claude", model="claude-opus-4-8")
 
+    args.provider, args.model = "gemini", None
+    cli.cmd_train(args)
+    assert seen["config"] == BrainConfig(provider="gemini", model="gemini-2.5-flash")
+
 
 def _answering(answers, prompts):
     """A stand-in for setup's _ask that, like the real one, returns the
@@ -442,6 +452,8 @@ def _answering(answers, prompts):
     (["codex", "--model", "my-model"], BrainConfig(provider="codex", model="my-model")),
     (["claude", ""], BrainConfig()),
     (["claude", "opus"], BrainConfig(model="opus")),
+    (["gemini", ""], BrainConfig(provider="gemini", model="gemini-2.5-flash")),
+    (["gemini", "gemini-2.5-pro"], BrainConfig(provider="gemini", model="gemini-2.5-pro")),
 ])
 def test_setup_model_prompt(monkeypatch, answers, expected):
     import harvey.setup as setup_mod
