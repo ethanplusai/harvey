@@ -224,7 +224,8 @@ def _render(func, mode, armed=False):
     source = (PROJECT_ROOT / "harvey" / "web" / "app.js").read_text(encoding="utf-8")
     parts = [re.search(rf"^function {name}\(.*?^}}\n", source, re.S | re.M).group(0)
              for name in ("escHtml", "sendingModeBanner", "sendingModeCard")]
-    script = ("const icon = () => '';\n" + "\n".join(parts) +
+    i18n = (PROJECT_ROOT / "harvey" / "web" / "i18n.js").read_text(encoding="utf-8")  # t()
+    script = (i18n + "\nconst icon = () => '';\n" + "\n".join(parts) +
               f"\nlet _modeBusy = false, _autopilotArmed = {json.dumps(armed)};"
               f"\nprocess.stdout.write({func}({json.dumps(mode)}));")
     return subprocess.run([node, "-e", script], capture_output=True, text=True, encoding="utf-8",

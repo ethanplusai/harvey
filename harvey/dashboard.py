@@ -26,6 +26,7 @@ from fastapi.responses import (
 logger = logging.getLogger("harvey.dashboard")
 
 from harvey import dashboard_auth as auth  # noqa: E402
+from harvey.i18n import tr, request_lang  # noqa: E402
 from harvey.paths import PROJECT_ROOT  # noqa: E402
 from harvey.pidfile import LOCK_FILE, loop_lock_held, pid_alive  # noqa: E402
 from harvey.textio import read_user_text  # noqa: E402
@@ -184,26 +185,27 @@ def _check_harvey_pid() -> int | None:
 
 
 @app.get("/api/setup-status")
-async def get_setup_status():
+async def get_setup_status(request: Request):
     """Check what's configured and what still needs setup."""
+    lang = request_lang(request)
     checks = []
 
     # 1. Venv
     checks.append({
-        "id": "venv", "label": "Python virtual environment",
+        "id": "venv", "label": tr(lang, "Python virtual environment"),
         "done": (PROJECT_ROOT / ".venv").is_dir(),
         "required": True,
-        "help": "Run: python3 -m venv .venv && source .venv/bin/activate && pip install -e .",
+        "help": tr(lang, "Run: python3 -m venv .venv && source .venv/bin/activate && pip install -e ."),
     })
 
     # 2. Env file
     env_vars = _read_env_file()
     env_exists = ENV_FILE.exists() and bool(env_vars)
     checks.append({
-        "id": "env_file", "label": "Environment file (.env)",
+        "id": "env_file", "label": tr(lang, "Environment file (.env)"),
         "done": env_exists,
         "required": True,
-        "help": "Go to the Settings tab to enter your API keys.",
+        "help": tr(lang, "Go to the Settings tab to enter your API keys."),
     })
 
     # 3. Email provider configured (matches channels.email.provider)
@@ -215,22 +217,22 @@ async def get_setup_status():
     if provider == "gmail":
         provider_done = _has("GMAIL_CLIENT_ID", "GMAIL_CLIENT_SECRET") and \
             (PROJECT_ROOT / "data" / "gmail_token.json").is_file()
-        provider_help = ("Set GMAIL_CLIENT_ID/SECRET in Settings, then run "
-                         "'harvey gmail auth' in your terminal.")
+        provider_help = tr(lang, "Set GMAIL_CLIENT_ID/SECRET in Settings, then run "
+                                 "'harvey gmail auth' in your terminal.")
     elif provider == "microsoft":
         provider_done = _has("M365_CLIENT_ID") and \
             (PROJECT_ROOT / "data" / "m365_token.json").is_file()
-        provider_help = ("Set the Microsoft 365 client and tenant IDs in Settings, then run "
-                         "'harvey microsoft auth' in your terminal.")
+        provider_help = tr(lang, "Set the Microsoft 365 client and tenant IDs in Settings, then run "
+                                 "'harvey microsoft auth' in your terminal.")
     elif provider == "smtp":
         provider_done = _has("SMTP_HOST", "SMTP_USERNAME", "SMTP_PASSWORD")
-        provider_help = "Enter your SMTP host, username, and password in Settings."
+        provider_help = tr(lang, "Enter your SMTP host, username, and password in Settings.")
     else:
         instantly_key = env_vars.get("INSTANTLY_API_KEY", "") or os.getenv("INSTANTLY_API_KEY", "")
         provider_done = bool(instantly_key) and instantly_key != "your_instantly_api_key_here"
-        provider_help = "Enter your Instantly API key in Settings."
+        provider_help = tr(lang, "Enter your Instantly API key in Settings.")
     checks.append({
-        "id": "email_provider", "label": f"Email provider configured ({provider})",
+        "id": "email_provider", "label": tr(lang, "Email provider configured ({provider})", provider=provider),
         "done": provider_done,
         "required": True,
         "help": provider_help,
@@ -239,11 +241,11 @@ async def get_setup_status():
     # 4. Email verification (needed for addresses to be sendable, not 'guess')
     verifier_set = _has("REOON_API_KEY") or _has("ZEROBOUNCE_API_KEY") or _has("HUNTER_API_KEY")
     checks.append({
-        "id": "verifier", "label": "Email verification key",
+        "id": "verifier", "label": tr(lang, "Email verification key"),
         "done": verifier_set,
         "required": True,
-        "help": "Add a Reoon (free 600/mo), ZeroBounce, or Hunter key in Settings — "
-                "without one, found emails stay 'guess' and are never sent.",
+        "help": tr(lang, "Add a Reoon (free 600/mo), ZeroBounce, or Hunter key in Settings — "
+                         "without one, found emails stay 'guess' and are never sent."),
     })
 
     # 5. Config valid
@@ -258,39 +260,39 @@ async def get_setup_status():
         except Exception:
             pass
     checks.append({
-        "id": "config", "label": f"Harvey configured ({config_path.name})",
+        "id": "config", "label": tr(lang, "Harvey configured ({name})", name=config_path.name),
         "done": config_valid,
         "required": True,
-        "help": "Train Harvey on your product. Use the trainer or set up manually through Claude.",
+        "help": tr(lang, "Train Harvey on your product. Use the trainer or set up manually through Claude."),
     })
 
     # 6. Product trained
     product_trained = (PROJECT_ROOT / "skills" / "product_knowledge.md").exists()
     checks.append({
-        "id": "product_trained", "label": "Product knowledge trained",
+        "id": "product_trained", "label": tr(lang, "Product knowledge trained"),
         "done": product_trained,
         "required": True,
-        "help": "Run: harvey train https://yourwebsite.com (or set up through Claude).",
+        "help": tr(lang, "Run: harvey train https://yourwebsite.com (or set up through Claude)."),
     })
 
     # 7. LinkedIn (optional)
     linkedin_email = env_vars.get("LINKEDIN_EMAIL", "") or os.getenv("LINKEDIN_EMAIL", "")
     linkedin_pass = env_vars.get("LINKEDIN_PASSWORD", "") or os.getenv("LINKEDIN_PASSWORD", "")
     checks.append({
-        "id": "linkedin", "label": "LinkedIn credentials",
+        "id": "linkedin", "label": tr(lang, "LinkedIn credentials"),
         "done": bool(linkedin_email) and bool(linkedin_pass),
         "required": False,
-        "help": "Optional. Enter your LinkedIn credentials in Settings to enable LinkedIn prospecting.",
+        "help": tr(lang, "Optional. Enter your LinkedIn credentials in Settings to enable LinkedIn prospecting."),
     })
 
     # 8. Cloudflare (optional)
     cf_id = env_vars.get("CLOUDFLARE_ACCOUNT_ID", "") or os.getenv("CLOUDFLARE_ACCOUNT_ID", "")
     cf_token = env_vars.get("CLOUDFLARE_API_TOKEN", "") or os.getenv("CLOUDFLARE_API_TOKEN", "")
     checks.append({
-        "id": "cloudflare", "label": "Cloudflare deep crawling",
+        "id": "cloudflare", "label": tr(lang, "Cloudflare deep crawling"),
         "done": bool(cf_id) and bool(cf_token),
         "required": False,
-        "help": "Optional. For JavaScript-rendered website crawling during training.",
+        "help": tr(lang, "Optional. For JavaScript-rendered website crawling during training."),
     })
 
     required_checks = [c for c in checks if c["required"]]
@@ -373,12 +375,13 @@ async def get_settings():
 @app.post("/api/settings/env")
 async def save_env_settings(request: Request):
     """Save environment variables to .env file."""
+    lang = request_lang(request)
     try:
         data = await request.json()
     except Exception:
-        return JSONResponse({"success": False, "message": "Invalid request body."}, status_code=400)
+        return JSONResponse({"success": False, "message": tr(lang, "Invalid request body.")}, status_code=400)
     if not isinstance(data, dict):
-        return JSONResponse({"success": False, "message": "Invalid request body."}, status_code=400)
+        return JSONResponse({"success": False, "message": tr(lang, "Invalid request body.")}, status_code=400)
     async with _env_lock:
         updates = {}
         for key in ["INSTANTLY_API_KEY", "LINKEDIN_EMAIL", "LINKEDIN_PASSWORD",
@@ -391,15 +394,15 @@ async def save_env_settings(request: Request):
             if key in data and data[key] is not None:
                 value = data[key]
                 if isinstance(value, bool) or not isinstance(value, (str, int, float)):
-                    return JSONResponse({"success": False, "message": f"{key} must be text."},
+                    return JSONResponse({"success": False, "message": tr(lang, "{key} must be text.", key=key)},
                                         status_code=400)
                 value = str(value)
                 # A port Harvey can't parse would stop it starting at all.
                 if key.endswith("_PORT") and value.strip() and not value.strip().isdigit():
-                    return JSONResponse({"success": False, "message": f"{key} must be a number."},
+                    return JSONResponse({"success": False, "message": tr(lang, "{key} must be a number.", key=key)},
                                         status_code=400)
                 if len(value) > 4096 or "\x00" in value:
-                    return JSONResponse({"success": False, "message": f"{key} is invalid."},
+                    return JSONResponse({"success": False, "message": tr(lang, "{key} is invalid.", key=key)},
                                         status_code=400)
                 # Strip newlines so a crafted value can't inject extra .env entries
                 updates[key] = value.replace("\n", " ").replace("\r", " ").strip()
@@ -408,20 +411,21 @@ async def save_env_settings(request: Request):
                 _write_env_file(updates)
             except Exception as e:
                 logger.warning("Failed to write .env: %s", e)
-                return {"success": False, "message": "Could not write .env file."}
+                return {"success": False, "message": tr(lang, "Could not write .env file.")}
     return {"success": True}
 
 
 @app.post("/api/settings/test-instantly")
 async def test_instantly(request: Request):
     """Test an Instantly API key."""
+    lang = request_lang(request)
     try:
         data = await request.json()
     except Exception:
         data = {}
     api_key = str(data.get("api_key", "") or "")
     if not api_key:
-        return {"success": False, "message": "No API key provided."}
+        return {"success": False, "message": tr(lang, "No API key provided.")}
     try:
         import httpx
         async with httpx.AsyncClient(timeout=10) as client:
@@ -430,11 +434,11 @@ async def test_instantly(request: Request):
                 headers={"Authorization": f"Bearer {api_key}"},
             )
             if resp.status_code == 200:
-                return {"success": True, "message": "Connected to Instantly."}
+                return {"success": True, "message": tr(lang, "Connected to Instantly.")}
             else:
-                return {"success": False, "message": f"API returned {resp.status_code}. Check your key."}
+                return {"success": False, "message": tr(lang, "API returned {status}. Check your key.", status=resp.status_code)}
     except Exception as e:
-        return {"success": False, "message": f"Connection failed: {str(e)}"}
+        return {"success": False, "message": tr(lang, "Connection failed: {error}", error=str(e))}
 
 
 # ── Companies ──
@@ -467,6 +471,7 @@ async def get_company_contacts(company_id: str):
 @app.post("/api/feedback")
 async def add_feedback(request: Request):
     """Add a comment/feedback on any entity."""
+    lang = request_lang(request)
     try:
         data = await request.json()
     except Exception:
@@ -477,7 +482,7 @@ async def add_feedback(request: Request):
     entity_id = str(data.get("entity_id", "") or "")[:100]
     comment = str(data.get("comment", "") or "").strip()[:4000]
     if not comment:
-        return {"success": False, "message": "Comment is required."}
+        return {"success": False, "message": tr(lang, "Comment is required.")}
     feedback_id = uuid.uuid4().hex[:12]
     try:
         DB_PATH.parent.mkdir(parents=True, exist_ok=True)
@@ -499,7 +504,7 @@ async def add_feedback(request: Request):
             await db.commit()
     except Exception as e:
         logger.warning("Failed to save feedback: %s", e)
-        return {"success": False, "message": "Could not save feedback."}
+        return {"success": False, "message": tr(lang, "Could not save feedback.")}
     return {"success": True, "id": feedback_id}
 
 
@@ -525,16 +530,17 @@ async def get_harvey_status():
 
 
 @app.post("/api/harvey/start")
-async def start_harvey():
+async def start_harvey(request: Request):
     """Start Harvey's heartbeat loop as a subprocess."""
     global _harvey_process, _harvey_started_at
+    lang = request_lang(request)
 
     if _check_harvey_pid():
-        return {"success": False, "message": "Harvey is already running."}
+        return {"success": False, "message": tr(lang, "Harvey is already running.")}
     from harvey.main import _needs_setup
     if _needs_setup():
         return {"success": False,
-                "message": "Harvey isn't set up yet. Run `harvey setup` in a terminal first."}
+                "message": tr(lang, "Harvey isn't set up yet. Run `harvey setup` in a terminal first.")}
 
     # Ensure data dir exists
     (PROJECT_ROOT / "data").mkdir(parents=True, exist_ok=True)
@@ -563,7 +569,7 @@ async def start_harvey():
             log_handle.close()
     except Exception as e:
         logger.warning("Failed to start Harvey: %s", e)
-        return {"success": False, "message": f"Failed to start Harvey: {e}"}
+        return {"success": False, "message": tr(lang, "Failed to start Harvey: {error}", error=e)}
     _harvey_started_at = datetime.now()
     # The loop writes its own PID file once it holds the loop lock. Writing
     # the child's PID here would overwrite a running loop's record if this
@@ -572,13 +578,14 @@ async def start_harvey():
 
 
 @app.post("/api/harvey/stop")
-async def stop_harvey():
+async def stop_harvey(request: Request):
     """Stop the Harvey subprocess."""
     global _harvey_process, _harvey_started_at
+    lang = request_lang(request)
 
     pid = _check_harvey_pid()
     if not pid:
-        return {"success": False, "message": "Harvey is not running."}
+        return {"success": False, "message": tr(lang, "Harvey is not running.")}
 
     own = _harvey_process if _harvey_process and _harvey_process.pid == pid else None
 
@@ -610,7 +617,7 @@ async def stop_harvey():
     if alive():
         # Started by another user, or from an elevated terminal on Windows.
         return {"success": False,
-                "message": f"Couldn't stop Harvey (pid {pid}). Stop it where it was started."}
+                "message": tr(lang, "Couldn't stop Harvey (pid {pid}). Stop it where it was started.", pid=pid)}
 
     _harvey_process = None
     _harvey_started_at = None
@@ -955,15 +962,16 @@ async def get_outbox_api():
 
 
 @app.get("/api/sending-mode")
-async def get_sending_mode():
+async def get_sending_mode(request: Request):
     """Approval (every email waits for you) or autopilot, and what that means here."""
     from harvey.config import load_config
     from harvey.gate import _booking_prefix, allowed_link_domains
+    lang = request_lang(request)
     path = _resolve_config_file()
     try:
         config = load_config(str(path))
     except Exception as e:
-        return JSONResponse({"error": f"Couldn't read {path.name}: {e}"}, status_code=500)
+        return JSONResponse({"error": tr(lang, "Couldn't read {file}: {error}", file=path.name, error=e)}, status_code=500)
     state = _state()
     await state.init_db()
     return {
@@ -982,15 +990,16 @@ async def set_sending_mode(request: Request):
     {"mode": "approval"} works at once and sends back to the Outbox whatever
     autopilot approved that hasn't gone out."""
     from harvey.config import ConfigError, set_require_approval
+    lang = request_lang(request)
     try:
         body = await request.json()
     except ValueError:
         body = None
     mode = body.get("mode") if isinstance(body, dict) else None
     if mode not in ("approval", "autopilot"):
-        return _refuse('expected {"mode": "approval"} or {"mode": "autopilot", "confirm": "autopilot"}', 400)
+        return _refuse(tr(lang, 'expected {"mode": "approval"} or {"mode": "autopilot", "confirm": "autopilot"}'), 400)
     if mode == "autopilot" and body.get("confirm") != "autopilot":
-        return _refuse('Type "autopilot" to confirm: Harvey will send email without asking you.', 400)
+        return _refuse(tr(lang, 'Type "autopilot" to confirm: Harvey will send email without asking you.'), 400)
     path = _resolve_config_file()
     try:
         set_require_approval(mode == "approval", path)
@@ -1033,6 +1042,7 @@ async def outbox_approve(item_id: str):
 @app.post("/api/outbox/{item_id}/edit")
 async def outbox_edit(item_id: str, request: Request):
     """Rewrite a draft awaiting review. Never approves it."""
+    lang = request_lang(request)
     try:
         body = await request.json()
     except Exception:
@@ -1047,7 +1057,7 @@ async def outbox_edit(item_id: str, request: Request):
         item = await state.get_outbox_item(item_id)
         if not item or item.get("status") != "pending_review":
             return JSONResponse({"success": False,
-                                 "message": "Only drafts awaiting review can be edited."},
+                                 "message": tr(lang, "Only drafts awaiting review can be edited.")},
                                 status_code=409)
         if item.get("kind") == "reply":
             # Gmail threads a reply by its subject: a new one would land as a
@@ -1056,7 +1066,7 @@ async def outbox_edit(item_id: str, request: Request):
             subject = item.get("subject") or ""
         if not subject.strip() or not text:
             return JSONResponse({"success": False,
-                                 "message": "Subject and body are both required."},
+                                 "message": tr(lang, "Subject and body are both required.")},
                                 status_code=400)
         # The sender re-checks every email before it goes out; an edit it
         # would block is refused now, while the reviewer can still fix it,
@@ -1070,12 +1080,12 @@ async def outbox_edit(item_id: str, request: Request):
         gate = pre_send_check("reviewer@example.com", subject, checked)
         if not gate:
             return JSONResponse({"success": False,
-                                 "message": "The sender would have blocked this: "
-                                            + "; ".join(gate.reasons)},
+                                 "message": tr(lang, "The sender would have blocked this: {reasons}",
+                                               reasons="; ".join(gate.reasons))},
                                 status_code=400)
         if not await state.edit_outbox_draft(item_id, subject, text):
             return JSONResponse({"success": False,
-                                 "message": "Only drafts awaiting review can be edited."},
+                                 "message": tr(lang, "Only drafts awaiting review can be edited.")},
                                 status_code=409)
         await state.log_action("outbox_edited", "dashboard", {
             "outbox_id": item_id, "to_email": item.get("to_email", ""),
@@ -1195,6 +1205,7 @@ def _refuse(message: str, code: int = 409):
 async def mark_prospect_sent(prospect_id: str, request: Request):
     """The user sent this email by hand (e.g. from Gmail): record it, or undo it."""
     from harvey.state import HAND_SENT_REASON, MANUAL_SEND_KEY
+    lang = request_lang(request)
     try:
         try:
             body = await request.json()
@@ -1203,11 +1214,11 @@ async def mark_prospect_sent(prospect_id: str, request: Request):
         if body is None:
             body = {}
         if not isinstance(body, dict) or not isinstance(body.get("sent", True), bool):
-            return _refuse('expected {"sent": true|false}', 400)
+            return _refuse(tr(lang, 'expected {"sent": true|false}'), 400)
         sent = body.get("sent", True)
         rows = await query_db("SELECT status FROM prospects WHERE id = ?", (prospect_id,))
         if not rows:
-            return _refuse("unknown prospect", 404)
+            return _refuse(tr(lang, "unknown prospect"), 404)
         current = rows[0].get("status") or "new"
         state = _state()
         await state.init_db()
@@ -1230,8 +1241,8 @@ async def mark_prospect_sent(prospect_id: str, request: Request):
             await state.set_setting(key, current)
             if prospect_id in await _harvey_committed_ids():
                 await state.delete_setting(key)
-                return _refuse("Harvey has already approved or sent an email to this person. "
-                               "Check the Outbox.")
+                return _refuse(tr(lang, "Harvey has already approved or sent an email to this person. "
+                                       "Check the Outbox."))
             await state.update_prospect_status(prospect_id, "contacted")
             # Anything Harvey had queued for them must not go out as well.
             changed = await state.cancel_pending_outbox_for_prospect(
@@ -1242,7 +1253,7 @@ async def mark_prospect_sent(prospect_id: str, request: Request):
                     return {"success": True, "sent": False}
                 if current == "contacted":
                     # Setting them back would make Harvey write and send again.
-                    return _refuse("This wasn't marked as sent by hand here, so it stays sent.")
+                    return _refuse(tr(lang, "This wasn't marked as sent by hand here, so it stays sent."))
                 return {"success": True, "sent": True, "status": current}
             if current != "contacted":
                 # They replied, opted out or bounced since: that stands.
@@ -1269,21 +1280,23 @@ async def mark_prospect_sent(prospect_id: str, request: Request):
 
 
 @app.post("/api/outbox/{item_id}/reject")
-async def outbox_reject(item_id: str):
+async def outbox_reject(item_id: str, request: Request):
+    lang = request_lang(request)
     try:
         state = _state()
         await state.init_db()
         if not await state.reject_outbox_item(item_id):
-            return _refuse("That email is already sending or sent, so it can't be rejected.")
+            return _refuse(tr(lang, "That email is already sending or sent, so it can't be rejected."))
         return {"success": True}
     except Exception as e:
         return JSONResponse({"success": False, "message": str(e)}, status_code=500)
 
 
 @app.post("/api/sending/{action}")
-async def sending_toggle(action: str):
+async def sending_toggle(action: str, request: Request):
+    lang = request_lang(request)
     if action not in ("pause", "resume"):
-        return JSONResponse({"success": False, "message": "unknown action"}, status_code=400)
+        return JSONResponse({"success": False, "message": tr(lang, "unknown action")}, status_code=400)
     try:
         state = _state()
         await state.init_db()
@@ -1364,11 +1377,12 @@ async def get_campaigns():
 
 
 @app.get("/api/prospects/{prospect_id}/opt-out")
-async def get_opt_out(prospect_id: str):
+async def get_opt_out(prospect_id: str, request: Request):
     """Why this person is opted out: the rule, the words and their message."""
+    lang = request_lang(request)
     rows = await query_db("SELECT status FROM prospects WHERE id = ?", (prospect_id,))
     if not rows:
-        return _refuse("unknown prospect", 404)
+        return _refuse(tr(lang, "unknown prospect"), 404)
     status = rows[0].get("status") or "new"
     state = _state()
     await state.init_db()
@@ -1404,15 +1418,16 @@ async def get_opt_out(prospect_id: str):
 @app.post("/api/prospects/{prospect_id}/opt-out/undo")
 async def undo_opt_out(prospect_id: str, request: Request):
     """The owner says this opt-out was a mistake. Needs {"confirm": true}."""
+    lang = request_lang(request)
     try:
         body = await request.json()
     except ValueError:
         body = None
     if not isinstance(body, dict) or body.get("confirm") is not True:
-        return _refuse('expected {"confirm": true}', 400)
+        return _refuse(tr(lang, 'expected {"confirm": true}'), 400)
     rows = await query_db("SELECT email FROM prospects WHERE id = ?", (prospect_id,))
     if not rows:
-        return _refuse("unknown prospect", 404)
+        return _refuse(tr(lang, "unknown prospect"), 404)
     state = _state()
     await state.init_db()
     history = await state.opt_out_history(prospect_id)
@@ -1420,7 +1435,7 @@ async def undo_opt_out(prospect_id: str, request: Request):
     if not await state.undo_opt_out(prospect_id, details={
             "prospect_email": rows[0].get("email") or "",
             "previous_why": last.get("why", ""), "previous_at": last.get("at", "")}):
-        return _refuse("This person isn't opted out.")
+        return _refuse(tr(lang, "This person isn't opted out."))
     return {"success": True, "status": "replied"}
 
 
@@ -1469,17 +1484,18 @@ async def set_conversation_status(convo_id: str, request: Request):
 
     Harvey answers new replies only on open conversations, so "open" means
     "Harvey, carry on" and "closed" means it's done."""
+    lang = request_lang(request)
     try:
         data = await request.json()
     except Exception:
         data = {}
     status = data.get("status") if isinstance(data, dict) else None
     if status not in ("open", "closed"):
-        return JSONResponse({"success": False, "message": "status must be open or closed"},
+        return JSONResponse({"success": False, "message": tr(lang, "status must be open or closed")},
                             status_code=400)
     rows = await query_db("SELECT status FROM conversations WHERE id = ?", (convo_id,))
     if not rows:
-        return JSONResponse({"success": False, "message": "No such conversation."},
+        return JSONResponse({"success": False, "message": tr(lang, "No such conversation.")},
                             status_code=404)
     state = _state()
     await state.update_conversation(convo_id, status=status)
@@ -1556,8 +1572,9 @@ def _discovery_queries(body: dict, config):
 
 
 @app.get("/api/discover/providers")
-async def get_discovery_providers():
+async def get_discovery_providers(request: Request):
     """What each source does, what it costs, and whether it's ready to use."""
+    lang = request_lang(request)
     try:
         from harvey.collectors.discover import DEFAULT_PROVIDER, provider_menu
         from harvey.config import load_env
@@ -1565,7 +1582,7 @@ async def get_discovery_providers():
         state = _state()
         await state.init_db()
         return {
-            "providers": provider_menu(load_env().model_dump()),
+            "providers": _translate_providers(provider_menu(load_env().model_dump()), lang),
             "default": DEFAULT_PROVIDER,
             "selected": await state.get_setting("discovery_provider") or DEFAULT_PROVIDER,
             "paused": await state.get_setting("discovery_paused"),
@@ -1579,9 +1596,27 @@ async def get_discovery_providers():
         return {"providers": [], "error": str(e)}
 
 
+def _translate_providers(providers, lang):
+    """Translate the human-readable fields of the provider menu for the UI."""
+    if not isinstance(providers, list):
+        return providers
+    out = []
+    for p in providers:
+        if not isinstance(p, dict):
+            out.append(p)
+            continue
+        q = dict(p)
+        for field in ("label", "blurb", "cost_note", "free_tier", "caveat"):
+            if isinstance(q.get(field), str) and q[field]:
+                q[field] = tr(lang, q[field])
+        out.append(q)
+    return out
+
+
 @app.post("/api/discover/estimate")
 async def estimate_discovery(request: Request):
     """Projected spend and the exact query list, before anything is called."""
+    lang = request_lang(request)
     try:
         from harvey.collectors.discover import PROVIDERS, estimate_cost
         from harvey.config import load_config
@@ -1589,7 +1624,7 @@ async def estimate_discovery(request: Request):
         body = await request.json()
         provider = body.get("provider") or ""
         if provider not in PROVIDERS:
-            return JSONResponse({"error": f"unknown provider {provider!r}"},
+            return JSONResponse({"error": tr(lang, "unknown provider {provider}", provider=provider)},
                                 status_code=400)
 
         try:
@@ -1616,8 +1651,9 @@ async def start_discovery(request: Request):
     """
     global _discovery_task, _discovery_report
 
+    lang = request_lang(request)
     if _discovery_task and not _discovery_task.done():
-        return JSONResponse({"success": False, "message": "a run is already going"},
+        return JSONResponse({"success": False, "message": tr(lang, "a run is already going")},
                             status_code=409)
     try:
         from harvey.collectors.discover import PROVIDERS
@@ -1628,7 +1664,7 @@ async def start_discovery(request: Request):
         provider = body.get("provider") or ""
         if provider not in PROVIDERS:
             return JSONResponse({"success": False,
-                                 "message": f"unknown provider {provider!r}"},
+                                 "message": tr(lang, "unknown provider {provider}", provider=provider)},
                                 status_code=400)
 
         config = load_config()
@@ -1671,15 +1707,16 @@ async def start_discovery(request: Request):
 
 
 @app.post("/api/profile/run")
-async def start_profile():
+async def start_profile(request: Request):
     """Read the websites of everything discovered but not yet looked at.
 
     Free and model-free, so there is nothing to estimate and no cap to set.
     """
     global _discovery_task, _discovery_report
 
+    lang = request_lang(request)
     if _discovery_task and not _discovery_task.done():
-        return JSONResponse({"success": False, "message": "a run is already going"},
+        return JSONResponse({"success": False, "message": tr(lang, "a run is already going")},
                             status_code=409)
     try:
         from harvey.pipeline import run_profile_stage
@@ -1760,14 +1797,15 @@ SENT_STATUSES = ("contacted", "replied", "meeting", "closed", "lost", "opted_out
 REPLY_STATUSES = ("replied", "meeting", "closed")
 
 
-def _eta_text(minutes) -> str:
+def _eta_text(minutes, lang: str = "en") -> str:
     if minutes is None:
         return ""
-    return "less than a minute left" if minutes < 1 else f"about {round(minutes)} min left"
+    return (tr(lang, "less than a minute left") if minutes < 1
+            else tr(lang, "about {n} min left", n=round(minutes)))
 
 
 @app.get("/api/live-status")
-async def get_live_status():
+async def get_live_status(request: Request):
     """Plain-language progress: each pipeline step, what is running, how long is left.
 
     Built for someone who would otherwise keep asking "what's the status?".
@@ -1776,6 +1814,7 @@ async def get_live_status():
     counts only what the step can act on (a business with no website is never
     read), so a finished step always reaches 100% instead of sticking.
     """
+    lang = request_lang(request)
     now = datetime.now(timezone.utc).replace(tzinfo=None)  # DB stores naive UTC
     has_site = "COALESCE(domain, '') != ''"
     companies = await _scalar("SELECT COUNT(*) FROM companies")
@@ -1867,49 +1906,55 @@ async def get_live_status():
                 "state": state_, "detail": detail}
 
     profile_eta = next((r["eta_min"] for r in running if r["stage"] == "profile"), None)
-    read_detail = f"{profiled} of {with_site} read"
+    read_detail = tr(lang, "{done} of {total} read", done=profiled, total=with_site)
     if reading and profile_eta is not None:
-        read_detail += " · " + _eta_text(profile_eta)
+        read_detail += " · " + _eta_text(profile_eta, lang)
     if no_site:
-        read_detail += f" · {no_site} have no website (skipped)"
+        read_detail += tr(lang, " · {n} have no website (skipped)", n=no_site)
 
     steps = [
-        step("Find businesses", companies, 0, finding,
-             f"{companies} businesses found", info=True),
-        step("Read their websites", profiled, with_site, reading, read_detail),
-        step("Find emails", checked, profiled, finding_emails,
-             f"{checked} of {profiled} checked · {len(with_email)} emails found"),
-        step("Check emails are real", len(with_email) - unconfirmed, len(with_email), False,
-             f"{by_status.get('verified', 0)} verified · {by_status.get('risky', 0)} risky · "
-             f"{unconfirmed} not confirmed"
-             + (f" · {by_status['invalid']} bad" if by_status.get("invalid") else "")),
-        step("Write first emails", len(drafted), len(deliverable | drafted), False,
-             f"{len(drafted)} written · see Campaigns"),
-        step("Sent", len(sent & drafted), len(drafted), False,
-             f"{len(sent & drafted)} of {len(drafted)} sent"),
-        step("Replies", replies, 0, False,
-             f"{replies} replies" if replies else "No replies yet", info=True),
+        step(tr(lang, "Find businesses"), companies, 0, finding,
+             tr(lang, "{n} businesses found", n=companies), info=True),
+        step(tr(lang, "Read their websites"), profiled, with_site, reading, read_detail),
+        step(tr(lang, "Find emails"), checked, profiled, finding_emails,
+             tr(lang, "{checked} of {profiled} checked · {found} emails found",
+                checked=checked, profiled=profiled, found=len(with_email))),
+        step(tr(lang, "Check emails are real"), len(with_email) - unconfirmed, len(with_email), False,
+             tr(lang, "{verified} verified · {risky} risky · {unconfirmed} not confirmed",
+                verified=by_status.get('verified', 0), risky=by_status.get('risky', 0),
+                unconfirmed=unconfirmed)
+             + (tr(lang, " · {n} bad", n=by_status['invalid']) if by_status.get("invalid") else "")),
+        step(tr(lang, "Write first emails"), len(drafted), len(deliverable | drafted), False,
+             tr(lang, "{n} written · see Campaigns", n=len(drafted))),
+        step(tr(lang, "Sent"), len(sent & drafted), len(drafted), False,
+             tr(lang, "{sent} of {total} sent", sent=len(sent & drafted), total=len(drafted))),
+        step(tr(lang, "Replies"), replies, 0, False,
+             tr(lang, "{n} replies", n=replies) if replies else tr(lang, "No replies yet"), info=True),
     ]
 
     next_tab = ""   # where the next step is done, when it's done in the dashboard
     if reading or finding:
-        next_up = "Wait — Harvey is working. This page updates by itself."
+        next_up = tr(lang, "Wait — Harvey is working. This page updates by itself.")
     elif finding_emails:
-        next_up = "Wait — emails are being found."
+        next_up = tr(lang, "Wait — emails are being found.")
     elif stopped:
-        next_up, next_tab = "A job stopped before finishing. Run it again.", "discover"
+        next_up, next_tab = tr(lang, "A job stopped before finishing. Run it again."), "discover"
     elif harvey_sends and awaiting_review:
-        next_up, next_tab = f"Review the {awaiting_review} draft(s) waiting in the Outbox.", "outbox"
+        next_up, next_tab = tr(lang, "Review the {n} draft(s) waiting in the Outbox.",
+                               n=awaiting_review), "outbox"
     elif by_hand:
-        next_up, next_tab = f"Open Campaigns and send the {len(by_hand)} unsent email(s).", "campaigns"
+        next_up, next_tab = tr(lang, "Open Campaigns and send the {n} unsent email(s).",
+                               n=len(by_hand)), "campaigns"
     elif profiled > checked:
-        next_up, next_tab = f"Find emails for the {profiled - checked} businesses not checked yet.", "controls"
+        next_up, next_tab = tr(lang, "Find emails for the {n} businesses not checked yet.",
+                               n=profiled - checked), "controls"
     elif deliverable - drafted:
-        next_up, next_tab = f"Write first emails for {len(deliverable - drafted)} more contact(s).", "controls"
+        next_up, next_tab = tr(lang, "Write first emails for {n} more contact(s).",
+                               n=len(deliverable - drafted)), "controls"
     elif not companies:
-        next_up, next_tab = "Search for businesses to get started.", "discover"
+        next_up, next_tab = tr(lang, "Search for businesses to get started."), "discover"
     else:
-        next_up, next_tab = "Search more cities or industries to get more leads.", "discover"
+        next_up, next_tab = tr(lang, "Search more cities or industries to get more leads."), "discover"
 
     return {
         "steps": steps,
@@ -1931,13 +1976,14 @@ def _require_approval_now() -> bool:
 
 
 @app.get("/api/today")
-async def get_today():
+async def get_today(request: Request):
     """What needs a human, right now.
 
     The dashboard opens here rather than on a setup checklist: the question a
     returning user actually has is "is anything waiting on me?", and the
     answer is usually a short list or nothing at all.
     """
+    lang = request_lang(request)
     items: list[dict] = []
     stats: dict = {}
     try:
@@ -1983,14 +2029,14 @@ async def get_today():
         # Ordered by how much it blocks Harvey from doing anything at all.
         brain = await _brain_status()
         if brain.get("status") == "paused":
-            who = "Codex" if brain.get("provider") == "codex" else "Harvey's model"
+            who = "Codex" if brain.get("provider") == "codex" else tr(lang, "Harvey's model")
             items.append({
                 "key": "brain-paused", "tone": "bad",
-                "title": f"{who} is paused, so Harvey is waiting",
-                "detail": (str(brain.get("reason") or "It can't be used right now.")[:300] +
-                           " Replies and queued emails are untouched; Harvey resumes "
-                           "once it's fixed. harvey status --check says what's wrong."),
-                "action": "Open the log", "tab": "controls",
+                "title": tr(lang, "{who} is paused, so Harvey is waiting", who=who),
+                "detail": (tr(lang, str(brain.get("reason") or "It can't be used right now."))[:300] +
+                           tr(lang, " Replies and queued emails are untouched; Harvey resumes "
+                                    "once it's fixed. harvey status --check says what's wrong.")),
+                "action": tr(lang, "Open the log"), "tab": "controls",
             })
 
         hold = await state.current_sends_held()
@@ -1999,15 +2045,15 @@ async def get_today():
             title, detail = held_message(hold, waiting=len(approved))
             items.append({
                 "key": "sends-held", "tone": "bad", "title": title, "detail": detail,
-                "action": "Open the log", "tab": "controls",
+                "action": tr(lang, "Open the log"), "tab": "controls",
             })
 
         if paused:
             items.append({
                 "key": "paused", "tone": "bad",
-                "title": "Sending is paused",
-                "detail": str(paused) + ". Nothing will go out until you resume it.",
-                "action": "Review and resume", "tab": "outbox",
+                "title": tr(lang, "Sending is paused"),
+                "detail": tr(lang, "{reason}. Nothing will go out until you resume it.", reason=str(paused)),
+                "action": tr(lang, "Review and resume"), "tab": "outbox",
             })
 
         # Cold email waiting on the optional Precleared check: its free
@@ -2024,89 +2070,89 @@ async def get_today():
             items.append({
                 "key": "precleared-hold", "tone": message["tone"],
                 "title": message["title"], "detail": message["detail"],
-                "action": "Open the log", "tab": "controls",
+                "action": tr(lang, "Open the log"), "tab": "controls",
                 "url": message["url"], "url_label": message["url_label"],
             })
 
-        setup = await get_setup_status()
+        setup = await get_setup_status(request)
         if isinstance(setup, dict) and setup.get("percent", 100) < 100:
             missing = [c["label"] for c in setup.get("checks", [])
                        if c.get("required") and not c.get("done")]
             items.append({
                 "key": "setup", "tone": "warn",
-                "title": "Finish setting Harvey up",
-                "detail": ", ".join(missing[:3]) or "Some required steps are incomplete.",
-                "action": "Open setup", "tab": "settings",
+                "title": tr(lang, "Finish setting Harvey up"),
+                "detail": ", ".join(missing[:3]) or tr(lang, "Some required steps are incomplete."),
+                "action": tr(lang, "Open setup"), "tab": "settings",
             })
 
         if proposed:
             items.append({
                 "key": "signals", "tone": "warn",
-                "title": (f"{len(proposed)} signal waiting for your confirmation"
+                "title": (tr(lang, "{n} signal waiting for your confirmation", n=len(proposed))
                           if len(proposed) == 1
-                          else f"{len(proposed)} signals waiting for your confirmation"),
-                "detail": ("Harvey won't collect anything you haven't approved. "
-                           "Confirm which signals define a good prospect for you."),
-                "action": "Review signals", "tab": "signals",
+                          else tr(lang, "{n} signals waiting for your confirmation", n=len(proposed))),
+                "detail": tr(lang, "Harvey won't collect anything you haven't approved. "
+                                   "Confirm which signals define a good prospect for you."),
+                "action": tr(lang, "Review signals"), "tab": "signals",
             })
         elif not confirmed:
             items.append({
                 "key": "signals-none", "tone": "warn",
-                "title": "No signals confirmed",
-                "detail": "Every signal is rejected, so prospecting has nothing to collect.",
-                "action": "Review signals", "tab": "signals",
+                "title": tr(lang, "No signals confirmed"),
+                "detail": tr(lang, "Every signal is rejected, so prospecting has nothing to collect."),
+                "action": tr(lang, "Review signals"), "tab": "signals",
             })
 
         if not n_companies and confirmed:
             items.append({
                 "key": "discover", "tone": "good",
-                "title": "No companies yet",
-                "detail": ("Signals are confirmed but nothing has been collected. "
-                           "Discovery is free to try — no account needed."),
-                "action": "Find businesses", "tab": "discover",
+                "title": tr(lang, "No companies yet"),
+                "detail": tr(lang, "Signals are confirmed but nothing has been collected. "
+                                   "Discovery is free to try — no account needed."),
+                "action": tr(lang, "Find businesses"), "tab": "discover",
             })
 
         unprofiled = unprofiled_count
         if unprofiled:
             items.append({
                 "key": "profile", "tone": "good",
-                "title": f"{unprofiled} companies not looked at yet",
-                "detail": ("Reading their websites is free and it is what makes "
-                           "an email specific — who their agency is, what they "
-                           "are missing, whether they are spending on ads."),
-                "action": "Read their sites", "tab": "discover",
+                "title": tr(lang, "{n} companies not looked at yet", n=unprofiled),
+                "detail": tr(lang, "Reading their websites is free and it is what makes "
+                                   "an email specific — who their agency is, what they "
+                                   "are missing, whether they are spending on ads."),
+                "action": tr(lang, "Read their sites"), "tab": "discover",
             })
 
         if needs_human:
             items.append({
                 "key": "needs-human", "tone": "bad",
-                "title": (f"{needs_human} conversation needs you" if needs_human == 1
-                          else f"{needs_human} conversations need you"),
-                "detail": ("Harvey stopped and handed these over: an escalation, or a "
-                           "reply it had no safe answer for. Reply yourself, then close "
-                           "it or hand it back."),
-                "action": "Read them", "tab": "conversations",
+                "title": (tr(lang, "{n} conversation needs you", n=needs_human) if needs_human == 1
+                          else tr(lang, "{n} conversations need you", n=needs_human)),
+                "detail": tr(lang, "Harvey stopped and handed these over: an escalation, or a "
+                                   "reply it had no safe answer for. Reply yourself, then close "
+                                   "it or hand it back."),
+                "action": tr(lang, "Read them"), "tab": "conversations",
             })
 
         if pending:
             items.append({
                 "key": "outbox", "tone": "warn",
-                "title": (f"{len(pending)} email waiting for approval" if len(pending) == 1
-                          else f"{len(pending)} emails waiting for approval"),
-                "detail": ("Nothing sends until you approve it. Read them one at a time."
+                "title": (tr(lang, "{n} email waiting for approval", n=len(pending)) if len(pending) == 1
+                          else tr(lang, "{n} emails waiting for approval", n=len(pending))),
+                "detail": (tr(lang, "Nothing sends until you approve it. Read them one at a time.")
                            if _require_approval_now() else
-                           "Autopilot sends the rest on its own; these wait for you. "
-                           "Read them one at a time."),
-                "action": "Open the decisions desk", "tab": "outbox",
+                           tr(lang, "Autopilot sends the rest on its own; these wait for you. "
+                                    "Read them one at a time.")),
+                "action": tr(lang, "Open the decisions desk"), "tab": "outbox",
             })
 
         if open_convos:
             items.append({
                 "key": "replies", "tone": "good",
-                "title": (f"{open_convos} live conversation" if open_convos == 1
-                          else f"{open_convos} live conversations"),
-                "detail": "People replied. Check how Harvey is handling them.",
-                "action": "Read conversations", "tab": "conversations",
+                "title": (tr(lang, "{n} live conversation", n=open_convos) if open_convos == 1
+                          else tr(lang, "{n} live conversations", n=open_convos)),
+                "detail": tr(lang, "People replied. Check how Harvey is handling them."),
+                "action": tr(lang, "Read conversations"), "tab": "conversations",
             })
 
         return {"items": items, "stats": stats}
@@ -2147,8 +2193,9 @@ CATEGORY_ORDER = ["discovery", "profile", "people", "verification"]
 
 
 @app.get("/api/signals")
-async def get_signals():
+async def get_signals(request: Request):
     """The signal vocabulary, grouped for review, with live cohort sizes."""
+    lang = request_lang(request)
     try:
         from harvey.signals import seed_signal_catalog
 
@@ -2171,6 +2218,9 @@ async def get_signals():
                 seen = counts.get(sig["code"], {})
                 rows.append({
                     **sig,
+                    "label": tr(lang, sig.get("label", "")),
+                    "description": tr(lang, sig.get("description", "")),
+                    "cost_note": tr(lang, sig["cost_note"]) if sig.get("cost_note") else sig.get("cost_note"),
                     "companies": seen.get("companies", 0),
                     "observations": seen.get("observations", 0),
                 })
@@ -2178,8 +2228,8 @@ async def get_signals():
                 meta = CATEGORY_META.get(cat, {})
                 groups.append({
                     "key": cat,
-                    "label": meta.get("label", cat.title()),
-                    "blurb": meta.get("blurb", ""),
+                    "label": tr(lang, meta.get("label", cat.title())),
+                    "blurb": tr(lang, meta.get("blurb", "")),
                     "signals": rows,
                 })
         for sig in codes:
@@ -2196,18 +2246,19 @@ async def get_signals():
 @app.post("/api/signals/status")
 async def set_signals_status(request: Request):
     """Confirm or reject one signal, or a whole category at once."""
+    lang = request_lang(request)
     try:
         body = await request.json()
         status = (body.get("status") or "").strip()
         codes = body.get("codes") or ([body["code"]] if body.get("code") else [])
         if status not in ("proposed", "confirmed", "rejected"):
             return JSONResponse(
-                {"success": False, "message": f"invalid status: {status!r}"},
+                {"success": False, "message": tr(lang, "invalid status: {status}", status=repr(status))},
                 status_code=400,
             )
         if not codes:
             return JSONResponse(
-                {"success": False, "message": "no signal codes given"}, status_code=400
+                {"success": False, "message": tr(lang, "no signal codes given")}, status_code=400
             )
 
         from harvey.signals import seed_signal_catalog
@@ -2245,35 +2296,35 @@ async def _cohort_companies(require: list[str], exclude: list[str],
                                         ranges=ranges)
 
 
-def _codes(raw) -> list[str]:
+def _codes(raw, lang: str = "en") -> list[str]:
     """Accept lists or CSV strings, with bounded SQL parameter counts."""
     if raw is None:
         return []
     if isinstance(raw, str):
         raw = raw.split(",")
     if not isinstance(raw, list) or any(not isinstance(c, str) for c in raw):
-        raise ValueError("signals must be a list of strings or comma-separated string")
+        raise ValueError(tr(lang, "signals must be a list of strings or comma-separated string"))
     codes = list(dict.fromkeys(c.strip() for c in raw if c.strip()))
     if len(codes) > 200 or any(len(c) > 128 for c in codes):
-        raise ValueError("too many or oversized signal codes")
+        raise ValueError(tr(lang, "too many or oversized signal codes"))
     return codes
 
 
 COHORT_MAX_RANGES = 20
 
 
-def _range_bound(raw):
+def _range_bound(raw, lang: str = "en"):
     if raw is None or raw == "":
         return None
     if isinstance(raw, bool) or not isinstance(raw, (int, float, str)):
-        raise ValueError("range bounds must be numbers")
+        raise ValueError(tr(lang, "range bounds must be numbers"))
     value = float(raw)
     if value != value or abs(value) > 1e12:
-        raise ValueError("range bound is out of bounds")
+        raise ValueError(tr(lang, "range bound is out of bounds"))
     return value
 
 
-def _ranges(raw) -> list[dict]:
+def _ranges(raw, lang: str = "en") -> list[dict]:
     """Numeric cohort filters: a list of {code, min, max}, or the CSV query
     form "SERP_RANK:11:30,MAPS_RANK::3". At least one bound per range."""
     if raw is None or raw == "" or raw == []:
@@ -2285,35 +2336,35 @@ def _ranges(raw) -> list[dict]:
                 continue
             pieces = part.split(":")
             if len(pieces) != 3:
-                raise ValueError("ranges look like CODE:min:max")
+                raise ValueError(tr(lang, "ranges look like CODE:min:max"))
             items.append({"code": pieces[0], "min": pieces[1], "max": pieces[2]})
         raw = items
     if not isinstance(raw, list) or any(not isinstance(r, dict) for r in raw):
-        raise ValueError("ranges must be a list of {code, min, max}")
+        raise ValueError(tr(lang, "ranges must be a list of {code, min, max}"))
     if len(raw) > COHORT_MAX_RANGES:
-        raise ValueError("too many ranges")
+        raise ValueError(tr(lang, "too many ranges"))
     out = []
     for r in raw:
         code = r.get("code")
         if not isinstance(code, str) or not code.strip() or len(code) > 128:
-            raise ValueError("each range needs a signal code")
-        low, high = _range_bound(r.get("min")), _range_bound(r.get("max"))
+            raise ValueError(tr(lang, "each range needs a signal code"))
+        low, high = _range_bound(r.get("min"), lang), _range_bound(r.get("max"), lang)
         if low is None and high is None:
-            raise ValueError(f"range on {code} needs a min or a max")
+            raise ValueError(tr(lang, "range on {code} needs a min or a max", code=code))
         if low is not None and high is not None and low > high:
-            raise ValueError(f"range on {code}: min is above max")
+            raise ValueError(tr(lang, "range on {code}: min is above max", code=code))
         out.append({"code": code.strip(), "min": low, "max": high})
     return out
 
 
-def _cohort_integer(raw, default):
+def _cohort_integer(raw, default, lang: str = "en"):
     if raw is None:
         return default
     if isinstance(raw, bool) or not isinstance(raw, (int, str)):
-        raise ValueError("offset and limit must be integers")
+        raise ValueError(tr(lang, "offset and limit must be integers"))
     value = int(raw)
     if abs(value) > 9223372036854775807:
-        raise ValueError("offset or limit is too large")
+        raise ValueError(tr(lang, "offset or limit is too large"))
     return value
 
 
@@ -2327,15 +2378,16 @@ async def preview_cohort(request: Request):
     matches; ``size`` is always the whole cohort. ``ranges`` adds numeric
     filters — ``[{"code": "SERP_RANK", "min": 11, "max": 30}]``.
     """
+    lang = request_lang(request)
     try:
         body = await request.json()
         if not isinstance(body, dict):
-            raise ValueError("request body must be an object")
-        require = _codes(body.get("require"))
-        exclude = _codes(body.get("exclude"))
-        ranges = _ranges(body.get("ranges"))
-        offset = max(0, _cohort_integer(body.get("offset"), 0))
-        limit = min(max(1, _cohort_integer(body.get("limit"), COHORT_PAGE_SIZE)),
+            raise ValueError(tr(lang, "request body must be an object"))
+        require = _codes(body.get("require"), lang)
+        exclude = _codes(body.get("exclude"), lang)
+        ranges = _ranges(body.get("ranges"), lang)
+        offset = max(0, _cohort_integer(body.get("offset"), 0, lang))
+        limit = min(max(1, _cohort_integer(body.get("limit"), COHORT_PAGE_SIZE, lang)),
                     COHORT_MAX_PAGE_SIZE)
         if not require and not ranges:
             return {"size": 0, "offset": 0, "limit": limit, "companies": []}
@@ -2359,11 +2411,12 @@ def _csv_cell(value):
 
 
 @app.get("/api/cohort.csv")
-async def export_cohort(require: str = "", exclude: str = "", ranges: str = ""):
+async def export_cohort(request: Request, require: str = "", exclude: str = "", ranges: str = ""):
     """The whole cohort as a CSV download — every match, not just one page."""
     import csv
     import io
 
+    lang = request_lang(request)
     buf = io.StringIO()
     writer = csv.writer(buf)
     writer.writerow(["name", "domain", "website", "industry", "location"])
@@ -2380,7 +2433,7 @@ async def export_cohort(require: str = "", exclude: str = "", ranges: str = ""):
         return JSONResponse({"error": str(e)}, status_code=400)
     except Exception as e:
         logger.warning("Cohort export failed: %s", e)
-        return JSONResponse({"error": "Cohort export failed"}, status_code=500)
+        return JSONResponse({"error": tr(lang, "Cohort export failed")}, status_code=500)
     return PlainTextResponse(
         buf.getvalue(),
         media_type="text/csv",
@@ -2415,7 +2468,8 @@ async def get_runs_api():
 WEB_DIR = (Path(__file__).resolve().parent / "web")
 
 
-TEXT_TYPES = {".css": "text/css", ".js": "text/javascript", ".svg": "image/svg+xml"}
+TEXT_TYPES = {".css": "text/css", ".js": "text/javascript", ".svg": "image/svg+xml",
+              ".json": "application/json"}
 BINARY_TYPES = {".woff2": "font/woff2", ".woff": "font/woff", ".png": "image/png"}
 
 

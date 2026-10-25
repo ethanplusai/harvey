@@ -9,6 +9,12 @@ minor versions can still change behaviour.
 
 ### Added
 
+- **German dashboard.** Settings → Language switches the dashboard between
+  English and German (stored per browser, like the theme). Every string in the
+  dashboard, including texts the API builds (Today items, setup checks, signal
+  catalog, discovery sources), goes through one dictionary,
+  `harvey/web/i18n/de.json`, keyed by the English text; anything missing falls
+  back to English. Emails, prompts and the CLI are unchanged.
 - **A do-not-contact list, enforced at send time.** `compliance.do_not_contact`
   takes addresses and domains Harvey must never email: competitors, your
   existing customers, anyone under a legal hold, a partner you agreed not to

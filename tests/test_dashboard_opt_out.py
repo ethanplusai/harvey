@@ -110,8 +110,9 @@ def _render_panel(prospect, data, armed=False):
     node = shutil.which("node")
     if not node:
         pytest.skip("node is not installed")
-    source = (Path(__file__).resolve().parent.parent / "harvey" / "web" / "app.js").read_text(encoding="utf-8")
-    parts = []
+    web = Path(__file__).resolve().parent.parent / "harvey" / "web"
+    source = (web / "app.js").read_text(encoding="utf-8")
+    parts = [(web / "i18n.js").read_text(encoding="utf-8")]  # t(), loaded before app.js
     for pattern in (r"^function escHtml\(.*?^}\n", r"^function own\(.*?^}\n",
                     r"^const OPT_OUT_RULES = \{.*?^\};\n", r"^function optOutPanel\(.*?^}\n"):
         match = re.search(pattern, source, re.S | re.M)

@@ -421,6 +421,7 @@ let ok = true, status = 200;
 global.fetch = async (url, opts) => {calls.push({url, auth: opts.headers.get('Authorization'),
   redirect: opts.redirect}); return {ok, status, blob: async () => ({})};};
 vm.runInThisContext(fs.readFileSync(process.argv[1], 'utf8'));
+vm.runInThisContext(fs.readFileSync(process.argv[3], 'utf8'));  // t() for app.js
 const app = fs.readFileSync(process.argv[2], 'utf8');
 vm.runInThisContext('let _locked = false;' + app.slice(app.indexOf('async function lockIfRefused('), app.indexOf('function showLock(')));
 vm.runInThisContext("const _cohort = {require: new Set(['A']), exclude: new Set(['B'])};" +
@@ -437,7 +438,8 @@ vm.runInThisContext("const _cohort = {require: new Set(['A']), exclude: new Set(
  console.log(JSON.stringify({calls, revoked, links, success, failure, locks, refused: button}));
 })().catch(e => {console.error(e); process.exit(1);});
 '''
-    result = subprocess.run([node, '-e', script, str(web / 'auth.js'), str(web / 'app.js')],
+    result = subprocess.run([node, '-e', script, str(web / 'auth.js'), str(web / 'app.js'),
+                             str(web / 'i18n.js')],
                             text=True, encoding="utf-8", capture_output=True, check=True)
     data = json.loads(result.stdout)
     assert all(c['auth'] == 'Bearer ' + 'T' * 43 and c['redirect'] == 'error' for c in data['calls'])
@@ -469,6 +471,7 @@ def test_cohort_browser_ignores_superseded_pages_and_cleared_filters():
     script = r'''
 const fs = require('fs'), vm = require('vm');
 const app = fs.readFileSync(process.argv[1], 'utf8');
+vm.runInThisContext(fs.readFileSync(process.argv[2], 'utf8'));  // t() for app.js
 const el = {innerHTML: 'previous export button'}, pending = [];
 global.document = {getElementById: () => el};
 global.api = (path, opts) => new Promise(resolve => pending.push({resolve, body: JSON.parse(opts.body)}));
@@ -495,7 +498,7 @@ const page = (name, offset) => ({size: 100, offset, companies: [{name}]});
    offsets: pending.map(x => x.body.offset)}));
 })().catch(e => {console.error(e); process.exit(1);});
 '''
-    response = subprocess.run([node, '-e', script, str(app)], text=True, encoding="utf-8",
+    response = subprocess.run([node, '-e', script, str(app), str(app.parent / 'i18n.js')], text=True, encoding="utf-8",
                               capture_output=True, check=True)
     data = json.loads(response.stdout)
     assert data['offsets'] == [0, 50, 50]
