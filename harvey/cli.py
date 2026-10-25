@@ -709,7 +709,7 @@ def main():
 
     # harvey dashboard
     sub = subparsers.add_parser("dashboard", help="Open the web dashboard")
-    sub.add_argument("--host", default="127.0.0.1", help="Host (default: 127.0.0.1)")
+    sub.add_argument("--host", default=os.getenv("HARVEY_DASHBOARD_HOST", "127.0.0.1"), help="Host (default: 127.0.0.1)")
     sub.add_argument("--port", type=int, default=5555, help="Port (default: 5555)")
     sub.set_defaults(func=cmd_dashboard)
 

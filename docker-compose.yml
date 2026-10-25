@@ -2,6 +2,8 @@ services:
   harvey:
     build: .
     env_file: .env
+    ports:
+      - "5555:5555"
     volumes:
       # Persist database across restarts
       - ./data:/app/data
@@ -9,10 +11,9 @@ services:
       - ./harvey.yaml:/app/harvey.yaml:ro
       - ./prompts:/app/prompts:ro
       - ./skills:/app/skills
-      # Mount Claude auth (required for Max plan usage).
-      # Not read-only: the CLI refreshes OAuth tokens in place.
-      # The container runs as non-root user "harvey" (uid 1000).
-      - ~/.claude:/home/harvey/.claude
+      # Antigravity CLI (agy) binary and credentials
+      - ~/.gemini:/home/harvey/.gemini
+      - ~/.local/bin/agy:/usr/local/bin/agy:ro
     restart: unless-stopped
     init: true
     logging:
