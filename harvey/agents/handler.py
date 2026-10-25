@@ -7,9 +7,11 @@ threshold — flips the global kill switch so a bad list can't torch the
 sending domain while nobody's watching.
 """
 
+import asyncio
 import html
 import logging
 import re
+from dataclasses import dataclass
 from datetime import datetime, timezone
 
 from harvey.brain import Brain, BrainUnavailable
@@ -22,6 +24,7 @@ from harvey.integrations.instantly import InstantlyClient
 from harvey.integrations.mail_provider import (
     NATIVE_PROVIDERS, get_mail_provider, strip_quoted_reply,
 )
+from harvey.integrations.powercontext import PowerContextUnavailable, provider_for
 from harvey.models.conversation import Conversation, Message
 from harvey.state import COLLEAGUE_REPLIED, REVIEW_NEXT_REPLY_KEY, StateManager
 from harvey.sending_mode import sync_sending_mode
@@ -51,6 +54,14 @@ INTENT_LABELS = {
 AUTO_REPLY_INTENTS = {"interested", "objection", "question", "wrong_person"}
 # Replies that don't stop the cold email to the rest of their company.
 NO_COMPANY_STOP_INTENTS = {"ooo", "wrong_person"}
+
+
+@dataclass
+class _ReplyProgress:
+    """Whether retrying this one inbound message would append it again."""
+
+    committed: bool = False
+
 
 # Hard opt-out phrases. If any of these appear, we ALWAYS honor the
 # opt-out regardless of what the LLM classifier says.
@@ -196,6 +207,8 @@ class Handler:
         state: StateManager,
         config: HarveyConfig,
         env: EnvConfig,
+        *,
+        powercontext=None,
     ):
         self.brain = brain
         self.state = state
@@ -204,6 +217,7 @@ class Handler:
         self.provider = get_mail_provider(config, env)
         self.skills = ""
         self.last_read_problem = ""   # why the last mailbox read failed, for the heartbeat
+        self.powercontext = powercontext if powercontext is not None else provider_for(config, state, brain)
 
     @property
     def is_native(self) -> bool:
@@ -260,7 +274,7 @@ class Handler:
                     handled = await self._handle_reply(reply, campaign)
                     if handled:
                         total_handled += 1
-                except BrainUnavailable as e:
+                except (BrainUnavailable, PowerContextUnavailable) as e:
                     logger.error(f"Handler: stopping; replies are left for later ({e}).")
                     return False
                 except Exception as e:
@@ -290,12 +304,13 @@ class Handler:
         logger.info(f"Handler: Reply from {lead_email}")
 
         consumed = True
+        progress = _ReplyProgress()
         try:
-            await self._process_reply(lead_email, reply_text, reply_uuid, campaign.id)
-        except BrainUnavailable:
-            # Nothing was decided or recorded about this reply yet, so leave
-            # it for the next cycle instead of losing it to a provider outage.
-            consumed = False
+            await self._process_reply(lead_email, reply_text, reply_uuid, campaign.id, progress=progress)
+        except (BrainUnavailable, PowerContextUnavailable, asyncio.CancelledError):
+            # Before the save, leave this input for retry. After the save,
+            # consuming it prevents shutdown from appending the same input twice.
+            consumed = progress.committed
             raise
         finally:
             # Otherwise ALWAYS mark processed — even on early exits (opt-out,
@@ -387,6 +402,8 @@ class Handler:
         reply_uuid: str,
         campaign_id: str = "",
         reply_meta: dict | None = None,
+        *,
+        progress: _ReplyProgress | None = None,
     ):
         """Classify, record, and respond to a single reply."""
         # Find the prospect by email (indexed lookup)
@@ -481,6 +498,8 @@ class Handler:
                 intent=intent,
                 stage=convo.stage,
             )
+        if progress is not None:
+            progress.committed = True
         if convo.stage != old_stage:
             logger.info(f"Handler: Stage for {lead_email}: {old_stage} -> {convo.stage}")
 
@@ -547,6 +566,29 @@ class Handler:
             )
             return
 
+        memory_sync_failed = False
+        try:
+            await self.powercontext.capture_conversation(prospect, convo.id)
+        except asyncio.CancelledError:
+            # Unlike cancellation before the save, this input must be consumed.
+            # Preserve the already generated draft for a human before shutdown.
+            try:
+                await self._hold_memory_reply(convo.id, "embedded_memory_interrupted")
+                if self.is_native and response:
+                    await self._queue_native_reply(
+                        response, prospect, convo, reply_meta or {}, intent, force_review=True,
+                    )
+            except Exception:
+                logger.error("Handler: could not finish recording interrupted memory review.")
+            raise
+        except PowerContextUnavailable:
+            # The input is already committed. Leave it available for later
+            # synchronization without causing IMAP to append it twice on retry.
+            memory_sync_failed = True
+            await self._hold_memory_reply(convo.id, "embedded_memory_unavailable")
+            if not self.is_native:
+                return
+
         # For interested, objection, question, wrong_person — the reply drafted above
         if not response:
             # No usable draft from a working provider: hand it to a human
@@ -568,7 +610,8 @@ class Handler:
         # or immediately via Instantly (legacy).
         if self.is_native:
             await self._queue_native_reply(
-                response, prospect, convo, reply_meta or {}, intent
+                response, prospect, convo, reply_meta or {}, intent,
+                force_review=memory_sync_failed,
             )
         elif await self.state.get_setting(REVIEW_NEXT_REPLY_KEY + prospect.id):
             # You undid their opt-out, and Instantly can't hold a reply for
@@ -616,6 +659,14 @@ class Handler:
                     },
                 )
 
+    async def _hold_memory_reply(self, conversation_id: str, reason: str):
+        await self.state.update_conversation(conversation_id, status="needs_human")
+        await self.state.log_action(
+            action_type="memory_sync_pending", agent="handler",
+            details={"conversation_id": conversation_id, "reason": reason},
+        )
+        logger.warning("Handler: memory synchronization pending; reply requires human review.")
+
     # ── Native provider path (Gmail / SMTP) ──
 
     async def _run_native(self) -> bool:
@@ -643,6 +694,9 @@ class Handler:
             if not dedup_key or await self.state.is_reply_processed(dedup_key):
                 continue
             consumed = True
+            # Bounce handling does not pass through customer-memory generation;
+            # retain its existing consumption policy on interruption.
+            progress = _ReplyProgress(committed=msg.is_bounce)
             try:
                 if msg.is_bounce:
                     await self._handle_bounce(msg)
@@ -656,13 +710,17 @@ class Handler:
                             "message_id": msg.message_id,
                             "subject": msg.subject,
                         },
+                        progress=progress,
                     )
                 handled += 1
-            except BrainUnavailable as e:
-                consumed = False
+            except (BrainUnavailable, PowerContextUnavailable) as e:
+                consumed = progress.committed
                 complete = False
                 logger.error(f"Handler: stopping; replies are left for later ({e}).")
                 break
+            except asyncio.CancelledError:
+                consumed = progress.committed
+                raise
             except Exception as e:
                 logger.error(f"Handler: error processing {msg.from_email}: {e}")
                 self.last_read_problem = f"a reply from {msg.from_email} couldn't be handled ({e})"
@@ -729,11 +787,12 @@ class Handler:
             logger.error(f"Handler: KILL SWITCH ENGAGED — {reason}")
 
     async def _queue_native_reply(
-        self, response: str, prospect, convo, reply_meta: dict, intent: str
+        self, response: str, prospect, convo, reply_meta: dict, intent: str,
+        *, force_review: bool = False,
     ):
         """Route Harvey's reply through the outbox (approval ladder applies)."""
         await sync_sending_mode(self.config, self.state)
-        require_approval = getattr(
+        require_approval = force_review or getattr(
             self.config.channels.email, "require_approval", True
         )
         # The first reply since you undid their opt-out waits for you, even
@@ -900,6 +959,12 @@ Product: {self.config.product.name} — {self.config.product.description}"""
             playbook = self.brain.load_skill("selling_to_startups")
             if playbook:
                 prompt += "\n\nSELLING TO STARTUP FOUNDERS\n" + playbook
+
+        evidence = await self.powercontext.prepare(
+            prospect, reply_text, conversation_id=convo.id,
+        )
+        if evidence:
+            prompt += "\n\n" + fence(evidence, "customer memory")
 
         prompt += f"""
 

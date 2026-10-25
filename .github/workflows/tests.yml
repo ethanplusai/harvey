@@ -13,6 +13,20 @@ permissions:
   contents: read
 
 jobs:
+  embedded-memory:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        python: ["3.11", "3.12"]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python }}
+      - name: Install optional embedded memory
+        run: python -m pip install -e ".[dev,powercontext]"
+      - name: Embedded storage, model bridge and host policy
+        run: python -m pytest -q tests/test_powercontext*.py
   test:
     strategy:
       fail-fast: false

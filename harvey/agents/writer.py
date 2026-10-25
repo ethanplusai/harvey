@@ -9,6 +9,7 @@ Steps 2-3 stay campaign-level (proof point + breakup are less personal by
 design). Every draft still passes the deterministic pre-send gate.
 """
 
+import asyncio
 import json
 import logging
 import re
@@ -18,6 +19,7 @@ from harvey.brain import Brain
 from harvey.config import HarveyConfig
 from harvey.humanize import humanize, humanizer_enabled
 from harvey.integrations.mail_provider import NATIVE_PROVIDERS
+from harvey.integrations.powercontext import PowerContextUnavailable, provider_for
 from harvey.models.campaign import Campaign, EmailStep
 from harvey.state import WRITABLE_EMAIL_STATUSES, StateManager
 from harvey.sending_mode import sync_sending_mode
@@ -48,11 +50,14 @@ class Writer:
         state: StateManager,
         config: HarveyConfig,
         env=None,
+        *,
+        powercontext=None,
     ):
         self.brain = brain
         self.state = state
         self.config = config
         self.env = env
+        self.powercontext = powercontext if powercontext is not None else provider_for(config, state, brain)
 
     @property
     def is_native(self) -> bool:
@@ -191,7 +196,9 @@ class Writer:
         The outbox unique index means the sender's later template staging
         can't overwrite these rows — a personalized draft always wins the
         (campaign, prospect, step 1) slot. If a draft fails, the slot stays
-        empty and the sender falls back to the campaign template.
+        empty and the sender falls back to the campaign template. Memory failures
+        or interrupted generation pause the campaign instead: resuming it requires
+        a human to regenerate/review the missing personal drafts first.
         """
         await sync_sending_mode(self.config, self.state)
         require_approval = getattr(
@@ -205,6 +212,27 @@ class Writer:
         for prospect in prospects:
             try:
                 draft = await self._write_personal_email(prospect)
+            except (PowerContextUnavailable, asyncio.CancelledError) as error:
+                # No draft in this batch has been staged yet. Keep the campaign
+                # out of the Sender's template path, including after restart.
+                try:
+                    await self.state.update_campaign(campaign_id, status="paused")
+                    await self.state.log_action(
+                        action_type="campaign_memory_hold", agent="writer",
+                        details={
+                            "campaign_id": campaign_id,
+                            "reason": "generation_interrupted" if isinstance(error, asyncio.CancelledError)
+                            else "embedded_memory_unavailable",
+                            "recovery": "Restore memory, regenerate and review personal drafts before resuming.",
+                        },
+                    )
+                    logger.warning(
+                        "Writer: campaign paused for human review; restore memory and regenerate "
+                        "personal drafts before resuming."
+                    )
+                except Exception:
+                    logger.error("Writer: could not record campaign memory hold.")
+                raise
             except Exception as e:
                 logger.warning(f"Writer: personal draft failed for {prospect.email}: {e}")
                 continue
@@ -312,6 +340,12 @@ class Writer:
         if startup is not None:
             facts.extend(startup)
 
+        evidence = await self.powercontext.prepare(
+            prospect, f"{self.config.product.name} {prospect.company} requirements preferences constraints budget deployment",
+        )
+        if evidence:
+            evidence = "\n\n" + fence(evidence, "customer memory")
+
         prompt = self.brain.load_prompt(
             "writer",
             product_name=self.config.product.name,
@@ -333,11 +367,11 @@ class Writer:
 
 Write ONE cold email (the very first touch) to this specific person.
 
-FACTS — everything you know about them, gathered from their website and
-the web. Every claim about the prospect in your email must come from these
-facts. If a fact isn't listed here, you don't know it — do not invent
-funding rounds, mutual contacts, metrics, or anything else:
-{fence(chr(10).join(facts), "prospect research")}
+FACTS — everything you know about them. Every claim about the prospect in
+your email must come from these facts. If a fact isn't listed here, you
+don't know it — do not invent funding rounds, mutual contacts, metrics,
+or anything else:
+{fence(chr(10).join(facts), "prospect research")}{evidence}
 
 {UNTRUSTED_RULE}
 

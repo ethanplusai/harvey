@@ -4,6 +4,7 @@ import asyncio
 import logging
 import signal
 import sys
+from contextlib import AsyncExitStack
 from datetime import datetime, time, timedelta
 
 import pytz
@@ -16,6 +17,7 @@ from harvey.config import (
 )
 from harvey.integrations.mail_provider import NATIVE_PROVIDERS
 from harvey.pipeline import run_profile_stage
+from harvey.integrations.powercontext import PowerContextUnavailable, provider_for
 from harvey.state import StateManager
 
 logging.basicConfig(
@@ -243,6 +245,12 @@ async def record_send_phase(state, held_reason: str):
 
 
 async def heartbeat(stop_event: asyncio.Event | None = None):
+    """Own resources for one running Harvey process, including embedded memory."""
+    async with AsyncExitStack() as resources:
+        await _heartbeat(stop_event, resources)
+
+
+async def _heartbeat(stop_event: asyncio.Event | None, resources: AsyncExitStack):
     """Harvey's main loop. Wakes up, decides, acts, sleeps. Repeat."""
     if stop_event is None:
         stop_event = asyncio.Event()
@@ -275,6 +283,14 @@ async def heartbeat(stop_event: asyncio.Event | None = None):
     await state.init_db()
     logger.info("Database initialized.")
 
+    powercontext = provider_for(config, state, brain)
+    resources.push_async_callback(powercontext.aclose)
+    try:
+        await powercontext.start()
+    except PowerContextUnavailable as error:
+        logger.error("Harvey cannot start with embedded memory enabled: %s", error)
+        return
+
     # Import agents here to avoid circular imports
     from harvey.agents.scout import Scout
     from harvey.agents.writer import Writer
@@ -283,9 +299,9 @@ async def heartbeat(stop_event: asyncio.Event | None = None):
     from harvey.agents.analyst import Analyst
 
     scout = Scout(brain, state, config, env)
-    writer = Writer(brain, state, config, env)
+    writer = Writer(brain, state, config, env, powercontext=powercontext)
     sender = Sender(brain, state, config, env)
-    handler = Handler(brain, state, config, env)
+    handler = Handler(brain, state, config, env, powercontext=powercontext)
     analyst = Analyst(state)
 
     interval = config.usage.heartbeat_interval_minutes * 60

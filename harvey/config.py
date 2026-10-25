@@ -5,13 +5,14 @@ import os
 import re
 from datetime import date as _date, time as _time
 from pathlib import Path
+from typing import Literal
 
 import yaml
 
 from harvey.textio import read_user_text
 from dotenv import load_dotenv
 from pydantic import (
-    BaseModel, PrivateAttr, TypeAdapter, ValidationError, field_validator, model_validator,
+    BaseModel, Field, PrivateAttr, TypeAdapter, ValidationError, field_validator, model_validator,
 )
 
 from harvey.paths import PROJECT_ROOT
@@ -561,6 +562,42 @@ class WriterConfig(BaseModel):
     humanizer: bool = False
 
 
+class PowerContextConfig(BaseModel):
+    """Embedded contact memory using Harvey's existing Brain and local storage."""
+
+    model_config = {"extra": "forbid"}
+
+    enabled: bool = False
+    database_path: str = ""
+    namespace: str = Field(default="harvey", min_length=1, max_length=128)
+    timeout: float = Field(default=300.0, gt=0, le=600)
+    max_bytes: int = Field(default=8192, ge=512, le=32768)
+    memory_families: list[Literal["profile", "topic", "atomic"]] = Field(
+        default_factory=lambda: ["profile", "topic"], min_length=1, max_length=3,
+    )
+
+    @field_validator("memory_families")
+    @classmethod
+    def _unique_memory_families(cls, value):
+        if len(set(value)) != len(value):
+            raise ValueError("powercontext.memory_families must not contain duplicates")
+        return value
+
+    @field_validator("database_path")
+    @classmethod
+    def _persistent_database(cls, value: str) -> str:
+        value = value.strip()
+        if value == ":memory:" or "://" in value:
+            raise ValueError("powercontext.database_path must be a persistent file path")
+        return value
+
+    @field_validator("namespace")
+    @classmethod
+    def _namespace_nonblank(cls, value: str) -> str:
+        if not value.strip():
+            raise ValueError("powercontext.namespace must not be blank")
+        return value.strip()
+
 class HarveyConfig(BaseModel):
     persona: PersonaConfig
     product: ProductConfig
@@ -570,6 +607,7 @@ class HarveyConfig(BaseModel):
     brain: BrainConfig = BrainConfig()
     compliance: ComplianceConfig = ComplianceConfig()
     writer: WriterConfig = WriterConfig()
+    powercontext: PowerContextConfig = PowerContextConfig()
     # The file it was loaded from, so a running Harvey can re-read the
     # sending mode from that same file (refresh_sending_mode).
     _source_path: str | None = PrivateAttr(default=None)

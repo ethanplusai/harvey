@@ -35,6 +35,11 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
+powercontext = [
+    "powercontext[builtin]==1.4.0",
+    # PowerContext 1.4.0's embedded initialization imports server authz.
+    "pycasbin>=2.8,<3",
+]
 dev = [
     "pytest>=8.0,<9",
     "pytest-asyncio>=0.23,<1",

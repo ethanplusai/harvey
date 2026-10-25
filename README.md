@@ -2,9 +2,9 @@
 
 **An autonomous sales agent that runs on your Claude Code or Codex subscription.**
 
-Harvey finds businesses worth selling to, learns something specific about each one, writes cold email that references it, sends it, reads the replies, and works the conversation toward a meeting. It runs on your machine, in a loop, on its own.
+Harvey finds businesses worth selling to, learns something specific about each one, writes cold email that references it, sends it, reads the replies, and works the conversation toward a meeting. It also supports long-term memory through [PowerContext](https://github.com/oceanbase/powercontext), keeping track of customer preferences and project requirements as conversations continue. It runs on your machine, in a loop, on its own.
 
-The unusual part: **there is no model API bill.** Harvey uses your Claude Pro or Max subscription through Claude Code, or your ChatGPT subscription through Codex. Model calls use the plan you already pay for, without an API key or per-token API billing. Claude is the default; [Codex is an opt-in provider on macOS and Linux](#using-a-chatgpt-plan-instead-codex).
+The unusual part: **there is no model API bill.** Harvey uses your Claude Pro or Max subscription through Claude Code, or your ChatGPT subscription through Codex. Model calls use the plan you already pay for, without an API key or per-token API billing. Memory processing uses that same subscription quota. Claude is the default; [Codex is an opt-in provider on macOS and Linux](#using-a-chatgpt-plan-instead-codex).
 
 ```
 $ harvey run
@@ -103,6 +103,13 @@ handle replies  >  send campaigns  >  write campaigns  >  prospect  >  idle (ana
 
 Profiling and outbox draining ride along on **every** cycle regardless, because they cost nothing and have to happen on schedule.
 
+With long-term memory enabled, Harvey uses saved incoming customer messages to
+maintain **Topic Memory** for project requirements, progress and decisions, and a
+**Profile** for contact background and lasting communication preferences. It
+retrieves that context when drafting replies, so earlier requirements remain
+available as the conversation grows. Memory processing adds calls to the same
+model subscription Harvey already uses.
+
 ---
 
 ## Quick start
@@ -146,6 +153,13 @@ harvey discover
 # 6. Watch it work
 harvey dashboard          # prints a private link to http://127.0.0.1:5555
 harvey run
+```
+
+For optional long-term memory, install the extra in the same virtual environment,
+then [enable it in your configuration](#configuration):
+
+```bash
+python -m pip install -e '.[powercontext]'
 ```
 
 ---
@@ -502,7 +516,7 @@ Appearance has three states: `auto` follows your OS and is the default, or pick 
 
 ## How the data is stored
 
-SQLite at `data/harvey.db`. One idea drives the schema:
+Harvey's business data lives in SQLite at `data/harvey.db`. One idea drives the schema:
 
 > **Every fact is a row, never a column.**
 
@@ -524,6 +538,11 @@ The vocabulary is governed: a database trigger rejects any `signal_code` not in 
 
 Other tables: `companies`, `prospects`, `campaigns`, `conversations`, `outbox`, `actions`, `runs`, `usage_events`, `email_patterns`, `settings`, `feedback`.
 
+Optional long-term memory stays in a separate SQLite file, `data/powercontext.db` by default, beside
+`data/harvey.db`. No new database engine or database service is needed. Topic and
+Atomic retrieval uses SQLite full-text search; no embedding model or vector index
+is enabled. Back up both database files when memory is enabled.
+
 ---
 
 ## Configuration
@@ -544,11 +563,30 @@ channels:
 usage:        { max_daily_claude_percent, heartbeat_interval_minutes, quiet_hours }
 brain:        { provider: claude | codex, model, reasoning_effort }   # optional; claude by default
 writer:       { humanizer }   # optional; true adds one editing pass per batch using ~/.claude/skills/humanizer/SKILL.md
+powercontext: { enabled, namespace, memory_families, database_path, timeout, max_bytes }   # optional; disabled by default
 ```
 
 `max_daily_claude_percent` caps whichever subscription `brain.provider` uses (the name predates Codex support).
 
 If `harvey.local.yaml` exists it wins. It's gitignored, so a fork can carry real product configuration while the tracked `harvey.yaml` stays a template — nobody publishes their positioning and pricing by accident.
+
+Long-term memory is **off by default**. After installing the optional extra in
+[Quick start](#quick-start), add this to your current configuration, usually
+`harvey.local.yaml`:
+
+```yaml
+powercontext:
+  enabled: true
+  namespace: my-harvey-workspace
+  memory_families: [profile, topic]
+```
+
+PowerContext runs inside Harvey and reuses its Brain, model settings and login;
+there is no separate memory server or second model account to configure.
+To also extract individual facts and constraints with Atomic Memory, use
+`[profile, topic, atomic]`. Restart Harvey to apply the settings. See the
+[memory configuration guide](docs/powercontext.md) for storage paths, context
+limits and processing behavior.
 
 ### Commands
 
@@ -668,7 +706,7 @@ your explicit choice.
 
 **How do I stop it right now?** — `Ctrl+C`, or `harvey sending pause` to stop outbound while leaving the loop running. State is in SQLite, so it resumes cleanly.
 
-**Where does my data live?** — All local: `data/harvey.db`, `.env`, `harvey.yaml`. Nothing goes anywhere except the APIs you configured.
+**Where does my data live?** — All local: `data/harvey.db`, `.env`, `harvey.yaml` (or `harvey.local.yaml`). Optional long-term memory adds `data/powercontext.db` by default. Nothing goes anywhere except the APIs you configured.
 
 ---
 
