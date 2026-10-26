@@ -432,6 +432,12 @@ class Scout:
                 continue
             url = item.get("link", "") or ""
             snippet = item.get("snippet", "") or ""
+            # Keep the result title: for LinkedIn hits it carries
+            # "Name - Role - Company | LinkedIn", the only place the
+            # company usually appears.
+            title = item.get("title", "") or ""
+            if title:
+                snippet = f"{title}\n{snippet}" if snippet else title
             if url:
                 results.append((url, snippet))
         return results[:MAX_RESULTS_PER_QUERY]
@@ -819,12 +825,16 @@ class Scout:
         count = 0
 
         geo = self.config.icp.geography[0] if self.config.icp.geography else ""
-        industry = self.config.icp.industries[0] if self.config.icp.industries else ""
+        industries = self.config.icp.industries or [""]
 
-        for title in self.config.icp.titles:
+        for i, title in enumerate(self.config.icp.titles):
             if self._queries_this_cycle >= MAX_QUERIES_PER_CYCLE:
                 break
 
+            # Rotate industries across titles instead of pinning every query
+            # to industries[0] ("Founder" + "engineering college" found nobody
+            # who buys).
+            industry = industries[i % len(industries)]
             query = f'site:linkedin.com/in "{title}"'
             if industry:
                 query += f' "{industry}"'
@@ -838,7 +848,13 @@ class Scout:
                     continue
 
                 parsed = self._parse_linkedin_url(url, snippet)
-                if not parsed:
+                if not parsed or self._looks_like_title_words(parsed):
+                    continue
+
+                # Without a company there is no domain, so no email can
+                # ever be found: skip instead of storing a dead prospect.
+                company = self._extract_linkedin_company(snippet)
+                if not company:
                     continue
 
                 prospect = Prospect(
@@ -847,6 +863,7 @@ class Scout:
                     linkedin_url=url,
                     title=title,
                     seniority=self._infer_seniority(title),
+                    company=company,
                     industry=industry,
                     source="web_search",
                     source_url=url,
@@ -2142,6 +2159,50 @@ Respond ONLY with the JSON array."""
         if any(kw in t for kw in ["manager", "team lead", "lead "]):
             return "manager"
         return "individual"
+
+    _TITLE_WORDS = frozenset({
+        "startup", "founder", "cofounder", "co-founder", "owner", "ceo", "cto",
+        "director", "manager", "senior", "junior", "lead", "head", "software",
+        "engineer", "developer", "designer", "student", "intern", "professor",
+    })
+
+    _NON_COMPANIES = frozenset({
+        "linkedin", "self-employed", "self employed", "freelance", "freelancer",
+        "student", "retired", "unemployed", "confidential", "stealth",
+    })
+
+    def _looks_like_title_words(self, parsed: dict) -> bool:
+        """True when the "name" is really job-title words ("Startup Founder")."""
+        first = (parsed.get("first_name") or "").lower()
+        last = (parsed.get("last_name") or "").split(" ")[0].lower()
+        return first in self._TITLE_WORDS or last in self._TITLE_WORDS
+
+    def _extract_linkedin_company(self, snippet: str) -> str:
+        """Pull the current employer out of a LinkedIn search result.
+
+        Handles "Experience: Company · ..." and result titles shaped like
+        "Name - Role - Company | LinkedIn" or "Name - Role at Company | LinkedIn".
+        """
+        if not snippet:
+            return ""
+        candidate = ""
+        exp = re.search(r"Experience:\s*([^·|\n]+)", snippet)
+        if exp:
+            candidate = exp.group(1)
+        else:
+            head = snippet.split("\n", 1)[0]
+            head = re.split(r"\s*\|\s*LinkedIn", head, flags=re.I)[0]
+            parts = [p.strip() for p in re.split(r"\s+[-–—]\s+", head) if p.strip()]
+            if len(parts) >= 3:
+                candidate = parts[-1]
+            elif len(parts) == 2:
+                at = re.search(r"\bat\s+(.+)$", parts[1])
+                if at:
+                    candidate = at.group(1)
+        candidate = candidate.strip(" .,·-–—")
+        if len(candidate) < 2 or candidate.lower() in self._NON_COMPANIES:
+            return ""
+        return candidate
 
     def _parse_linkedin_url(self, url: str, snippet: str) -> dict | None:
         """Parse a LinkedIn profile URL and snippet to extract a name.
