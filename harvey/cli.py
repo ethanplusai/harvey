@@ -2,13 +2,19 @@
 
 import argparse
 import asyncio
+import csv
+import os
 import subprocess
 import sys
 import textwrap
+import time
 from pathlib import Path
 
 
 MIN_PYTHON = (3, 11)
+# Older than this and another harvey.exe counts as a live heartbeat; younger is
+# this launch's own exe shim/child (see _other_heartbeat_pids).
+MIN_OTHER_AGE_SECONDS = 60
 
 
 def _check_python_version():
@@ -125,9 +131,91 @@ def cmd_setup(args):
     asyncio.run(run_setup())
 
 
+def _process_age_seconds(pid: int) -> float | None:
+    """Seconds since ``pid`` started, or None when the process won't say."""
+    if os.name != "nt":
+        return None
+    try:
+        import ctypes
+        from ctypes import wintypes
+
+        PROCESS_QUERY_LIMITED_INFORMATION = 0x1000
+        k32 = ctypes.WinDLL("kernel32", use_last_error=True)
+        handle = k32.OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, False, pid)
+        if not handle:
+            return None
+        try:
+            creation, exited = wintypes.FILETIME(), wintypes.FILETIME()
+            kernel, user = wintypes.FILETIME(), wintypes.FILETIME()
+            ok = k32.GetProcessTimes(
+                handle,
+                ctypes.byref(creation), ctypes.byref(exited),
+                ctypes.byref(kernel), ctypes.byref(user),
+            )
+            if not ok:
+                return None
+            ticks = (creation.dwHighDateTime << 32) | creation.dwLowDateTime
+            return time.time() - (ticks / 10_000_000 - 11644473600)
+        finally:
+            k32.CloseHandle(handle)
+    except Exception:
+        return None
+
+
+def _other_heartbeat_pids() -> list[int]:
+    """PIDs of other, established ``harvey run`` processes.
+
+    Windows launches the loop through the venv ``harvey.exe`` shim, which can
+    itself spawn a child python — seen from inside, those are the same start,
+    seconds old. So an instance only counts as "another heartbeat" when it is
+    at least ``MIN_OTHER_AGE_SECONDS`` old (or its age is unreadable): that is
+    the case worth guarding against — a stale loop left behind by a restart
+    that reported success but could not kill it (2026-10-26).
+
+    A second loop against one SQLite database double-writes campaigns and
+    burns brain quota. Set HARVEY_ALLOW_MULTI=1 to bypass.
+    """
+    if os.getenv("HARVEY_ALLOW_MULTI", "").strip() not in ("", "0"):
+        return []
+    if os.name != "nt":
+        return []
+    try:
+        out = subprocess.run(
+            ["tasklist", "/FI", "IMAGENAME eq harvey.exe", "/FO", "CSV", "/NH"],
+            capture_output=True, text=True, timeout=20,
+        ).stdout
+    except Exception:
+        return []
+    pids: list[int] = []
+    for row in csv.reader(out.splitlines()):
+        if len(row) < 2 or row[0].strip().lower() != "harvey.exe":
+            continue
+        try:
+            pid = int(row[1])
+        except (TypeError, ValueError):
+            continue
+        if pid == os.getpid():
+            continue
+        age = _process_age_seconds(pid)
+        if age is not None and age < MIN_OTHER_AGE_SECONDS:
+            continue
+        pids.append(pid)
+    return pids
+
+
 def cmd_run(args):
     """Start Harvey's heartbeat loop."""
     from harvey.main import main
+
+    others = _other_heartbeat_pids()
+    if others:
+        print(
+            "  Harvey is already running (pid "
+            + ", ".join(str(p) for p in others)
+            + ") — refusing to start a second heartbeat against the same "
+            "database. Set HARVEY_ALLOW_MULTI=1 to override."
+        )
+        return
 
     main()
 
