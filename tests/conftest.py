@@ -31,6 +31,25 @@ def _private_dashboard_token(tmp_path_factory):
 
 
 @pytest.fixture(autouse=True)
+def _no_live_smtp_probe(monkeypatch):
+    """Unit tests must never open port 25 to a stranger's mail server.
+
+    ``probe_recipient`` is replaced by an inconclusive stub here, so the
+    keyless MX probe can never fire by accident. Tests of the probe itself
+    grab the real function (see test_email_probe.py) and stub SMTP instead.
+    """
+    from harvey.integrations import email_finder as ef
+
+    async def inconclusive(email):
+        return None
+
+    monkeypatch.setattr(ef, "probe_recipient", inconclusive)
+    ef.reset_probe_state()
+    yield
+    ef.reset_probe_state()
+
+
+@pytest.fixture(autouse=True)
 def _stand_in_claude_cli(request, monkeypatch):
     claude_runtime.clear_cache()
     if request.node.get_closest_marker("real_claude_cli"):

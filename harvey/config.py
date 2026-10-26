@@ -624,6 +624,9 @@ class EnvConfig(BaseModel):
     tinyfish_api_key: str = ""
     reoon_api_key: str = ""
     zerobounce_api_key: str = ""
+    # Keyless last resort: control-checked MX recipient probe for a candidate
+    # address when no verification key is configured (default on).
+    smtp_probe: bool = True
     # Native mail providers (channels.email.provider: gmail | smtp)
     gmail_client_id: str = ""
     gmail_client_secret: str = ""
@@ -742,6 +745,8 @@ def load_env() -> EnvConfig:
         tinyfish_api_key=os.getenv("TINYFISH_API_KEY", "").strip(),
         reoon_api_key=os.getenv("REOON_API_KEY", "").strip(),
         zerobounce_api_key=os.getenv("ZEROBOUNCE_API_KEY", "").strip(),
+        smtp_probe=os.getenv("HARVEY_SMTP_PROBE", "").strip().lower()
+        not in ("0", "false", "no", "off"),
         gmail_client_id=os.getenv("GMAIL_CLIENT_ID", "").strip(),
         gmail_client_secret=os.getenv("GMAIL_CLIENT_SECRET", "").strip(),
         smtp_host=os.getenv("SMTP_HOST", "").strip(),

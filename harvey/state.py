@@ -825,6 +825,37 @@ class StateManager:
                 rows = await cursor.fetchall()
                 return [self._prospect_from_row(r) for r in rows]
 
+    async def get_prospects_by_email_status(
+        self,
+        email_statuses: tuple[str, ...] = ("", "guess"),
+        limit: int = 0,
+        domain: str = "",
+    ) -> list[Prospect]:
+        """Prospects whose stored address has not been confirmed yet.
+
+        Defaults to blank/``guess`` — exactly the rows that can never be
+        emailed. ``domain`` narrows to one domain, ``limit`` caps the batch.
+        """
+        statuses = tuple(email_statuses) or ("", "guess")
+        placeholders = ",".join("?" for _ in statuses)
+        sql = (
+            "SELECT * FROM prospects "
+            f"WHERE email_status IN ({placeholders}) AND email != ''"
+        )
+        params: list = list(statuses)
+        if domain:
+            sql += " AND email LIKE ?"
+            params.append(f"%@{_norm(domain)}")
+        sql += " ORDER BY created_at DESC"
+        if limit and limit > 0:
+            sql += " LIMIT ?"
+            params.append(int(limit))
+        async with self._connect() as db:
+            db.row_factory = aiosqlite.Row
+            async with db.execute(sql, tuple(params)) as cursor:
+                rows = await cursor.fetchall()
+                return [self._prospect_from_row(r) for r in rows]
+
     async def set_prospect_timezone(self, prospect_id: str, zone: str):
         """Remember a recipient's time zone. Leaves updated_at alone: it
         isn't a change anyone made to the prospect."""
