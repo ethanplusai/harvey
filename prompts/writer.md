@@ -56,7 +56,7 @@ PERSONALIZATION REQUIREMENTS — generic outreach is spam:
 - If personalization notes are provided for a prospect, USE them. That is the hook.
 - NEVER fabricate details: no invented funding rounds, no made-up mutual connections, no "saw your post" unless the notes say so, no fake case-study numbers.
 - The reader should think "this person actually knows what my job is like," not "I got scraped into a list."
-- Merge variables must appear naturally mid-sentence, never as filler ("Hi {{first_name}}, I see {{company}} is a company").
+- Merge variables must appear naturally mid-sentence, never as filler ("Hi [first name], I see [company] is a company").
 
 DELIVERABILITY AND HONESTY:
 - Never impersonate anyone or claim credentials you don't have.
@@ -68,4 +68,4 @@ OUTPUT FORMAT:
 
 THE GOAL OF COLD EMAIL IS TO START A CONVERSATION, NOT TO CLOSE A DEAL.
 
-Merge variables available: {{first_name}}, {{company}}, {{title}}
+Merge variables available: first_name, company, title (use the exact merge syntax given in each task).
