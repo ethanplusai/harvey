@@ -88,3 +88,47 @@ def test_conversation_status_rejects_bad_input(client):
     assert client.post("/api/conversations/c1/status", json={"status": "needs_human"}).status_code == 400
     assert client.post("/api/conversations/c1/status", json=["closed"]).status_code == 400
     assert client.post("/api/conversations/nope/status", json={"status": "closed"}).status_code == 404
+
+
+def test_awaiting_reply_cards_are_opt_in(client):
+    _seed(client.db_path)
+    # Default: replies only, as before. Ben was emailed but never answered.
+    assert [c["id"] for c in client.get("/api/conversations").json()] == ["c1"]
+
+
+def test_awaiting_reply_lists_everyone_emailed_who_has_not_replied(client):
+    _seed(client.db_path)
+    _sql(client.db_path, "INSERT INTO prospects (id, company, email, status) VALUES ('p3', 'Acme Bins', 'info@acme.example', 'contacted')")
+    for oid, step, status, subject, sent_at in [
+        ("o8", 1, "sent", "first note", "2026-10-12T09:00:00"),
+        ("o9", 2, "sent", "second note", "2026-10-15T09:00:00"),
+        ("o10", 3, "pending_review", "not sent yet", None),
+    ]:
+        _sql(client.db_path, "INSERT INTO outbox (id, prospect_id, campaign_id, kind, step, to_email, subject, body, "
+             "status, sent_at, send_at) VALUES (?, 'p3', 'k1', 'sequence', ?, 'info@acme.example', ?, 'Hi.', ?, ?, "
+             "'2026-10-19T09:00:00')", (oid, step, subject, status, sent_at))
+
+    rows = client.get("/api/conversations?awaiting=1").json()
+    # The real conversation keeps its place; awaiting cards follow, newest send first.
+    assert [r["id"] for r in rows] == ["c1", "awaiting-p3", "awaiting-p2"]
+    by_id = {r["id"]: r for r in rows}
+
+    acme = by_id["awaiting-p3"]
+    assert acme["status"] == "awaiting_reply" and acme["company"] == "Acme Bins"
+    assert acme["prospect_email"] == "info@acme.example"
+    assert [(e["step"], e["subject"]) for e in acme["emails"]] == [(1, "first note"), (2, "second note")]
+    assert acme["thread"] == [] and acme["draft"] is None
+    assert acme["updated_at"] == "2026-10-15T09:00:00"
+
+    ben = by_id["awaiting-p2"]
+    assert ben["first_name"] == "Ben" and [e["subject"] for e in ben["emails"]] == ["hello Ben"]
+    # Iris replied, so her emails stay in her real conversation, not in a second card.
+    assert not any(r["prospect_id"] == "p1" and r["status"] == "awaiting_reply" for r in rows)
+
+
+def test_awaiting_reply_creates_no_conversation_rows(client):
+    _seed(client.db_path)
+    client.get("/api/conversations?awaiting=1")
+    with sqlite3.connect(client.db_path) as conn:
+        assert conn.execute("SELECT COUNT(*) FROM conversations").fetchone()[0] == 1
+    conn.close()

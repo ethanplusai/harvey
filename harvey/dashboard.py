@@ -1507,7 +1507,7 @@ async def undo_opt_out(prospect_id: str, request: Request):
 
 
 @app.get("/api/conversations")
-async def get_conversations():
+async def get_conversations(awaiting: bool = False):
     rows = await query_db("""
         SELECT c.*, p.first_name, p.last_name, p.email as prospect_email, p.company,
                p.status as prospect_status
@@ -1542,7 +1542,39 @@ async def get_conversations():
                          for e in emails.get(row.get("prospect_id"), [])
                          if not camp or e.get("campaign_id") == camp]
         row["draft"] = drafts.get(row["id"])
+    if awaiting:
+        rows += await _awaiting_reply({r.get("prospect_id") for r in rows})
     return rows
+
+
+async def _awaiting_reply(have: set) -> list[dict]:
+    """Prospects Harvey emailed who haven't replied yet, shaped like a
+    conversation so the tab can show every sent email, not only the ones
+    that got an answer. Read-only: no conversation row is created, and the
+    card moves to the real conversation the moment a reply arrives."""
+    waiting: dict[str, dict] = {}
+    for e in await query_db(
+            "SELECT o.prospect_id, o.step, o.subject, o.body, o.sent_at, "
+            "p.first_name, p.last_name, p.email AS prospect_email, p.company, "
+            "p.status AS prospect_status FROM outbox o "
+            "LEFT JOIN prospects p ON p.id = o.prospect_id "
+            "WHERE o.kind = 'sequence' AND o.status = 'sent' ORDER BY o.sent_at"):
+        pid = e.get("prospect_id")
+        if not pid or pid in have:
+            continue
+        row = waiting.setdefault(pid, {
+            "id": "awaiting-" + pid, "prospect_id": pid, "campaign_id": "",
+            "channel": "email", "intent": "", "stage": "", "status": "awaiting_reply",
+            "thread": [], "draft": None, "emails": [],
+            "first_name": e.get("first_name") or "", "last_name": e.get("last_name") or "",
+            "prospect_email": e.get("prospect_email") or "", "company": e.get("company") or "",
+            "prospect_status": e.get("prospect_status") or "",
+        })
+        row["emails"].append({"step": e["step"], "subject": e["subject"],
+                              "body": e["body"], "sent_at": e["sent_at"]})
+        row["created_at"] = row.get("created_at") or e["sent_at"]
+        row["updated_at"] = e["sent_at"]
+    return sorted(waiting.values(), key=lambda r: r.get("updated_at") or "", reverse=True)
 
 
 @app.post("/api/conversations/{convo_id}/status")

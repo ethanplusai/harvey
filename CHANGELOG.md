@@ -15,6 +15,18 @@ minor versions can still change behaviour.
   `SCAVIO_API_KEY`. Maps is 1 credit per 20 businesses and Search 1 credit per
   10 results; estimates use the $0.01 pay-as-you-go credit price. Off unless
   you pick one in `harvey discover` or the dashboard. Closes #28.
+
+- **Sent emails on the Conversations tab.** A new *Awaiting reply* filter
+  lists everyone Harvey has emailed who hasn't answered yet, with each sent
+  email and when it went out, so the tab shows every outbound thread instead
+  of only the ones that got a reply. When a reply arrives the card is
+  replaced by the real conversation, which already shows those emails. The
+  cards are read-only and create no conversation rows. The API change is
+  opt-in: `/api/conversations?awaiting=1` adds them, and the endpoint without
+  the parameter returns exactly what it did before. *Open* still means reply
+  conversations only. A card for a general inbox (no person's name) shows
+  the company name instead of "Unknown".
+
 - **TrulyInbox for warmup.** Harvey now recommends TrulyInbox for warming and
   keeping sending mailboxes healthy, and reads it: `harvey trulyinbox connect`
   (or the new warmup step on the dashboard's setup checklist) checks a key and

@@ -109,6 +109,7 @@ const STATUS = {
   sending:        ['Sending now', 'active'],
   scheduled:      ['Scheduled', 'active'],
   sent:           ['Sent', 'good'],
+  awaiting_reply: ['Awaiting reply', 'active'],
   failed:         ['Failed', 'bad'],
   rejected:       ['Rejected', 'idle'],
   cancelled:      ['Cancelled', 'idle'],
@@ -2431,14 +2432,15 @@ const STAGE_LABELS = {
 };
 const CONVO_FILTERS = [
   ['needs', 'Needs you', c => !!c.draft || c.status === 'needs_human'],
-  ['open', 'Open', c => c.status !== 'closed'],
+  ['open', 'Open', c => c.status !== 'closed' && c.status !== 'awaiting_reply'],
+  ['awaiting', 'Awaiting reply', c => c.status === 'awaiting_reply'],
   ['closed', 'Closed', c => c.status === 'closed'],
   ['all', 'All', () => true],
 ];
 
 async function loadConversations() {
   const el = document.getElementById('conversations-list');
-  const data = await api('/api/conversations');
+  const data = await api('/api/conversations?awaiting=1');
   if (!data) { el.innerHTML = offlineState(); return; }
   _convos = data;
   if (!data.length) {
@@ -2447,7 +2449,8 @@ async function loadConversations() {
     return;
   }
   // Open on "Needs you" only when something needs you.
-  if (_convoFilter === 'needs' && !data.some(CONVO_FILTERS[0][2])) _convoFilter = 'open';
+  if (_convoFilter === 'needs' && !data.some(CONVO_FILTERS[0][2]))
+    _convoFilter = data.some(CONVO_FILTERS[1][2]) ? 'open' : 'all';
   renderConversations();
 }
 
@@ -2455,7 +2458,7 @@ function setConvoFilter(f) { _convoFilter = f; renderConversations(); }
 
 function renderConversations() {
   const el = document.getElementById('conversations-list');
-  const filter = CONVO_FILTERS.find(f => f[0] === _convoFilter) || CONVO_FILTERS[3];
+  const filter = CONVO_FILTERS.find(f => f[0] === _convoFilter) || CONVO_FILTERS[CONVO_FILTERS.length - 1];
   const bar = '<div class="toolbar"><div class="segmented" role="group" aria-label="Filter conversations">' +
     CONVO_FILTERS.map(f => '<button class="' + (f[0] === filter[0] ? 'on' : '') + '" aria-pressed="' + (f[0] === filter[0]) +
       '" onclick="setConvoFilter(\'' + f[0] + '\')">' + f[1] + ' <span class="n">' +
@@ -2496,7 +2499,7 @@ function convoCard(c) {
       '<div class="td-body">' + escHtml(c.draft.body) + '</div>' +
       '<button class="btn btn-primary btn-sm" onclick="goTab(\'outbox\')">Review in Outbox' + icon('arrow') + '</button></div>'
     : '';
-  const name = [c.first_name, c.last_name].filter(Boolean).join(' ') || 'Unknown';
+  const name = [c.first_name, c.last_name].filter(Boolean).join(' ') || c.company || 'Unknown';
   const stage = own(STAGE_LABELS, c.stage) ? '<span class="tag">' + STAGE_LABELS[c.stage] + '</span>' : '';
   return '<div class="convo-card"><div class="convo-head">' +
     '<span class="avatar">' + initials(c.first_name, c.last_name) + '</span>' +
