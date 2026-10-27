@@ -5,6 +5,7 @@ import ipaddress
 import json
 import logging
 import os
+import re
 import shutil
 import signal
 import stat
@@ -52,7 +53,9 @@ def _resolve_config_file() -> Path:
 # route except the static shell needs the token (see dashboard_auth).
 app = FastAPI(title="Harvey Dashboard", docs_url=None, redoc_url=None, openapi_url=None)
 token_store = auth.TokenStore(TOKEN_FILE)
-app.add_middleware(auth.DashboardGuard, store=token_store)
+# Filled from HARVEY_DASHBOARD_ORIGINS when the dashboard starts.
+proxied_origins: dict[str, str] = {}
+app.add_middleware(auth.DashboardGuard, store=token_store, proxied=proxied_origins)
 
 # Harvey process tracking
 _harvey_process: subprocess.Popen | None = None
@@ -2551,6 +2554,32 @@ def _check_loopback_bind(host: str) -> str:
     return name
 
 
+_ORIGIN_RE = re.compile(r"(https?)://((?:[a-z0-9-]+\.)*[a-z0-9-]+\.?|\[[0-9a-f:.]+\])(:[0-9]{1,5})?")
+
+
+def _parse_origins(value: str) -> dict[str, str]:
+    """Host header -> Origin for each origin in HARVEY_DASHBOARD_ORIGINS: the
+    addresses a reverse proxy on this machine serves the dashboard under,
+    written as the browser shows them (``https://harvey.example``). Exact
+    names only, no wildcards, so a rebinding name still can't get in."""
+    origins = {}
+    for entry in value.split(","):
+        origin = entry.strip().lower().removesuffix("/")
+        if not origin:
+            continue
+        match = _ORIGIN_RE.fullmatch(origin)
+        if not match or auth.parse_host(match.group(2) + (match.group(3) or "")) is None:
+            raise DashboardSetupError(
+                f"HARVEY_DASHBOARD_ORIGINS: {entry.strip()!r} isn't an origin. Write each one "
+                "as the browser shows it, like https://harvey.example or https://harvey.example:8443.")
+        scheme, name, port = match.groups()
+        # Browsers leave the default port out of both Host and Origin.
+        if port in (None, {"http": ":80", "https": ":443"}[scheme]):
+            port = ""
+        origins[name + port] = f"{scheme}://{name}{port}"
+    return origins
+
+
 def dashboard_url(host: str = "127.0.0.1", port: int = 5555) -> str:
     """The unlock link. The token rides in the #fragment, which browsers
     never send to the server (so it stays out of logs and Referer); the
@@ -2570,11 +2599,15 @@ def start_dashboard(host: str = "127.0.0.1", port: int = 5555):
 
     try:
         bind = _check_loopback_bind(host)
+        proxied_origins.update(_parse_origins(os.environ.get("HARVEY_DASHBOARD_ORIGINS", "")))
         url = dashboard_url(host, port)
     except (DashboardSetupError, auth.TokenError) as e:
         raise DashboardSetupError(str(e)) from e
 
     print(f"\n  Harvey Dashboard running. Open this link to unlock it:\n\n    {url}\n")
+    if proxied_origins:
+        print(f"  Also answering at {', '.join(proxied_origins.values())} "
+              "(HARVEY_DASHBOARD_ORIGINS).\n")
     print(f"  The token is stored in {token_store.path} (owner-only). Keep the link")
     print("  private; anyone with it can use the dashboard. Press Ctrl+C to stop.\n")
     if os.name == "nt":
