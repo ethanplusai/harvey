@@ -107,6 +107,14 @@ JUNK_DOMAIN_PATTERNS = tuple(re.compile(p, re.I) for p in (
     r"(^|\.)(google|bing|yahoo|duckduckgo|amazon|apple|microsoft)\.",
     r"(wordpress|wix|squarespace|shopify|godaddy|weebly|webflow)\.com$",
 ))
+# A company's own careers page is the hiring preset's raw material, not junk.
+# Judged on the host as found (before company_host() strips it), the generic
+# job-subdomain pattern above would eat careers.acme.com, so hiring-preset
+# queries judge without it; hosted boards (jobs.lever.co) still junk as found.
+_HIRING_JUNK_PATTERNS = tuple(
+    p for p in JUNK_DOMAIN_PATTERNS
+    if p.pattern != r"(^|\.)((jobs?|careers?|vacancies|walkins?)\.)"
+)
 
 # Names that mean the row is a category page or an aggregator, not a business.
 JUNK_NAME_PATTERNS = tuple(re.compile(p, re.I) for p in (
@@ -257,10 +265,11 @@ def business_name(title: str, domain: str) -> str:
     return name_from_domain(domain) if stem else title
 
 
-def is_junk(domain: str, name: str = "") -> bool:
+def is_junk(domain: str, name: str = "", hiring: bool = False) -> bool:
     """True when this row would pollute the database rather than fill it."""
     if domain:
-        if any(p.search(domain) for p in JUNK_DOMAIN_PATTERNS):
+        patterns = _HIRING_JUNK_PATTERNS if hiring else JUNK_DOMAIN_PATTERNS
+        if any(p.search(domain) for p in patterns):
             return True
         # A bare TLD or an IP address is never a business we can profile.
         if "." not in domain or re.fullmatch(r"[\d.]+", domain):
@@ -1756,7 +1765,7 @@ async def run_discovery(
                 report.found += len(found)
                 batch = []
                 for biz in found:
-                    if query.preset == "hiring" and biz.domain and not is_junk(biz.domain):
+                    if query.preset == "hiring" and biz.domain and not is_junk(biz.domain, hiring=True):
                         # Judged on the host as found first: jobs.lever.co
                         # stripped would be lever.co, a vendor, not junk.
                         biz.domain = company_host(biz.domain)
