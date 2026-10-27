@@ -39,7 +39,7 @@ _NON_RETRYABLE_PATTERNS = (
 )
 
 
-PROVIDER_LABELS = {"claude": "Claude", "codex": "Codex"}
+PROVIDER_LABELS = {"claude": "Claude", "codex": "Codex", "gemini": "Gemini"}
 
 # Settings key holding the brain's last health transition, for `harvey
 # status` and the dashboard: {"provider", "status": "ok"|"paused", "reason",
@@ -88,11 +88,12 @@ class Brain:
         self.provider = self.config.provider
         self.model = self.config.model
         self.codex = None
+        self.gemini = None
         # Whether the last think_json got no reply at all (an outage, logout,
         # rate limit or timeout), as opposed to a reply that wasn't valid
         # JSON. Callers that count model failures must not count outages.
         self.last_reply_empty = False
-        # Codex health (unused for Claude, whose behaviour is unchanged).
+        # Codex/Gemini health (unused for Claude, whose behaviour is unchanged).
         self.unavailable = ""
         self._unavailable_at = 0.0
         self._unavailable_fingerprint = None
@@ -105,6 +106,14 @@ class Brain:
                 model=self.model, reasoning_effort=self.config.reasoning_effort
             )
             self.quota = CodexQuotaClient(self.codex)
+        elif self.provider == "gemini":
+            from harvey.config import load_env
+            from harvey.gemini_runtime import GeminiClient, GeminiQuotaClient
+            self.gemini = GeminiClient(
+                api_key=load_env().gemini_api_key,
+                model=self.model,
+            )
+            self.quota = GeminiQuotaClient()
         else:
             # Lazy import avoids a cycle (quota -> usage -> state).
             from harvey.integrations.quota import QuotaClient
@@ -137,6 +146,8 @@ class Brain:
         PROVIDER_RECHECK_SECONDS, so a persistent problem doesn't start
         runtimes every heartbeat.
         """
+        if self.provider == "gemini":
+            return await self._gemini_preflight()
         if self.provider != "codex":
             return await self._claude_preflight()
         from harvey.codex import CodexError
@@ -178,6 +189,50 @@ class Brain:
                 await self._mark_available()
         return ""
 
+    async def _gemini_preflight(self) -> str:
+        """Gemini: verify API key and model availability without inference."""
+        from harvey.gemini_runtime import GeminiError
+
+        await self._expire_usage_pause()
+        if self.unavailable:
+            unchanged = self.gemini.fingerprint() == self._unavailable_fingerprint
+            recent = time.monotonic() - self._unavailable_at < PROVIDER_RECHECK_SECONDS
+            if unchanged and recent:
+                return self.unavailable
+        try:
+            await self.gemini.check_preflight()
+        except GeminiError as e:
+            if e.kind in ("auth", "setup"):
+                await self._mark_unavailable(e)
+                return self.unavailable
+            return str(e)
+        except Exception as e:
+            return f"Gemini preflight failed unexpectedly ({type(e).__name__})."
+
+        if self.unavailable:
+            await self._mark_available()
+        elif not self._status_synced:
+            logger.info(
+                f"Gemini ready: REST API accessible, API key valid, model {self.model} usable."
+            )
+            self._status_synced = True
+            try:
+                stored = parse_brain_status(await self.state.get_setting(BRAIN_STATUS_KEY))
+            except Exception:
+                stored = {}
+            until = stored.get("until")
+            if (
+                stored.get("status") == "paused"
+                and stored.get("kind") == "usage_limit"
+                and isinstance(until, (int, float))
+                and until > time.time()
+            ):
+                self._usage_limited_until = time.monotonic() + (until - time.time())
+                self._usage_pause_recorded = True
+            elif stored.get("status") == "paused":
+                await self._mark_available()
+        return ""
+
     async def _claude_preflight(self) -> str:
         """Claude: the installed CLI must support every isolation flag
         (claude_runtime.check_cli). Runs ``claude --help`` only: no login
@@ -196,6 +251,8 @@ class Brain:
     def _fingerprint(self):
         if self.provider == "codex":
             return self.codex.fingerprint()
+        if self.provider == "gemini":
+            return self.gemini.fingerprint()
         from harvey.claude_runtime import fingerprint
         return fingerprint()
 
@@ -264,6 +321,11 @@ class Brain:
         """
         if self.provider == "codex":
             return await self._think_codex(
+                prompt, session_id=session_id, timeout=timeout,
+                max_retries=max_retries, agent=agent, task=task,
+            )
+        elif self.provider == "gemini":
+            return await self._think_gemini(
                 prompt, session_id=session_id, timeout=timeout,
                 max_retries=max_retries, agent=agent, task=task,
             )
@@ -496,6 +558,84 @@ class Brain:
             num_turns=1,
             source="codex_app_server",
             provider="codex",
+            **result.usage,
+        )
+
+    async def _think_gemini(
+        self,
+        prompt: str,
+        session_id: str | None,
+        timeout: float,
+        max_retries: int,
+        agent: str,
+        task: str,
+    ) -> str:
+        """One isolated Gemini API completion turn per attempt."""
+        from harvey.gemini_runtime import GeminiError
+
+        paused = self.paused_reason
+        if paused:
+            logger.debug(f"Gemini call skipped: {paused}")
+            return ""
+        logger.debug(f"Brain call via Gemini (session={session_id})")
+        last_error = ""
+        for attempt in range(max_retries + 1):
+            if attempt > 0:
+                delay = RETRY_BASE_DELAY * (2 ** (attempt - 1))
+                logger.info(
+                    f"Retrying Gemini call in {delay:.0f}s "
+                    f"(attempt {attempt + 1}/{max_retries + 1})..."
+                )
+                await asyncio.sleep(delay)
+            try:
+                result = await self.gemini.run(prompt, timeout=timeout)
+            except GeminiError as e:
+                last_error = str(e)
+                if e.retryable:
+                    logger.warning(f"Gemini call failed: {e}")
+                    continue
+                logger.error(f"Gemini call failed: {e}")
+                if e.kind == "auth":
+                    await self._mark_unavailable(e)
+                elif e.kind == "usage_limit":
+                    await self._start_usage_pause()
+                return ""
+            except asyncio.CancelledError:
+                raise
+            except Exception as e:
+                logger.error(f"Gemini call failed unexpectedly ({type(e).__name__}).")
+                return ""
+
+            try:
+                await self.state.increment_usage(provider="gemini")
+            except Exception as e:
+                logger.warning(f"Failed to record usage counter: {e}")
+            try:
+                await self._record_gemini_usage(result, agent=agent, task=task,
+                                               label=session_id or "")
+            except Exception as e:
+                logger.warning(f"Failed to record usage event: {e}")
+            return result.text
+
+        logger.error(
+            f"Gemini call failed after {max_retries + 1} attempts. "
+            f"Last error: {last_error[:200]}"
+        )
+        return ""
+
+    async def _record_gemini_usage(self, result, agent: str, task: str, label: str):
+        """One usage row per Gemini call."""
+        if not agent and label.startswith("harvey-"):
+            agent = label[len("harvey-"):].split("-")[0]
+        await self.state.record_usage_event(
+            agent=agent,
+            task=task or label,
+            session_id=label,
+            model=result.model,
+            duration_ms=result.duration_ms,
+            num_turns=1,
+            source="gemini_api",
+            provider="gemini",
             **result.usage,
         )
 

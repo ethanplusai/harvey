@@ -777,10 +777,11 @@ async def get_stats():
         action_count = actions[0]["count"] if actions else 0
 
         usage = await query_db(
-            "SELECT claude_calls, codex_calls FROM usage_log WHERE date = date('now')"
+            "SELECT claude_calls, codex_calls, gemini_calls FROM usage_log WHERE date = date('now')"
         )
         usage_today = (usage[0]["claude_calls"] or 0) if usage else 0
         codex_today = (usage[0]["codex_calls"] or 0) if usage else 0
+        gemini_today = (usage[0]["gemini_calls"] or 0) if usage else 0
 
         return {
             "prospects": {"total": prospect_total, "by_status": prospect_map},
@@ -790,6 +791,7 @@ async def get_stats():
             "actions_total": action_count,
             "claude_calls_today": usage_today,
             "codex_calls_today": codex_today,
+            "gemini_calls_today": gemini_today,
             "brain_provider": _active_provider(),
             "brain_status": await _brain_status(),
         }
@@ -2061,7 +2063,7 @@ async def get_today():
         # Ordered by how much it blocks Harvey from doing anything at all.
         brain = await _brain_status()
         if brain.get("status") == "paused":
-            who = "Codex" if brain.get("provider") == "codex" else "Harvey's model"
+            who = {"codex": "Codex", "gemini": "Gemini"}.get(brain.get("provider"), "Harvey's model")
             items.append({
                 "key": "brain-paused", "tone": "bad",
                 "title": f"{who} is paused, so Harvey is waiting",

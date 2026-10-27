@@ -215,6 +215,7 @@ def cmd_status(args):
         by_provider = summary.get("usage_today_by_provider", {})
         print(f"  Claude calls today:   {by_provider.get('claude', summary['usage_today'])}")
         print(f"  Codex calls today:    {by_provider.get('codex', 0)}")
+        print(f"  Gemini calls today:   {by_provider.get('gemini', 0)}")
         from harvey.config import compliance_notice, load_config, sending_notice
         loaded = None
         try:
@@ -282,11 +283,14 @@ def cmd_status(args):
                 elif brain.provider == "codex":
                     print(f"  Brain:                {label} ready (CLI, isolation, login, "
                           "model and account checked; no prompt sent)")
+                elif brain.provider == "gemini":
+                    print(f"  Brain:                {label} ready (REST API accessible, "
+                          "API key valid, model usable; no prompt sent)")
                 else:
                     print(f"  Brain:                {label} CLI isolation flags present "
                           "(login not checked: Claude is checked by its first call)")
         elif brain_status.get("status") == "paused":
-            label = {"claude": "Claude", "codex": "Codex"}.get(brain_status.get("provider"), "Brain")
+            label = {"claude": "Claude", "codex": "Codex", "gemini": "Gemini"}.get(brain_status.get("provider"), "Brain")
             print(f"  Brain:                {label} PAUSED since {brain_status.get('since', '?')}")
             print(f"                        {brain_status.get('reason', '')}")
         print()
@@ -328,7 +332,7 @@ def cmd_usage(args):
         except Exception:
             pass
 
-        label = {"claude": "Claude", "codex": "Codex"}.get(provider, "Brain")
+        label = {"claude": "Claude", "codex": "Codex", "gemini": "Gemini"}.get(provider, "Brain")
         print(f"\n  {label} Usage")
         print("  " + "=" * 52)
         if windows:
@@ -342,6 +346,8 @@ def cmd_usage(args):
                   "version, and network).")
         elif provider == "claude":
             print("  Quota gauge unavailable (run 'claude login' or check network).")
+        elif provider == "gemini":
+            print("  Quota gauge not applicable for API key providers.")
 
         totals = await state.usage_totals()
         print()
@@ -946,8 +952,9 @@ def main():
         default=100,
         help="Max pages to crawl (default: 100)",
     )
+    from harvey.config import BRAIN_PROVIDERS
     sub.add_argument(
-        "--provider", choices=["claude", "codex"], default=None,
+        "--provider", choices=list(BRAIN_PROVIDERS), default=None,
         help="Subscription to think with (default: the one in your config, else claude)",
     )
     sub.add_argument("--model", default=None, help="Model for this provider (default: provider default)")
