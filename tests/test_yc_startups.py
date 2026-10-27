@@ -143,7 +143,8 @@ def test_cli_estimate_with_the_preset(tmp_path, monkeypatch, capsys):
     real = state_mod.StateManager
     monkeypatch.setattr(state_mod, "StateManager", lambda *a, **k: real(str(tmp_path / "c.db")))
     monkeypatch.setattr(config_mod, "load_config", lambda *a, **k: _config())
-    monkeypatch.setattr(config_mod, "load_env", lambda: SimpleNamespace(model_dump=lambda: {}))
+    monkeypatch.setattr(config_mod, "load_env",
+                       lambda: SimpleNamespace(model_dump=lambda: {"serper_api_key": "x"}))
     args = argparse.Namespace(providers=False, provider="serper", city="", depth=30, limit=100,
                               max_spend=1.0, estimate=True, preset="yc")
     cli.cmd_discover(args)
