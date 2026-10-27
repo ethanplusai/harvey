@@ -6,11 +6,13 @@ still *send*), and any DNS name pointed at 127.0.0.1 can reach the port. So
 every request passes, in order:
 
 1. Host: one Host header naming a loopback address (``localhost``,
-   127.0.0.0/8, ``[::1]``) with an optional port. Anything else, including a
-   rebinding name that resolves to 127.0.0.1, is refused before the token is
-   looked at.
+   127.0.0.0/8, ``[::1]``) with an optional port, or exactly the host of an
+   origin listed in ``HARVEY_DASHBOARD_ORIGINS`` (a reverse proxy in front).
+   Anything else, including a rebinding name that resolves to 127.0.0.1, is
+   refused before the token is looked at.
 2. Browser provenance: a request carrying ``Origin`` must come from exactly
-   this origin, and ``Sec-Fetch-Site`` must be ``same-origin`` or ``none``.
+   this origin (``http://`` plus the Host for loopback, the listed origin for
+   a proxied host), and ``Sec-Fetch-Site`` must be ``same-origin`` or ``none``.
    (A top-level navigation to ``/`` is the one exception: the shell carries
    no data.) No CORS headers are ever sent, so preflights fail.
 3. Public shell: only ``GET``/``HEAD`` of ``/`` and ``/static/*`` (HTML, CSS,
@@ -303,9 +305,10 @@ class DashboardGuard:
     """ASGI middleware applying the checks in the module docstring to every
     request, and the security headers to every response."""
 
-    def __init__(self, app, store: TokenStore):
+    def __init__(self, app, store: TokenStore, proxied: dict[str, str]):
         self.app = app
         self.store = store
+        self.proxied = proxied  # Host header -> the one Origin allowed with it
 
     async def __call__(self, scope, receive, send):
         if scope["type"] == "lifespan":
@@ -339,11 +342,14 @@ class DashboardGuard:
 
         # 1. Host, before anything else.
         hosts = headers.get("host", [])
-        host = parse_host(hosts[0]) if len(hosts) == 1 else None
-        if host is None or not is_loopback(host):
-            return await deny(400, "bad_host",
-                              "This dashboard only answers to localhost / 127.0.0.1.")
-        host_header = hosts[0].lower()
+        host_header = hosts[0].lower() if len(hosts) == 1 else ""
+        origin = self.proxied.get(host_header)
+        if origin is None:
+            host = parse_host(host_header)
+            if host is None or not is_loopback(host):
+                return await deny(400, "bad_host",
+                                  "This dashboard only answers to localhost / 127.0.0.1.")
+            origin = f"http://{host_header}"
 
         # 2. Browser provenance.
         public = is_public_path(method, path)
@@ -351,7 +357,7 @@ class DashboardGuard:
                       and headers.get("sec-fetch-mode", [""])[0] == "navigate"
                       and headers.get("sec-fetch-dest", [""])[0] == "document")
         origins = headers.get("origin", [])
-        if origins and (len(origins) != 1 or origins[0].lower() != f"http://{host_header}"):
+        if origins and (len(origins) != 1 or origins[0].lower() != origin):
             if not navigation:
                 return await deny(403, "cross_origin", "Cross-origin requests are refused.")
         site = headers.get("sec-fetch-site", [])

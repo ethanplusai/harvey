@@ -710,6 +710,130 @@ def test_cli_dashboard_refuses_and_prints_links(env, monkeypatch, capsys):
     assert capsys.readouterr().out.strip() == f"http://127.0.0.1:5555/#token={env['token']}"
 
 
+# ── Behind a reverse proxy (HARVEY_DASHBOARD_ORIGINS) ──
+
+PROXIED = "https://harvey.example"
+
+
+@pytest.fixture
+def start_with_origins(env, monkeypatch, capsys):
+    """Start the dashboard as `harvey dashboard` would, with the variable set."""
+    import uvicorn
+    monkeypatch.setattr(uvicorn, "run", lambda *a, **k: None)
+
+    def start(value):
+        monkeypatch.setenv("HARVEY_DASHBOARD_ORIGINS", value)
+        dash.start_dashboard()
+        return capsys.readouterr().out
+
+    yield start
+    dash.proxied_origins.clear()
+
+
+@pytest.fixture
+def proxied(start_with_origins, env):
+    start_with_origins(PROXIED)
+    with TestClient(dash.app, base_url=PROXIED,
+                    headers={"Authorization": f"Bearer {env['token']}"}) as c:
+        yield c
+
+
+def test_without_origins_other_names_are_still_refused(env, monkeypatch, capsys):
+    import uvicorn
+    monkeypatch.setattr(uvicorn, "run", lambda *a, **k: None)
+    monkeypatch.delenv("HARVEY_DASHBOARD_ORIGINS", raising=False)
+    dash.start_dashboard()
+    assert "Also answering" not in capsys.readouterr().out
+    with TestClient(dash.app, base_url=PROXIED) as c:
+        r = c.get("/api/companies", headers={"Authorization": f"Bearer {env['token']}",
+                                             "Origin": PROXIED})
+    assert r.status_code == 400
+
+
+def test_a_listed_origin_is_served(proxied):
+    assert proxied.get("/api/companies").status_code == 200
+    same = {"Origin": PROXIED, "Sec-Fetch-Site": "same-origin", "Sec-Fetch-Mode": "cors"}
+    assert proxied.get("/api/companies", headers=same).status_code == 200
+    assert proxied.post("/api/sending/pause", headers=same).json()["success"]
+    assert proxied.get("/").status_code == 200
+
+
+def test_a_listed_origin_still_needs_the_token(start_with_origins, env):
+    start_with_origins(PROXIED)
+    with TestClient(dash.app, base_url=PROXIED) as c:
+        assert c.get("/api/companies", headers={"Origin": PROXIED}).status_code == 401
+
+
+@pytest.mark.parametrize("origin", [
+    "http://harvey.example",            # the right name over the wrong scheme
+    "https://harvey.example:8443",
+    "https://evil.example",
+    "https://harvey.example.evil.example",
+    "http://127.0.0.1:5555",
+    "null",
+])
+def test_a_listed_host_with_another_origin_is_refused(proxied, origin):
+    assert proxied.get("/api/companies", headers={"Origin": origin}).status_code == 403
+    assert proxied.post("/api/sending/pause", headers={"Origin": origin}).status_code == 403
+
+
+@pytest.mark.parametrize("host", ["other.example", "harvey.example.evil.example",
+                                  "evil-harvey.example", "sub.harvey.example",
+                                  "harvey.example:8443", "harvey.example.", "harvey.example:443"])
+def test_names_not_listed_are_still_refused(proxied, host):
+    assert proxied.get("/api/companies", headers={"Host": host}).status_code == 400
+
+
+def test_loopback_keeps_its_own_origin_rule(proxied, env):
+    loopback = {"Host": "127.0.0.1:5555"}
+    assert proxied.get("/api/companies", headers={**loopback, "Origin": ORIGIN}).status_code == 200
+    assert proxied.get("/api/companies", headers={**loopback, "Origin": PROXIED}).status_code == 403
+    assert proxied.get("/api/companies", headers=loopback).status_code == 200
+
+
+@pytest.mark.asyncio
+async def test_repeated_host_or_origin_is_refused_for_a_listed_name(start_with_origins, env):
+    start_with_origins(PROXIED)
+    bearer = ("authorization", f"Bearer {env['token']}")
+    host = ("host", "harvey.example")
+    assert await _raw([host, bearer]) == 200
+    assert await _raw([host, ("host", "harvey.example"), bearer]) == 400
+    assert await _raw([host, ("host", "127.0.0.1:5555"), bearer]) == 400
+    assert await _raw([host, ("origin", PROXIED), ("origin", PROXIED), bearer]) == 403
+
+
+@pytest.mark.parametrize("value, host, origin", [
+    ("HTTPS://Harvey.Example/", "HARVEY.example", "https://HARVEY.example"),
+    ("https://harvey.example:443", "harvey.example", "https://harvey.example"),
+    ("https://harvey.example:8443", "harvey.example:8443", "https://harvey.example:8443"),
+    ("http://harvey.example", "harvey.example", "http://harvey.example"),
+    ("https://[fd7a:115c::1]", "[fd7a:115c::1]", "https://[fd7a:115c::1]"),
+    ("https://localhost:8443", "localhost:8443", "https://localhost:8443"),
+    (" , https://other.example ,, https://harvey.example , ", "harvey.example", PROXIED),
+])
+def test_origins_are_matched_as_the_browser_sends_them(start_with_origins, env,
+                                                        value, host, origin):
+    out = start_with_origins(value)
+    assert "Also answering at" in out
+    with TestClient(dash.app, base_url=ORIGIN,
+                    headers={"Authorization": f"Bearer {env['token']}"}) as c:
+        assert c.get("/api/companies", headers={"Host": host, "Origin": origin}).status_code == 200
+
+
+@pytest.mark.parametrize("value", [
+    "harvey.example", "ftp://harvey.example", "https://*.example", "https://harvey.example/app",
+    "https://user@harvey.example", "https://harvey.example:99999", "https://harvey.example:",
+    "https://[::1%lo0]", "https://", "https://harvey.example?x", "https://harvey example",
+])
+def test_a_malformed_origin_stops_the_dashboard(env, monkeypatch, value):
+    import uvicorn
+    monkeypatch.setattr(uvicorn, "run", lambda *a, **k: pytest.fail("must not start"))
+    monkeypatch.setenv("HARVEY_DASHBOARD_ORIGINS", f"https://ok.example,{value}")
+    with pytest.raises(dash.DashboardSetupError, match="HARVEY_DASHBOARD_ORIGINS"):
+        dash.start_dashboard()
+    assert not dash.proxied_origins
+
+
 def _free_port():
     s = socket.socket()
     s.bind(("127.0.0.1", 0))
