@@ -197,6 +197,24 @@ minor versions can still change behaviour.
   or nothing but time. The next fresh answer clears it, a hold not seen for a
   day is ignored, and switching the check off clears it. (from #57 by
   gabrielaoimevbore-beep)
+- **Keyless email verification, as the fallback.** With no Reoon, ZeroBounce
+  or Hunter key configured, Harvey can still decide an address: one SMTP
+  session with the domain's own MX, RCPT-ing a random control address that
+  cannot exist and then the candidate. Control rejected + candidate accepted
+  is `verified`; control accepted means a catch-all (`risky`); both rejected
+  is `invalid`; anything undecidable (4xx, tarpit, timeout) honestly stays
+  `guess`. A per-process budget (default 20, `HARVEY_PROBE_BUDGET`) and a
+  per-address cache keep it polite, nothing is ever DATA'd, and
+  `HARVEY_SMTP_PROBE=0` turns it off. A configured key always wins — the
+  probe never runs then.
+- **`harvey verify-emails`** re-grades addresses Harvey already holds,
+  lifting stored `guess` rows to verified / risky / invalid once a verifier
+  (or the keyless probe) can decide. `--domain`, `--limit`, `--dry-run` and
+  `--json` for per-address evidence.
+- **`scripts/start-harvey.ps1`**, an optional single-instance launcher for
+  running the heartbeat from Windows Task Scheduler: it adopts and watches a
+  live loop instead of starting a second one, keeping the task honestly in
+  Running state. Paths are derived from the script's own location.
 
 ### Changed
 
@@ -263,6 +281,29 @@ minor versions can still change behaviour.
 
 ### Fixed
 
+- **`harvey run` refuses to start a second loop on Windows.** A heartbeat
+  left behind by a scheduler stop that reported success but could not kill
+  the session-0 process would double-write the SQLite database and burn
+  quota. The CLI now detects an established `harvey.exe` (at least 60
+  seconds old, so a launch's own shim and child don't count) and exits with
+  a message instead. `HARVEY_ALLOW_MULTI=1` overrides; other platforms are
+  unaffected. Complements the existing loop lock, which only helps while the
+  other loop still holds it.
+- **Scout keeps LinkedIn result titles** — often the only place the employer
+  appears ("Name - Role - Company | LinkedIn") — and extracts the company
+  from them. Industries rotate across title queries instead of every query
+  using the first one, title-word pseudo-names like "Startup Founder" are
+  skipped, and a hit with no extractable company is dropped: no company
+  means no domain, so no email could ever be found for it.
+- **The hiring preset keeps company careers pages.** The generic
+  jobs/careers-subdomain junk pattern ate `careers.acme.com` before the
+  company host could be stripped from it; hiring-preset queries now judge
+  domains without that one pattern (hosted boards like `jobs.lever.co`
+  still count as junk as found).
+- **Writer prompts no longer use `{{merge_var}}` syntax in instruction
+  text.** The instructional examples used the same `{{var}}` shape the
+  prompt loader fills, so every writer run flagged them as unfilled
+  variables.
 - **Replies remember the whole conversation** (closes #97). A reply was
   written from the last six messages only, so a requirement the prospect
   stated earlier ("synthetic data only, processed in the EU") dropped out
