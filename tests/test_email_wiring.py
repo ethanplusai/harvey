@@ -32,7 +32,8 @@ async def test_prospect_email_status_roundtrips(state):
 
 @pytest.mark.asyncio
 async def test_update_prospect_email(state):
-    p = Prospect(first_name="Jane", last_name="Doe", title="VP", email_status="guess")
+    p = Prospect(first_name="Jane", last_name="Doe", title="VP", company="Acme",
+                 email_status="guess")
     pid = await state.add_prospect(p)
 
     await state.update_prospect_email(pid, "jane@acme.com", "verified")

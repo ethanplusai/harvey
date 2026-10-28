@@ -102,7 +102,7 @@ async def test_get_prospect_by_email_empty_string(state):
 @pytest.mark.asyncio
 async def test_prospect_exists_by_linkedin(state):
     p = Prospect(
-        first_name="Jane", last_name="Doe", title="VP",
+        first_name="Jane", last_name="Doe", title="VP", company="Acme",
         linkedin_url="https://linkedin.com/in/janedoe",
     )
     await state.add_prospect(p)
@@ -130,12 +130,36 @@ async def test_prospect_exists_all_empty_args(state):
 
 @pytest.mark.asyncio
 async def test_add_prospect_same_id_is_ignored(state):
-    p1 = Prospect(id="p-1", first_name="Jane", last_name="Doe", title="VP")
-    p2 = Prospect(id="p-1", first_name="Evil", last_name="Twin", title="Dir")
+    # Fixtures carry a company: name-only fragments are never stored at all
+    # (see test_add_prospect_skips_name_only_fragments), which would make
+    # this test pass vacuously.
+    p1 = Prospect(id="p-1", first_name="Jane", last_name="Doe", title="VP",
+                  company="Acme")
+    p2 = Prospect(id="p-1", first_name="Evil", last_name="Twin", title="Dir",
+                  company="Notable")
     await state.add_prospect(p1)
     await state.add_prospect(p2)
     fetched = await state.get_prospect("p-1")
     assert fetched.first_name == "Jane"
+
+
+@pytest.mark.asyncio
+async def test_add_prospect_skips_name_only_fragments(state):
+    """No company, no email, no company link: nothing to act on, never stored."""
+    await state.add_prospect(Prospect(first_name="Only", last_name="Name",
+                                      title="Founder"))
+    assert await state.get_prospects_by_status("new") == []
+
+
+@pytest.mark.asyncio
+async def test_add_prospect_keeps_one_handle_rows(state):
+    """An email or a company is enough to store the row."""
+    await state.add_prospect(Prospect(first_name="E", last_name="Mail",
+                                      email="e@acme.com"))
+    await state.add_prospect(Prospect(first_name="Co", last_name="Only",
+                                      company="Acme"))
+    rows = await state.get_prospects_by_status("new")
+    assert len(rows) == 2
 
 
 @pytest.mark.asyncio
@@ -268,7 +292,8 @@ async def test_usage_today_zero_when_empty(state):
 
 @pytest.mark.asyncio
 async def test_state_summary_shape(state):
-    await state.add_prospect(Prospect(first_name="A", last_name="B", title="T"))
+    await state.add_prospect(Prospect(first_name="A", last_name="B", title="T",
+                                      email="a@acme.com"))
     await state.add_campaign(Campaign(id="", name="C"))
     await state.add_conversation(Conversation(id="", prospect_id="p1"))
     await state.increment_usage()
