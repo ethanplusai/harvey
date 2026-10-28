@@ -15,6 +15,10 @@ MIN_PYTHON = (3, 11)
 # Older than this and another harvey.exe counts as a live heartbeat; younger is
 # this launch's own exe shim/child (see _other_heartbeat_pids).
 MIN_OTHER_AGE_SECONDS = 60
+# Platform gate as a seam: tests patch this instead of os.name, which would
+# poison pathlib for the rest of the process on POSIX (every later Path()
+# would try to build a WindowsPath).
+_IS_WINDOWS = os.name == "nt"
 
 
 def _check_python_version():
@@ -133,7 +137,7 @@ def cmd_setup(args):
 
 def _process_age_seconds(pid: int) -> float | None:
     """Seconds since ``pid`` started, or None when the process won't say."""
-    if os.name != "nt":
+    if not _IS_WINDOWS:
         return None
     try:
         import ctypes
@@ -177,7 +181,7 @@ def _other_heartbeat_pids() -> list[int]:
     """
     if os.getenv("HARVEY_ALLOW_MULTI", "").strip() not in ("", "0"):
         return []
-    if os.name != "nt":
+    if not _IS_WINDOWS:
         return []
     try:
         out = subprocess.run(

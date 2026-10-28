@@ -42,7 +42,10 @@ def _ages(monkeypatch, mapping):
 
 @pytest.fixture(autouse=True)
 def _windows(monkeypatch):
-    monkeypatch.setattr(os, "name", "nt")
+    # Patch the seam, never os.name: with os.name poisoned, any later Path()
+    # in another fixture's teardown builds a WindowsPath and blows up on
+    # POSIX (seen on the 3.11 CI runners).
+    monkeypatch.setattr(cli, "_IS_WINDOWS", True)
     monkeypatch.delenv("HARVEY_ALLOW_MULTI", raising=False)
 
 
