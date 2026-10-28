@@ -307,3 +307,21 @@ async def test_campaign_stats_zero_prospects_no_division_error(state):
     await state.add_campaign(Campaign(id="", name="Empty", status="active"))
     stats = await state.get_campaign_stats()
     assert stats[0]["reply_rate"] == 0
+
+# ── Email-status backfill ──
+
+@pytest.mark.asyncio
+async def test_state_backfill_query_selects_only_unconfirmed(state):
+    await state.add_prospect(Prospect(
+        first_name="Guess", last_name="Only", email="guess.only@acme.com",
+        email_status="guess", company="Acme", status="new",
+    ))
+    await state.add_prospect(Prospect(
+        first_name="Done", last_name="Already", email="done@acme.com",
+        email_status="verified", email_verified=True, company="Acme", status="new",
+    ))
+    rows = await state.get_prospects_by_email_status(("", "guess"))
+    assert [p.email for p in rows] == ["guess.only@acme.com"]
+    assert await state.get_prospects_by_email_status(("", "guess"), domain="other.com") == []
+    assert await state.get_prospects_by_email_status(
+        ("", "guess"), domain="acme.com", limit=1)
