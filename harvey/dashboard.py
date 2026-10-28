@@ -1182,10 +1182,9 @@ def _harvey_can_send() -> bool:
     config can't be read, the answer is yes (the safe side: no hand sends).
     """
     try:
-        from harvey.config import load_config, load_env
+        from harvey.config import load_config, load_env, sending_held
         from harvey.integrations.mail_provider import NATIVE_PROVIDERS, get_mail_provider
         config, env = load_config(), load_env()
-        from harvey.config import sending_held
         email = config.channels.email
         if sending_held(config):
             return False
