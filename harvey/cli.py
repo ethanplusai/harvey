@@ -942,6 +942,81 @@ def cmd_sending(args):
     asyncio.run(_run())
 
 
+def cmd_verify_emails(args):
+    """Re-grade addresses Harvey already holds (guess -> verified/risky/invalid)."""
+    from harvey.config import load_env
+    from harvey.integrations.email_finder import (
+        env_has_verifier_key,
+        probe_budget_left,
+        verify_address,
+    )
+    from harvey.state import StateManager
+
+    async def _run():
+        import json as _json
+        from datetime import datetime, timezone
+
+        state = StateManager()
+        await state.init_db()
+        env = load_env()
+        rows = await state.get_prospects_by_email_status(
+            ("", "guess"), limit=args.limit, domain=args.domain
+        )
+        if not rows:
+            print("\n  No unconfirmed addresses — nothing to re-grade.\n")
+            return
+
+        print(f"\n  Re-grading {len(rows)} address(es)"
+              f"{' for ' + args.domain if args.domain else ''}"
+              f"{' [dry run]' if args.dry_run else ''}")
+        if not env_has_verifier_key(env):
+            print(f"  No verifier key in .env — using the keyless MX probe "
+                  f"(budget {probe_budget_left()} this run)")
+        print()
+
+        results = []
+        counts: dict[str, int] = {}
+        for p in rows:
+            res = await verify_address(p.email, env=env, state=state)
+            was = p.email_status or "guess"
+            counts[res.status] = counts.get(res.status, 0) + 1
+            updated = False
+            if res.status != was and res.status != "guess" and not args.dry_run:
+                await state.update_prospect_email(p.id, p.email, res.status)
+                updated = True
+            codes = (res.evidence or {}).get("evidence", {})
+            code_txt = (
+                f" (candidate {codes.get('candidate')} / control {codes.get('control')})"
+                if codes else ""
+            )
+            print(f"  {p.email:<42} {was:>8} -> {res.status:<9}"
+                  f" [{res.mx_type}]{code_txt}{'  UPDATED' if updated else ''}")
+            results.append({
+                "prospect_id": p.id,
+                "name": f"{p.first_name} {p.last_name}".strip(),
+                "email": p.email,
+                "was": was,
+                "now": res.status,
+                "mx_type": res.mx_type,
+                "evidence": res.evidence or {},
+                "updated": updated,
+            })
+
+        print("\n  Summary: " + ", ".join(f"{k}={v}" for k, v in sorted(counts.items())))
+        sendable = counts.get("verified", 0) + counts.get("risky", 0)
+        print(f"  Sendable after this run: {sendable} of {len(rows)}"
+              f"{' (dry run — nothing written)' if args.dry_run else ''}\n")
+
+        if args.json_out:
+            payload = {"generated_at": datetime.now(timezone.utc).isoformat(),
+                       "results": results}
+            with open(args.json_out, "w", encoding="utf-8") as f:
+                _json.dump(payload, f, indent=2)
+            print(f"  Evidence written to {args.json_out}\n")
+
+    asyncio.run(_run())
+
+
 def main():
     from harvey.textio import utf8_stdio
     utf8_stdio()
@@ -1093,6 +1168,19 @@ def main():
     sub.add_argument("sending_action", nargs="?", default="status",
                      choices=["pause", "resume", "status"])
     sub.set_defaults(func=cmd_sending)
+
+    # harvey verify-emails
+    sub = subparsers.add_parser(
+        "verify-emails",
+        help="Re-grade stored addresses (guess -> verified/risky/invalid)",
+    )
+    sub.add_argument("--domain", default="", help="Only prospects at this domain")
+    sub.add_argument("--limit", type=int, default=25, help="Batch size (default: 25)")
+    sub.add_argument("--dry-run", action="store_true",
+                     help="Print the verdicts but change nothing in the database")
+    sub.add_argument("--json", dest="json_out", default="",
+                     help="Write per-address evidence to this JSON file")
+    sub.set_defaults(func=cmd_verify_emails)
 
     sub = subparsers.add_parser(
         "warmup", help="Check if your sending domain is set up and warmed up for cold email")

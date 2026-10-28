@@ -2,8 +2,11 @@
 
 Raw SMTP probing is largely dead against Google Workspace and Microsoft
 365 (which host most B2B mail): they tarpit probers or accept every
-recipient and bounce later. So instead of brute-forcing every name
-permutation, this pipeline:
+recipient and bounce later. Measured on 2026-10-26, Google Workspace MX
+does answer RCPT honestly (550 5.1.1 for an unknown mailbox, 250 for a real
+one) and rejects a random control address, so a *control-checked* probe is
+usable there — still never trusted without the control. So instead of
+brute-forcing every name permutation, this pipeline:
 
 1. Classifies the domain by its MX host (google / microsoft / gateway / other).
 2. Derives the domain's email PATTERN once — from cache, then Hunter's
@@ -11,7 +14,9 @@ permutation, this pipeline:
    sensible default — collapsing N guesses to one candidate.
 3. Verifies that single candidate through the best available channel for
    the domain type: a real-verdict API (Reoon, ZeroBounce for the big
-   providers), Hunter, or SMTP for small self-hosted servers.
+   providers), Hunter, SMTP for small self-hosted servers, or — when no key
+   is configured at all — a control-checked recipient probe against the
+   domain's own MX (see ``probe_recipient``).
 4. Detects catch-all domains and buckets them as ``risky`` instead of
    pretending they're verified.
 
@@ -24,7 +29,7 @@ import logging
 import os
 import random
 import re
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from typing import Optional
 
@@ -78,6 +83,7 @@ class EmailResult:
     status: str          # verified / risky / guess / invalid
     pattern: str = ""
     mx_type: str = ""
+    evidence: dict = field(default_factory=dict)  # verifier codes behind the verdict
 
     @property
     def verified(self) -> bool:
@@ -653,7 +659,11 @@ async def _verify_candidate(email: str, mx_type: str, env) -> tuple[Optional[str
     catch_all_seen = False
 
     # Big providers: ZeroBounce first (its engine cracks their catch-alls),
-    # then Reoon, then Hunter. SMTP is useless/misleading here.
+    # then Reoon, then Hunter. SMTP is useless/misleading here, EXCEPT as a
+    # last resort: with no key configured at all the candidate would stay a
+    # "guess" forever, so a control-checked recipient probe is allowed to
+    # answer instead (probe_recipient refuses to guess — it needs the control
+    # address to be rejected before it will call anything valid).
     if mx_type in ("google", "microsoft", "gateway"):
         channels = []
         if zerobounce_key:
@@ -671,6 +681,14 @@ async def _verify_candidate(email: str, mx_type: str, env) -> tuple[Optional[str
             status = _status_from_verdict(verdict)
             if status is not None:
                 return status, catch_all_seen
+        if not channels and getattr(env, "smtp_probe", True):
+            verdict = await probe_recipient(email)
+            if verdict:
+                if verdict.get("catch_all"):
+                    return "risky", True
+                status = _status_from_verdict(verdict)
+                if status is not None:
+                    return status, catch_all_seen
         return None, catch_all_seen
 
     # Small / self-hosted: Reoon → SMTP (still works here) → Hunter.
@@ -702,6 +720,124 @@ async def _verify_candidate(email: str, mx_type: str, env) -> tuple[Optional[str
                 return status, catch_all_seen
 
     return None, catch_all_seen
+
+
+# ── Control-checked recipient probe (works without any API key) ──
+
+# One session per probe; a small per-process budget keeps a heartbeat run from
+# ever hammering a provider's MX from this IP.
+PROBE_BUDGET = max(0, int(os.getenv("HARVEY_PROBE_BUDGET", "20").strip() or 20))
+_probe_budget = {"left": PROBE_BUDGET}
+_probe_cache: dict[str, Optional[dict]] = {}
+
+
+def probe_budget_left() -> int:
+    """How many recipient probes this process may still spend."""
+    return _probe_budget["left"]
+
+
+def env_has_verifier_key(env) -> bool:
+    """True when a real-verdict API key is configured (probe is the fallback)."""
+    if env is None:
+        return bool(_hunter_api_key())
+    return bool(
+        getattr(env, "reoon_api_key", "")
+        or getattr(env, "zerobounce_api_key", "")
+        or _hunter_api_key()
+    )
+
+
+def reset_probe_budget() -> None:
+    """Test helper: hand the probe budget back."""
+    _probe_budget["left"] = PROBE_BUDGET
+
+
+def reset_probe_state() -> None:
+    """Test helper: forget cached verdicts and restore the whole budget."""
+    _probe_cache.clear()
+    _probe_budget["left"] = PROBE_BUDGET
+
+
+async def probe_recipient(email: str) -> Optional[dict]:
+    """Ask the domain's own MX whether this mailbox exists, with a control.
+
+    One SMTP session per call, on port 25, against the domain's primary MX:
+    a random address that cannot exist at that domain is RCPT'd first, then
+    the real candidate.
+
+      control accepted                      -> catch-all  => {'status': 'catch_all'}
+      control rejected, candidate accepted  -> {'status': 'valid'}
+      control rejected, candidate rejected  -> {'status': 'invalid'}
+      4xx / tarpit / timeout / no budget    -> None (inconclusive; caller keeps "guess")
+
+    No key, no credit, no sender reputation: RCPT is not a delivery attempt
+    and nothing is ever DATA'd. The control address is what makes the answer
+    honest — an accept-everything server can never produce "valid" here.
+    """
+    email = (email or "").strip().lower()
+    if "@" not in email:
+        return None
+    if email in _probe_cache:
+        return _probe_cache[email]
+
+    domain = _clean_domain(email.rsplit("@", 1)[1])
+    mx_host = await get_mx_host(domain)
+    if not mx_host:
+        return None
+    if _probe_budget["left"] <= 0:
+        logger.info("Recipient probe budget for this process is spent; skipping %s", email)
+        return None
+
+    control = f"zz-no-such-user-{random.randint(10000, 99999)}@{domain}"
+    codes: dict[str, Optional[int]] = {control: None, email: None}
+
+    _probe_budget["left"] -= 1
+    smtp = aiosmtplib.SMTP(hostname=mx_host, port=25, timeout=20)
+    try:
+        await smtp.connect()
+        await smtp.ehlo()
+        await smtp.mail("postmaster@harvey-probe.local")
+        for addr in (control, email):
+            try:
+                response = await smtp.rcpt(addr)
+                codes[addr] = int(response.code)
+            except aiosmtplib.SMTPRecipientRefused as e:
+                codes[addr] = int(e.code)
+        try:
+            await smtp.rset()
+            await smtp.quit()
+        except Exception:
+            pass
+    except Exception as e:  # noqa: BLE001 - network/tarpit/timeout
+        logger.debug(f"Recipient probe failed for {email}: {type(e).__name__}: {e}")
+        _probe_cache[email] = None
+        return None
+    finally:
+        try:
+            await smtp.close()
+        except Exception:
+            pass
+
+    control_code, candidate_code = codes[control], codes[email]
+    verdict: Optional[dict]
+    if control_code == 250:
+        verdict = {"status": "catch_all", "catch_all": True,
+                   "evidence": {"control": control_code, "candidate": candidate_code}}
+    elif control_code == 550 and candidate_code == 250:
+        verdict = {"status": "valid", "catch_all": False,
+                   "evidence": {"control": control_code, "candidate": candidate_code}}
+    elif control_code == 550 and candidate_code == 550:
+        verdict = {"status": "invalid", "catch_all": False,
+                   "evidence": {"control": control_code, "candidate": candidate_code}}
+    else:
+        verdict = None  # 4xx, mixed codes, or a silent tarpit
+    logger.info(
+        "Recipient probe %s: candidate=%s control=%s -> %s",
+        email, candidate_code, control_code,
+        verdict["status"] if verdict else "inconclusive",
+    )
+    _probe_cache[email] = verdict
+    return verdict
 
 
 async def verify_published_address(email: str, env=None) -> str:
@@ -820,3 +956,45 @@ async def find_email(
 
     logger.info(f"Email for {first_name} {last_name}@{domain}: {candidate} [{status}]")
     return EmailResult(email=candidate, status=status, pattern=pattern, mx_type=mx_type)
+
+
+async def verify_address(
+    email: str, env=None, state=None
+) -> EmailResult:
+    """Re-grade an address Harvey already holds (no new pattern guessing).
+
+    Used by ``harvey verify-emails`` to lift existing ``guess`` prospects to
+    verified / risky / invalid once a verifier (or the keyless MX probe) can
+    actually decide. Same honesty rules: an undecided address stays ``guess``.
+    """
+    email = (email or "").strip().lower()
+    if "@" not in email:
+        return EmailResult(email=email, status="invalid")
+
+    domain = _clean_domain(email.rsplit("@", 1)[1])
+    mx_host = await get_mx_host(domain)
+    if not mx_host:
+        return EmailResult(email=email, status="invalid", mx_type="none")
+    mx_type = classify_mx(mx_host)
+
+    status, catch_all = await _verify_candidate(email, mx_type, env)
+
+    if catch_all and state is not None:
+        try:
+            await state.save_email_pattern(domain, mx_type=mx_type, is_catch_all=1)
+        except Exception:
+            pass
+
+    logger.info(f"Re-verified {email}: [{(status or 'guess')}] (mx_type={mx_type})")
+    return EmailResult(
+        email=email,
+        status=status or "guess",
+        mx_type=mx_type,
+        evidence=_probe_cache.get(email) or {},
+    )
+
+
+def last_probe_evidence(email: str) -> Optional[dict]:
+    """The control/candidate SMTP codes behind a probe verdict, if any."""
+    return _probe_cache.get((email or "").strip().lower())
+
