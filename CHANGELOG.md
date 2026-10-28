@@ -476,6 +476,18 @@ minor versions can still change behaviour.
 - Isolate Claude calls from personal instructions and hooks, and fix Claude CLI
   installation in Docker. Thanks to @EICCIO-Advisors for the private report.
 
+### Security
+
+- **Keep API keys out of log files.** httpx logs one full request URL per
+  request at INFO — query string included — so the `api_key` that some
+  vendors expect as a query parameter (Hunter's email finder among them)
+  was being written into the heartbeat log on every call. The heartbeat's
+  logging now drops the httpx/httpcore loggers to WARNING (transport
+  errors still surface) and attaches a filter that rewrites any
+  credential-looking query value — `api_key`, `token`, `password` and
+  friends — to `[REDACTED]` before a line reaches a handler, so the keys
+  stay out even while debugging at DEBUG level.
+
 ### Added
 
 - **Send by hand from the dashboard, and a live status panel.** With no

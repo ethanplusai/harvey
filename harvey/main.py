@@ -15,6 +15,7 @@ from harvey.config import (
     compliance_notice, send_window_of,
 )
 from harvey.integrations.mail_provider import NATIVE_PROVIDERS
+from harvey.log_redaction import SecretRedactingFilter, quiet_httpx_loggers
 from harvey.pidfile import (
     LOCK_FILE, hold_loop_lock, read_pid, release_loop_lock, remove_pid_file, write_pid_file,
 )
@@ -26,6 +27,16 @@ logging.basicConfig(
     format="%(asctime)s [%(name)s] %(levelname)s: %(message)s",
     datefmt="%Y-%m-%d %H:%M:%S",
 )
+# httpx logs one full request URL per request at INFO — query string included —
+# and several vendors Harvey calls authenticate with an api_key query
+# parameter (Hunter's email finder among them), so those keys were landing
+# in the heartbeat log verbatim. Belt and braces: quiet the httpx/httpcore
+# loggers, and scrub credential-looking query values from anything that
+# still reaches a handler (an httpx error message, or a DEBUG line while
+# someone is debugging, which would silently undo the quieting alone).
+quiet_httpx_loggers()
+for _handler in logging.getLogger().handlers:
+    _handler.addFilter(SecretRedactingFilter())
 logger = logging.getLogger("harvey")
 
 # Backoff for consecutive failed cycles: 60s, 120s, 240s, ... capped at 15 min
