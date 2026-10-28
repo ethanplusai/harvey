@@ -758,6 +758,9 @@ class StateManager:
     async def add_prospect(self, prospect: Prospect) -> str:
         """Insert a prospect. Duplicates (same email or LinkedIn URL) are not
         re-inserted; the existing record's id is returned instead."""
+        # Skip prospects with no company and no email (unusable name-only fragments)
+        if not prospect.company and not prospect.email and not getattr(prospect, "company_id", ""):
+            return prospect.id or ""
         if not prospect.id:
             prospect.id = _new_id()
         prospect.email = _norm(prospect.email)

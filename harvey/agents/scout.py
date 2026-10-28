@@ -2093,6 +2093,8 @@ Respond ONLY with the JSON array."""
             "boardgamegeek.com", "team-bhp.com", "hackaday.com",
             "instructables.com", "thingiverse.com", "printables.com",
             "cults3d.com", "grabcad.com",
+            # Research/directory sites not useful as company targets
+            "tracxn.com", "scribd.com", "researchgate.net",
         }
         if domain in noise:
             return True
