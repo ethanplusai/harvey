@@ -1185,9 +1185,9 @@ def _harvey_can_send() -> bool:
         from harvey.config import load_config, load_env
         from harvey.integrations.mail_provider import NATIVE_PROVIDERS, get_mail_provider
         config, env = load_config(), load_env()
-        from harvey.config import legacy_sending_held
+        from harvey.config import sending_held
         email = config.channels.email
-        if not email.enabled or legacy_sending_held(config):
+        if sending_held(config):
             return False
         if (email.provider or "").strip().lower() in NATIVE_PROVIDERS:
             provider = get_mail_provider(config, env)

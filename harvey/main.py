@@ -11,7 +11,7 @@ import pytz
 from harvey.brain import Brain
 from harvey.sending_mode import sync_sending_mode
 from harvey.config import (
-    ConfigError, load_config, load_env, HarveyConfig, legacy_sending_held, sending_notice,
+    ConfigError, load_config, load_env, HarveyConfig, sending_held, sending_notice,
     compliance_notice, send_window_of,
 )
 from harvey.integrations.mail_provider import NATIVE_PROVIDERS
@@ -156,9 +156,12 @@ async def decide_next_action(
     draft_campaigns = summary.get("draft_campaigns", 0) or 0
     open_conversations = summary.get("open_conversations", 0) or 0
 
-    # Held Instantly drafts can't deploy; choosing send_campaign for them
-    # every cycle would starve the writer and scout forever.
-    deployable = 0 if legacy_sending_held(config) else draft_campaigns
+    # Drafts that can't deploy must not win the decision: choosing
+    # send_campaign for them every cycle would starve the writer and scout
+    # forever. Instantly held for approval can't deploy (legacy path), and
+    # neither can any provider while channels.email.enabled is false — the
+    # sender exits early, so the cycle would just no-op.
+    deployable = 0 if sending_held(config) else draft_campaigns
 
     if open_conversations > 0:
         action, reason = "handle_replies", f"{open_conversations} open conversation(s) waiting"

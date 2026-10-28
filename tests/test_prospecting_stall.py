@@ -16,7 +16,11 @@ from harvey.models.prospect import Prospect
 from harvey.state import StateManager
 
 CONFIG = SimpleNamespace(channels=SimpleNamespace(email=SimpleNamespace(
-    provider="gmail", require_approval=True)))
+    provider="gmail", require_approval=True, enabled=True)))
+
+# Same shape with the channel off: drafts can't deploy on any provider.
+HELD_CONFIG = SimpleNamespace(channels=SimpleNamespace(email=SimpleNamespace(
+    provider="gmail", require_approval=True, enabled=False)))
 
 
 @pytest_asyncio.fixture
@@ -128,3 +132,26 @@ async def test_a_summary_without_the_new_count_keeps_the_old_rule():
     # Callers that build their own summary (older tests, scripts) still work.
     summary = {"prospects": {"new": 3}, "draft_campaigns": 0, "open_conversations": 0}
     assert await decide_next_action(None, None, CONFIG, summary=summary) == "write_campaign"
+
+
+@pytest.mark.asyncio
+async def test_drafts_held_by_a_disabled_channel_do_not_starve_scout(state):
+    # With channels.email.enabled=false the sender exits early on every
+    # provider, so send_campaign can make no progress. Counting those drafts
+    # as deployable made the heartbeat pick send_campaign every cycle while
+    # new prospects never got contacts or graded emails (frozen 2026-10-26
+    # through 2026-10-29: 39 unworked prospects, 8 draft campaigns).
+    from harvey.models.campaign import Campaign
+    await state.add_campaign(Campaign(id="held-1", name="held", status="draft"))
+    summary = await state.get_state_summary()
+    assert summary["draft_campaigns"] == 1
+    assert await decide_next_action(None, state, HELD_CONFIG, summary=summary) == "prospect"
+
+
+@pytest.mark.asyncio
+async def test_deployable_drafts_still_choose_send_campaign(state):
+    # The mirror case: channel on, draft ready — deployment still wins.
+    from harvey.models.campaign import Campaign
+    await state.add_campaign(Campaign(id="live-1", name="live", status="draft"))
+    summary = await state.get_state_summary()
+    assert await decide_next_action(None, state, CONFIG, summary=summary) == "send_campaign"

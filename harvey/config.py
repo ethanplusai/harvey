@@ -271,6 +271,20 @@ def legacy_sending_held(config) -> bool:
             and bool(getattr(email, "require_approval", True)))
 
 
+def sending_held(config) -> bool:
+    """True when campaign deployment can make no progress this cycle.
+
+    That is legacy_sending_held() (Instantly held for approval), or the
+    email channel disabled outright on any provider: the sender exits
+    early, so a send_campaign decision would just no-op while the writer
+    and scout starve.
+    """
+    email = getattr(getattr(config, "channels", None), "email", None)
+    if not getattr(email, "enabled", True):
+        return True
+    return legacy_sending_held(config)
+
+
 def sending_notice(config) -> str:
     """A plain-language warning when outbound sending is held by config, or ""."""
     if not legacy_sending_held(config):
