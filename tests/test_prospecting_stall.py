@@ -128,3 +128,36 @@ async def test_a_summary_without_the_new_count_keeps_the_old_rule():
     # Callers that build their own summary (older tests, scripts) still work.
     summary = {"prospects": {"new": 3}, "draft_campaigns": 0, "open_conversations": 0}
     assert await decide_next_action(None, None, CONFIG, summary=summary) == "write_campaign"
+
+
+@pytest.mark.asyncio
+async def test_an_open_conversation_does_not_starve_prospecting():
+    # One auto-reply left a conversation open, and Harvey read the mailbox
+    # every cycle for days without ever prospecting again. The handler rides
+    # along each cycle instead, so the pipeline keeps moving.
+    summary = {"prospects": {"new": 0}, "draft_campaigns": 0, "open_conversations": 1}
+    assert await decide_next_action(None, None, CONFIG, summary=summary) == "prospect"
+    summary = {"prospects": {"new": 3}, "draft_campaigns": 0, "open_conversations": 1}
+    assert await decide_next_action(None, None, CONFIG, summary=summary) == "write_campaign"
+
+
+@pytest.mark.asyncio
+async def test_an_auto_reply_is_handed_to_a_human_not_left_open(tmp_path, monkeypatch):
+    # Its follow-ups are cancelled and nothing re-queues them, so an 'open'
+    # thread would wait forever on someone who never read the email.
+    from harvey.agents.handler import Handler
+    from tests.test_do_not_contact import FakeProvider
+    from tests.test_outbox_native import Cfg, Env, seed_prospect
+    state = StateManager(str(tmp_path / "ooo.db"))
+    await state.init_db()
+    pid = await seed_prospect(state, email="jane@acme.example", status="contacted")
+    handler = Handler(brain=None, state=state, config=Cfg(), env=Env())
+    handler.provider = FakeProvider()
+
+    async def _intent(*a, **k):
+        return "ooo"
+    monkeypatch.setattr(handler, "_classify_intent", _intent)
+
+    await handler._process_reply("jane@acme.example", "I'm away until Monday.", "u1")
+    assert await state.get_conversations_by_status("open") == []
+    assert [c.prospect_id for c in await state.get_conversations_by_status("needs_human")] == [pid]

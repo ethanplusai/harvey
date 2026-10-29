@@ -320,7 +320,7 @@ Users will come back with questions and tasks. Common ones:
 `initial_outreach → engaged → qualifying → presenting → negotiating → closing → closed_won / closed_lost`
 
 ### Priority Order
-handle_replies > send_campaigns > write_campaigns > prospect > idle (run analyst)
+send_campaigns > write_campaigns > prospect > idle (run analyst). Replies are read every cycle alongside whichever one runs.
 
 ### Key Commands
 ```bash

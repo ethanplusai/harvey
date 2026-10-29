@@ -601,7 +601,11 @@ class Handler:
             return
 
         if intent == "ooo":
-            logger.info(f"Handler: {lead_email} is OOO. Will follow up later.")
+            # Their follow-ups were cancelled above and nothing re-queues
+            # them, so whether to write again is a human's call. Left 'open',
+            # the thread waited forever on a person who never saw the email.
+            await self.state.update_conversation(convo.id, status="needs_human")
+            logger.info(f"Handler: {lead_email} sent an auto-reply. Handed to a human.")
             return
 
         if intent not in AUTO_REPLY_INTENTS:
