@@ -2631,6 +2631,8 @@ class StateManager:
             "recent_unusable_prospects": await self.count_recent_unusable_prospects(),
             "draft_campaigns": draft_campaigns,
             "active_campaigns": active_campaigns,
+            # The kill switch: native sending stages nothing while it's set.
+            "sending_paused": bool(await self.get_setting("sending_paused")),
             "open_conversations": open_conversations,
             "usage_today": usage_today,  # Claude calls (kept for compatibility)
             "usage_today_by_provider": {"claude": usage_today, "codex": codex_today},

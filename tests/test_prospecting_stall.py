@@ -128,3 +128,36 @@ async def test_a_summary_without_the_new_count_keeps_the_old_rule():
     # Callers that build their own summary (older tests, scripts) still work.
     summary = {"prospects": {"new": 3}, "draft_campaigns": 0, "open_conversations": 0}
     assert await decide_next_action(None, None, CONFIG, summary=summary) == "write_campaign"
+
+
+def email_config(**email):
+    return SimpleNamespace(channels=SimpleNamespace(email=SimpleNamespace(
+        **{"provider": "gmail", "require_approval": True, "enabled": True, **email})))
+
+
+@pytest.mark.asyncio
+async def test_drafts_with_the_email_channel_off_do_not_starve_prospecting():
+    # The list-building setup: the Sender returns at once with email off, so
+    # a draft stays a draft and choosing send_campaign for it never ends.
+    summary = {"prospects": {"new": 0}, "draft_campaigns": 1, "open_conversations": 0}
+    assert await decide_next_action(
+        None, None, email_config(enabled=False), summary=summary) == "prospect"
+
+
+@pytest.mark.asyncio
+async def test_native_drafts_while_sending_is_paused_do_not_starve_prospecting():
+    # The kill switch stops native staging, not finding or writing.
+    summary = {"prospects": {"new": 0}, "draft_campaigns": 1,
+               "open_conversations": 0, "sending_paused": True}
+    assert await decide_next_action(None, None, email_config(), summary=summary) == "prospect"
+    summary["prospects"] = {"new": 2}
+    assert await decide_next_action(None, None, email_config(), summary=summary) == "write_campaign"
+    summary["sending_paused"] = False
+    assert await decide_next_action(None, None, email_config(), summary=summary) == "send_campaign"
+
+
+@pytest.mark.asyncio
+async def test_the_summary_reports_the_kill_switch(state):
+    assert (await state.get_state_summary())["sending_paused"] is False
+    await state.set_setting("sending_paused", "bounce rate 12%")
+    assert (await state.get_state_summary())["sending_paused"] is True
