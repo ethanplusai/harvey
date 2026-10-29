@@ -108,6 +108,11 @@ class Sender:
         self.compliance_held = False
 
     @property
+    def _published_only(self) -> bool:
+        """channels.email.published_only: cold email needs a published address."""
+        return bool(getattr(self.config.channels.email, "published_only", False))
+
+    @property
     def is_native(self) -> bool:
         return (
             self.config.channels.email.provider in NATIVE_PROVIDERS
@@ -432,6 +437,10 @@ class Sender:
                     f"'{prospect.email_status or 'guess'}' not deliverable)."
                 )
                 continue
+            if self._published_only and not prospect.email_source_url:
+                skipped_unverified += 1
+                logger.debug(f"Sender: Skipping {email} (not published by the company).")
+                continue
             seen_emails.add(email)
             prospects.append(prospect)
 
@@ -613,6 +622,7 @@ class Sender:
 
         staged = 0
         skipped = 0
+        unpublished = 0
         answered = 0
         now = _utcnow()
         seen_emails: set[str] = set()
@@ -629,6 +639,9 @@ class Sender:
                 continue
             if (prospect.email_status or "guess") not in sendable_email:
                 skipped += 1
+                continue
+            if self._published_only and not prospect.email_source_url:
+                unpublished += 1
                 continue
             if await self.state.colleague_who_replied(prospect.id):
                 answered += 1     # their company already answered
@@ -667,6 +680,12 @@ class Sender:
             logger.info(
                 f"Sender: held back {skipped} prospect(s) with unverified "
                 f"emails from '{campaign.name}'."
+            )
+        if unpublished:
+            logger.info(
+                f"Sender: held back {unpublished} prospect(s) from '{campaign.name}' "
+                "whose address wasn't published on the company's own website "
+                "(published_only)."
             )
         if answered:
             logger.info(
@@ -779,6 +798,7 @@ class Sender:
             prospect=prospect, allow_risky=allow_risky, kind=item["kind"],
             postal_address=compliance_of(self.config).postal_address,
             do_not_contact=live_do_not_contact(self.config),
+            published_only=self._published_only,
         )
         if not gate:
             logger.warning(

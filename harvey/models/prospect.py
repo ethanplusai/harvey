@@ -31,6 +31,9 @@ class Prospect(BaseModel):
     department: str = ""
     source: str = ""           # how we found them
     source_url: str = ""       # where we found the info
+    # The company's own page that printed this exact address; "" when the
+    # address was built from a pattern or came from anywhere else.
+    email_source_url: str = ""
     status: str = "new"        # new/contacted/replied/meeting/closed/lost
     score: int = 0
     personalization_notes: str = ""

@@ -946,6 +946,7 @@ async def _with_context(items: list[dict]) -> list[dict]:
 
     people = {r["id"]: r for r in (await query_db(
         "SELECT p.id, p.first_name, p.last_name, p.title, p.source, p.email_status, "
+        "p.email_source_url, "
         "p.score, p.personalization_notes, p.company_id, c.name AS company_name, "
         "c.domain, c.website, c.description, c.industry AS found_by "
         "FROM prospects p LEFT JOIN companies c ON c.id = p.company_id "
@@ -1001,6 +1002,7 @@ async def _with_context(items: list[dict]) -> list[dict]:
             "contact_title": p.get("title", ""),
             "contact_source": p.get("source", ""),
             "email_status": p.get("email_status", ""),
+            "email_source_url": p.get("email_source_url") or "",
             "score": p.get("score"),
             "notes": p.get("personalization_notes", ""),
             "signals": signals.get(p.get("company_id"), {}),

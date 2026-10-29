@@ -786,6 +786,7 @@ class Scout:
                             industry=industry,
                             source="linkedin_search",
                             source_url=li_url,
+                            email_source_url=self._published_url(domain, email),
                         )
 
                         if not prospect.is_valid():
@@ -1497,8 +1498,10 @@ Respond ONLY with the JSON array."""
             found = self._people_from_cards(site["pages"])
 
         addresses: list[str] = []
-        for _, html in site["pages"]:
+        published = site.setdefault("published", {})
+        for page_url, html in site["pages"]:
             for addr in people_mod.emails_on_page(html):
+                published.setdefault(addr, page_url)
                 if addr not in addresses:
                     addresses.append(addr)
         site["addresses"] = addresses
@@ -1645,6 +1648,7 @@ Respond ONLY with the JSON array."""
                 industry=industry,
                 source=source,
                 source_url=member.get("evidence_url") or f"https://{domain}",
+                email_source_url=self._published_url(domain, email),
                 personalization_notes=signal_note,
             )
 
@@ -1737,6 +1741,7 @@ Respond ONLY with the JSON array."""
             industry=industry,
             source=COMPANY_INBOX_SOURCE,
             source_url=f"https://{domain}",
+            email_source_url=self._published_url(domain, email),
             personalization_notes=signal_note,
         )
         if not prospect.is_valid() or await self._is_duplicate_prospect(prospect):
@@ -1769,8 +1774,10 @@ Respond ONLY with the JSON array."""
                     pages.append((url, getattr(resp, "text", "") or ""))
 
         candidates = []
-        for _, text in pages:
+        published = site.setdefault("published", {})
+        for page_url, text in pages:
             for addr in people_mod.emails_on_page(text):
+                published.setdefault(addr, page_url)
                 local, _, adomain = addr.partition("@")
                 if local not in INBOX_PREFERRED or addr in candidates:
                     continue
@@ -1782,6 +1789,12 @@ Respond ONLY with the JSON array."""
         if not candidates:
             return ""
         return min(candidates, key=lambda a: INBOX_PREFERRED.index(a.partition("@")[0]))
+
+    def _published_url(self, domain: str, email: str) -> str:
+        """The company's own page that printed this exact address, or "".
+        Only pages already read this cycle count; nothing is fetched."""
+        site = self.__dict__.get("_site_reads", {}).get(self._host(domain or ""), {})
+        return site.get("published", {}).get((email or "").strip().lower(), "")
 
     async def _is_own_domain(self, other: str, site: dict) -> bool:
         """Is ``other`` the business's own second domain? True when its

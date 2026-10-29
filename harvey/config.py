@@ -215,6 +215,10 @@ class EmailChannelConfig(BaseModel):
     # mailboxes. Off by default — catch-alls accept everything, so a bad
     # guess still bounces.
     send_to_risky: bool = False
+    # When True, cold email goes only to an address the company printed on
+    # its own website; one Harvey built from the domain's pattern is held
+    # back, however well it verified. Replies are not affected.
+    published_only: bool = False
     # Native providers queue mail for approval. Instantly cannot use that
     # outbox, so it holds campaigns and escalates replies while this is true.
     # Set false explicitly for full autopilot once you trust the output.
