@@ -99,6 +99,62 @@ INBOX_PREFERRED = ("owner", "office", "info", "contact", "contactus", "hello",
                    "inquiries", "enquiries", "admin", "support")
 MAX_PROSPECTS_PER_CYCLE = 25
 
+# Free-mail fallback: the smallest businesses never set up a mailbox on
+# their own domain and publish a Gmail or Outlook address instead. One is
+# used only when it is unmistakably the business's own: a public provider,
+# a local part that is the brand itself (cornerloaf@gmail.com on
+# cornerloafbakery.example), and nothing role-like or personal about it —
+# info@gmail.com is any business's, jane.doe@gmail.com is Jane's. It never
+# outranks an address on the company's own domain.
+PUBLIC_MAILBOX_PROVIDERS = frozenset("""
+gmail.com googlemail.com outlook.com outlook.co.uk hotmail.com hotmail.co.uk
+hotmail.fr live.com live.co.uk msn.com yahoo.com yahoo.co.uk yahoo.fr
+ymail.com rocketmail.com aol.com icloud.com me.com mac.com gmx.com gmx.net
+mail.com zoho.com proton.me protonmail.com yandex.com
+""".split())
+# Local parts that say nothing about which business owns the mailbox, over
+# and above INBOX_PREFERRED.
+INBOX_GENERIC_LOCALS = frozenset(INBOX_PREFERRED) | frozenset("""
+mail email emails enquiry inquiry booking bookings reservations orders
+accounts accounting billing help helpdesk webmaster postmaster noreply
+shop store company business general reception
+""".split())
+# Both the brand stem and the local part must be at least this long before
+# one is read as the other: bb@gmail.com is no evidence of any business.
+MIN_BRAND_STEM = 5
+
+
+def _local_looks_personal(local: str) -> bool:
+    """jane.doe@, pat_oneill@ — a named person, not a company inbox."""
+    parts = [p for p in re.split(r"[._\-+]+", (local or "").lower()) if p]
+    if not 2 <= len(parts) <= 3 or not all(p.isalpha() for p in parts):
+        return False
+    return people_mod.is_person_name(" ".join(p.capitalize() for p in parts))
+
+
+def _is_free_mail_brand_alias(address: str, domain: str) -> bool:
+    """Is ``address`` the business's own mailbox at a public provider?
+
+    True only when all of it holds: the provider is a public mailbox
+    provider, the local part is the brand stem of ``domain`` (the whole of
+    it, or a prefix or suffix of it), and that local part is neither a
+    generic role name nor a person's name. The caller must already have
+    read the address off the company's own pages; this only judges shape.
+    """
+    local, _, provider = (address or "").strip().lower().partition("@")
+    if provider.removeprefix("www.") not in PUBLIC_MAILBOX_PROVIDERS:
+        return False
+    if local in INBOX_GENERIC_LOCALS or _local_looks_personal(local):
+        return False
+    stem = re.sub(r"\d+$", "", people_mod._alnum(local))
+    label = people_mod._alnum(people_mod._domain_label(domain))
+    if min(len(stem), len(label)) < MIN_BRAND_STEM:
+        return False
+    if stem in INBOX_GENERIC_LOCALS or stem in people_mod._GENERIC_BUSINESS_WORDS:
+        return False
+    short, long = sorted((stem, label), key=len)
+    return long.startswith(short) or long.endswith(short)
+
 # Hunter domain-searches per heartbeat. The monthly budget itself is shared
 # with email-pattern lookups and set by HUNTER_MONTHLY_SEARCHES (see
 # integrations/email_finder.py); this just paces it, since a heartbeat every
@@ -1751,7 +1807,9 @@ Respond ONLY with the JSON array."""
         Reads the same pages as the people pass (plus /contact if it wasn't
         among them), the whole page, not just its top, decoding obfuscated
         addresses. An address on another domain counts only when that
-        domain is clearly the business's own (it lands on this site).
+        domain is clearly the business's own (it lands on this site), or,
+        with nothing on their own domain at all, when it is their free-mail
+        inbox under the brand's own name (see ``_is_free_mail_brand_alias``).
         """
         site = await self._read_site(domain)
         if not site["base"]:
@@ -1769,10 +1827,15 @@ Respond ONLY with the JSON array."""
                     pages.append((url, getattr(resp, "text", "") or ""))
 
         candidates = []
+        aliases = []        # free-mail mailboxes named after the business
         for _, text in pages:
             for addr in people_mod.emails_on_page(text):
                 local, _, adomain = addr.partition("@")
-                if local not in INBOX_PREFERRED or addr in candidates:
+                if local not in INBOX_PREFERRED:
+                    if addr not in aliases and _is_free_mail_brand_alias(addr, domain):
+                        aliases.append(addr)
+                    continue
+                if addr in candidates:
                     continue
                 adomain = adomain.removeprefix("www.")
                 if adomain != domain and not adomain.endswith("." + domain) \
@@ -1780,7 +1843,9 @@ Respond ONLY with the JSON array."""
                     continue
                 candidates.append(addr)
         if not candidates:
-            return ""
+            # Nothing on their own domain: the brand's own free-mail inbox,
+            # if they published one, in the order the site printed them.
+            return aliases[0] if aliases else ""
         return min(candidates, key=lambda a: INBOX_PREFERRED.index(a.partition("@")[0]))
 
     async def _is_own_domain(self, other: str, site: dict) -> bool:

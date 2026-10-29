@@ -1044,14 +1044,44 @@ class OpenStreetMap(DiscoveryProvider):
     # Several public Overpass instances run the same API. The main one
     # throttles readily, so try the mirrors before giving up — a free source
     # that fails half the time is not usable as a default.
+    # Two entries, two conditions, both measured — see
+    # scripts/diagnose_overpass.py, which re-checks them.
+    #
+    # Each must be its OWN instance: overpass.private.coffee sat here and
+    # resolved to the same address as overpass.kumi.systems, so a 502 on the
+    # first mirror bought two attempts at one machine and none at a second.
+    #
+    # Each must also hold the WHOLE planet. The community instances answer in
+    # a fraction of a second and are independent, which makes them tempting:
+    # overpass.osm.ch tallied ZERO cafes within a kilometre of downtown Denver
+    # in 0.21s, so it serves a regional extract, and overpass.osm.jp is the
+    # same kind of instance. A mirror like that answers "roofers in Denver"
+    # with an empty list, and an empty list here is indistinguishable from a
+    # market with nobody in it — the one failure this provider must never
+    # produce. Vet a candidate with
+    # `python scripts/diagnose_overpass.py --coverage <url>` before adding it;
+    # independence at the DNS level is not enough.
     ENDPOINTS = (
         "https://overpass-api.de/api/interpreter",
         "https://overpass.kumi.systems/api/interpreter",
-        "https://overpass.private.coffee/api/interpreter",
     )
     # Overpass etiquette for a shipped tool: modest volume, no parallelism.
     MIN_INTERVAL = 2.0
     BACKOFF = 5.0
+    # A free instance queues before it computes: node(1) — the smallest query
+    # Overpass accepts — measured 38s of pure waiting on a busy afternoon. The
+    # module-wide 45s read budget leaves nothing for a real query over a 40km
+    # radius, so Overpass gets its own and asks the server for a matching
+    # slice of execution time. Slow beats empty-handed, and a run that cannot
+    # afford the wait stops on MAX_PROSPECTS_PER_CYCLE, not on a timeout.
+    HTTP_TIMEOUT = httpx.Timeout(connect=10.0, read=120.0, write=10.0,
+                                 pool=10.0)
+    SERVER_TIMEOUT = 90
+    # Statuses that say "this mirror, right now" rather than "this query":
+    # throttling, a gateway that lost its backend, an overloaded instance, a
+    # timed-out one. Every one of them is another mirror's problem to solve, so
+    # walk on. A 400 (bad query) or 404 is ours and fails here and now.
+    RETRY_STATUSES = frozenset({429, 500, 502, 503, 504})
 
     # A friendly term maps to the OSM tags that actually carry those businesses.
     TAG_MAP = {
@@ -1100,11 +1130,13 @@ class OpenStreetMap(DiscoveryProvider):
             f'way[{tag.split("=")[0]}={tag.split("=")[1]}](around:{radius_m},{lat},{lng});'
             for tag in tags
         )
-        body = f"[out:json][timeout:40];({clauses});out center {query.limit};"
+        body = (f"[out:json][timeout:{self.SERVER_TIMEOUT}];({clauses});"
+                f"out center {query.limit};")
 
-        # Overpass is a free volunteer service and 429s/504s readily under
-        # load. Walk the mirrors, then RAISE: returning [] would make a
-        # throttled run look exactly like a market with no businesses in it.
+        # Overpass is a free volunteer service and throttles, 502s and times
+        # out readily under load. Walk the mirrors, then RAISE: returning []
+        # would make a throttled run look exactly like a market with no
+        # businesses in it.
         headers = {"User-Agent": "Harvey/0.1 (open-source sales agent; "
                                  "github.com/ethanplusai/harvey)"}
         r = None
@@ -1113,19 +1145,20 @@ class OpenStreetMap(DiscoveryProvider):
                 await asyncio.sleep(self.BACKOFF)
             try:
                 r = await client.post(endpoint, content=body.encode(),
-                                      headers=headers)
+                                      headers=headers,
+                                      timeout=self.HTTP_TIMEOUT)
             except httpx.HTTPError as e:
                 logger.warning("osm: %s unreachable (%s)", endpoint, e)
                 continue
-            if r.status_code not in (429, 504):
+            if r.status_code not in self.RETRY_STATUSES:
                 break
-            logger.warning("osm: %s is throttling (%s) — trying the next mirror",
-                           endpoint, r.status_code)
+            logger.warning("osm: %s is throttling or down (%s) — trying the "
+                           "next mirror", endpoint, r.status_code)
         else:
             raise RuntimeError(
-                "Every public Overpass mirror is throttling right now. This is "
-                "free volunteer infrastructure — wait a few minutes and re-run, "
-                "or use a paid provider for bulk work.")
+                "Every public Overpass mirror is unavailable or throttling "
+                "right now. This is free volunteer infrastructure — wait a few "
+                "minutes and re-run, or use a paid provider for bulk work.")
         if r is None:
             raise RuntimeError("Could not reach any Overpass mirror.")
         r.raise_for_status()
