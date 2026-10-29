@@ -9,6 +9,33 @@ minor versions can still change behaviour.
 
 ### Added
 
+- **Follow-up tasks and private notes.** `harvey tasks` (and a new **Tasks**
+  tab) lists follow-ups as overdue, due today, upcoming or undated; add one with
+  `--add "..." --due tomorrow --prospect <id or email>`, tick it off with
+  `--done <id>`. An interested reply adds a task due today, once per person
+  while it's open, so the fastest answer goes out first. `harvey notes` keeps
+  private notes on a contact or company; unlike feedback, notes never go into a
+  prompt.
+- **Learnings.** Patterns you've confirmed from real deals, saved with
+  `harvey learnings --add` or on the new **Learnings** tab, go into every
+  Writer and Handler prompt. A curation gate, not a log: a known category,
+  under 500 characters, and confidence of at least 0.6, or it isn't saved. Only
+  you add them: Harvey never writes one from text it read. `--retire` stops
+  applying one.
+- **An explainable lead score.** `harvey score <id or email>` (and
+  `GET /api/prospects/{id}/score`) shows the deterministic score part by part:
+  title, seniority, industry, email, hiring, and the new geography and tech-fit
+  parts, each with its reason. `scoring.weights` in harvey.yaml changes the
+  points per part; the defaults keep the Scout's original weights, with
+  geography and tech fit off until you give them weight.
+- **Three sales skills**, adapted from the LeadForge sales OS:
+  `sales_strategy.md` (SPIN, Challenger, a light MEDDIC check, honest buyer
+  psychology) for the Writer and Handler; `reengagement.md` (diagnosing "not
+  interested", gone-dark leads, the one-time breakup, champion departures)
+  for the Handler; and `closing_strategy.md` (trade-never-concede negotiation,
+  anchoring, mutual action plans) for replies at the presenting, negotiating
+  or closing stage. Harvey still never offers a discount or terms on its own.
+
 - **Scavio discovery providers** (`scavio_maps`, `scavio_search`). Google Maps
   listings around each city, with phone, website, category, rating and review
   count, and Google organic results with rank, both from one

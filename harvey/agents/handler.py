@@ -13,6 +13,7 @@ import re
 from datetime import datetime, timezone
 
 from harvey.brain import Brain, BrainUnavailable
+from harvey.crm import PROMPT_LEARNINGS, learnings_prompt_block, parse_due_date
 from harvey.config import (
     DEFAULT_OPT_OUT_LINE, HarveyConfig, EnvConfig, compliance_of, legacy_sending_held,
     live_do_not_contact,
@@ -52,6 +53,10 @@ INTENT_LABELS = {
 AUTO_REPLY_INTENTS = {"interested", "objection", "question", "wrong_person"}
 # Replies that don't stop the cold email to the rest of their company.
 NO_COMPANY_STOP_INTENTS = {"ooo", "wrong_person"}
+# Conversation stages whose replies also get skills/closing_strategy.md.
+CLOSING_STAGES = {"presenting", "negotiating", "closing"}
+# Task source for the "answer them today" task an interested reply creates.
+SPEED_TO_LEAD_SOURCE = "speed_to_lead"
 
 # Hard opt-out phrases. If any of these appear, we ALWAYS honor the
 # opt-out regardless of what the LLM classifier says.
@@ -608,6 +613,9 @@ class Handler:
             logger.warning(f"Handler: No auto-reply policy for intent '{intent}'. Skipping reply.")
             return
 
+        if intent == "interested":
+            await self._speed_to_lead_task(prospect)
+
         if held:
             # Instantly has no approval queue: a human answers this one.
             await self.state.update_conversation(convo.id, status="needs_human")
@@ -941,6 +949,37 @@ Respond with ONLY the category label, nothing else."""
 
         return current_stage
 
+    async def _speed_to_lead_task(self, prospect):
+        """An interested reply is the day's top priority: a task due today,
+        one per person while it's open. Never stops the reply itself."""
+        try:
+            if await self.state.has_open_task(prospect.id, SPEED_TO_LEAD_SOURCE):
+                return
+            await self.state.add_task(
+                f"{prospect.full_name() or prospect.email} replied interested: "
+                "make sure they get an answer today",
+                due_date=parse_due_date("today"), prospect_id=prospect.id,
+                source=SPEED_TO_LEAD_SOURCE,
+            )
+        except Exception as e:
+            logger.warning(f"Handler: could not add a follow-up task: {e}")
+
+    def _stage_playbook(self, stage: str) -> str:
+        """skills/closing_strategy.md for late-stage conversations ("" otherwise)."""
+        if stage not in CLOSING_STAGES or not hasattr(self.brain, "load_skill"):
+            return ""
+        text = self.brain.load_skill("closing_strategy")
+        return "\n\nCLOSING THIS DEAL\n" + text if text else ""
+
+    async def _learnings_block(self) -> str:
+        """The owner's validated learnings as prompt text ("" when none)."""
+        try:
+            rows = await self.state.get_learnings(limit=PROMPT_LEARNINGS)
+        except Exception as e:
+            logger.warning(f"Handler: could not read learnings: {e}")
+            return ""
+        return learnings_prompt_block(rows)
+
     async def _generate_response(
         self, intent: str, reply_text: str, prospect, convo: Conversation
     ) -> str:
@@ -972,6 +1011,8 @@ Product: {self.config.product.name} — {self.config.product.description}"""
             playbook = self.brain.load_skill("selling_to_startups")
             if playbook:
                 prompt += "\n\nSELLING TO STARTUP FOUNDERS\n" + playbook
+        prompt += self._stage_playbook(convo.stage)
+        prompt += await self._learnings_block()
 
         prompt += f"""
 

@@ -16,12 +16,17 @@ When an agent runs, it calls `brain.load_skills_for_agent("agent_name")` which c
 | `signal_playbook.md` | x | x | | | |
 | `email_frameworks.md` | | x | | x | |
 | `sales_methodology.md` | | x | x | | |
+| `sales_strategy.md` | | x | x | | |
 | `offer_strategy.md` | | x | x | | |
 | `objection_handling.md` | | | x | | |
+| `reengagement.md` | | | x | | |
+| `closing_strategy.md` | | | x† | | |
 | `linkedin_outreach.md` | | | | | x |
 | `product_knowledge.md` | x | x | x | x | x |
 | `competitive_intel.md` | | x | x | | |
 | `selling_to_startups.md` | | x* | x* | | |
+
+† Only for replies in a conversation at the presenting, negotiating or closing stage.
 
 \* Only for prospects whose company is a startup by its own site's account (the `YC_BACKED` or `ACCELERATOR` signal, or a `FUNDING_ROUND` from the last 18 months), not loaded for everyone.
 
@@ -34,6 +39,9 @@ When an agent runs, it calls `brain.load_skills_for_agent("agent_name")` which c
 - **`signal_playbook.md`** — Turning buying signals (hiring, tech stack, funding) into the email's first line; which signal wins when there are several; using a job posting as the hook without guessing or implying inside knowledge
 - **`email_frameworks.md`** — Cold email copywriting rules, banned AI patterns, 2026 reply-rate data (length, offer CTAs, cadence, no tracking), 5 frameworks (AIDA, PAS, BAB, QVC, 3Ps)
 - **`sales_methodology.md`** — ABC Loop, conversation flow, tone calibration, ethical guidelines
+- **`sales_strategy.md`** — Choosing SPIN, Challenger or a light MEDDIC check by buyer state; buyer psychology; honest use of influence principles
+- **`closing_strategy.md`** — Trade-never-concede negotiation, anchoring, discount asks, stalled deals and mutual action plans, the alignment close. Harvey never offers terms on its own
+- **`reengagement.md`** — Diagnosing "not interested", objection-specific plays, gone-dark leads, the one-time breakup, champion departures
 - **`offer_strategy.md`** — Offer ladder by engagement level, closing mechanics, timing rules
 - **`objection_handling.md`** — LAARC framework, 4 objection categories with responses
 - **`linkedin_outreach.md`** — Connection sequences, messaging templates, rate limits

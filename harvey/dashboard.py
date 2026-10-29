@@ -591,6 +591,158 @@ async def get_feedback(entity_type: str, entity_id: str):
     return rows
 
 
+# ── Tasks, notes, learnings, score breakdown ──
+
+
+async def _json_body(request: Request) -> dict:
+    try:
+        data = await request.json()
+    except Exception:
+        return {}
+    return data if isinstance(data, dict) else {}
+
+
+def _bad_request(message: str, status: int = 400) -> JSONResponse:
+    return JSONResponse({"success": False, "message": message}, status_code=status)
+
+
+@app.get("/api/tasks")
+async def list_tasks(include_done: bool = False, prospect_id: str = ""):
+    """Tasks, open first by due date, each with its bucket (overdue/today/...)."""
+    from harvey.crm import task_bucket
+    state = _state()
+    await state.init_db()
+    rows = await state.get_tasks(include_done=include_done, prospect_id=prospect_id)
+    for row in rows:
+        row["bucket"] = task_bucket(row["due_date"], bool(row["done"]))
+    return rows
+
+
+@app.post("/api/tasks")
+async def create_task(request: Request):
+    from harvey.crm import CrmInputError, MAX_TASK_CHARS, clean_text, parse_due_date
+    data = await _json_body(request)
+    try:
+        text = clean_text(data.get("description"), MAX_TASK_CHARS, "task")
+        due = parse_due_date(data.get("due_date"))
+    except CrmInputError as e:
+        return _bad_request(str(e))
+    state = _state()
+    await state.init_db()
+    prospect_id = str(data.get("prospect_id") or "")[:100]
+    if prospect_id and not await state.get_prospect(prospect_id):
+        return _bad_request("No such contact.", 404)
+    task_id = await state.add_task(text, due_date=due, prospect_id=prospect_id,
+                                   company_id=str(data.get("company_id") or "")[:100])
+    return {"success": True, "id": task_id}
+
+
+@app.post("/api/tasks/{task_id}/{action}")
+async def change_task(task_id: str, action: str):
+    """done | reopen | delete."""
+    state = _state()
+    await state.init_db()
+    if action == "delete":
+        ok = await state.delete_task(task_id)
+    elif action in ("done", "reopen"):
+        ok = await state.set_task_done(task_id, done=action == "done")
+    else:
+        return _bad_request("action must be done, reopen or delete")
+    return {"success": True} if ok else _bad_request("No such task.", 404)
+
+
+@app.get("/api/notes")
+async def list_notes(prospect_id: str = "", company_id: str = ""):
+    state = _state()
+    await state.init_db()
+    return await state.get_notes(prospect_id=prospect_id, company_id=company_id)
+
+
+@app.post("/api/notes")
+async def create_note(request: Request):
+    from harvey.crm import CrmInputError, MAX_NOTE_CHARS, clean_text
+    data = await _json_body(request)
+    prospect_id = str(data.get("prospect_id") or "")[:100]
+    company_id = str(data.get("company_id") or "")[:100]
+    if not prospect_id and not company_id:
+        return _bad_request("A note needs a prospect_id or a company_id.")
+    try:
+        text = clean_text(data.get("content"), MAX_NOTE_CHARS, "note", single_line=False)
+    except CrmInputError as e:
+        return _bad_request(str(e))
+    state = _state()
+    await state.init_db()
+    note_id = await state.add_note(text, prospect_id=prospect_id, company_id=company_id)
+    return {"success": True, "id": note_id}
+
+
+@app.post("/api/notes/{note_id}/delete")
+async def remove_note(note_id: str):
+    state = _state()
+    await state.init_db()
+    ok = await state.delete_note(note_id)
+    return {"success": True} if ok else _bad_request("No such note.", 404)
+
+
+@app.get("/api/learnings")
+async def list_learnings(include_retired: bool = False, q: str = ""):
+    from harvey.crm import LEARNING_CATEGORIES, MIN_CONFIDENCE
+    state = _state()
+    await state.init_db()
+    rows = await state.get_learnings(active_only=not include_retired, query=q[:200])
+    return {"learnings": rows, "categories": list(LEARNING_CATEGORIES),
+            "min_confidence": MIN_CONFIDENCE}
+
+
+@app.post("/api/learnings")
+async def create_learning(request: Request):
+    """Save a learning the owner validated. Below MIN_CONFIDENCE is refused."""
+    from harvey.crm import CrmInputError, validate_learning
+    data = await _json_body(request)
+    try:
+        category, content, confidence = validate_learning(
+            data.get("category"), data.get("content"), data.get("confidence"))
+    except CrmInputError as e:
+        return _bad_request(str(e))
+    state = _state()
+    await state.init_db()
+    learning_id = await state.add_learning(
+        category, content, confidence,
+        source_context=" ".join(str(data.get("source_context") or "").split())[:200])
+    return {"success": True, "id": learning_id}
+
+
+@app.post("/api/learnings/{learning_id}/{action}")
+async def change_learning(learning_id: str, action: str):
+    """retire | restore."""
+    if action not in ("retire", "restore"):
+        return _bad_request("action must be retire or restore")
+    state = _state()
+    await state.init_db()
+    ok = await state.set_learning_active(learning_id, active=action == "restore")
+    return {"success": True} if ok else _bad_request("No such learning.", 404)
+
+
+@app.get("/api/prospects/{prospect_id}/score")
+async def explain_score(prospect_id: str):
+    """The deterministic score, part by part, next to the stored one."""
+    from harvey.config import load_config
+    from harvey.scoring import score_prospect
+    state = _state()
+    await state.init_db()
+    prospect = await state.get_prospect(prospect_id)
+    if not prospect:
+        return _bad_request("No such contact.", 404)
+    path = _resolve_config_file()
+    try:
+        config = load_config(str(path))
+    except Exception as e:
+        return JSONResponse({"error": f"Couldn't read {path.name}: {e}"}, status_code=500)
+    company = await state.get_company(prospect.company_id) if prospect.company_id else None
+    result = score_prospect(prospect, config.icp, config.scoring.weights, company=company)
+    return {**result.as_dict(), "stored_score": prospect.score}
+
+
 # ── Harvey Controls ──
 
 

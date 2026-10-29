@@ -414,6 +414,8 @@ function loadCurrentTab() {
     case 'campaigns': loadCampaigns(); break;
     case 'outbox': loadOutbox(); break;
     case 'conversations': loadConversations(); break;
+    case 'tasks': loadTasks(); break;
+    case 'learnings': loadLearnings(); break;
     case 'activity': loadActivity(); break;
     case 'usage': loadUsage(); break;
     case 'settings': loadSettings(); loadSendingModeCard(); break;
@@ -2566,6 +2568,124 @@ async function loadActivity() {
       '<span class="tl-agent">' + escHtml(a.agent) + '</span></div>';
   }
   el.innerHTML = html + '</div></div>';
+}
+
+// ── Tasks ──
+
+const TASK_BUCKETS = [['overdue', 'Overdue'], ['today', 'Due today'], ['upcoming', 'Upcoming'],
+  ['undated', 'No date'], ['done', 'Done']];
+
+function taskWho(t) {
+  const name = [t.first_name, t.last_name].filter(Boolean).join(' ') || t.email || '';
+  if (name && t.company_name) return name + ' · ' + t.company_name;
+  return name || t.company_name || '';
+}
+
+function taskRow(t) {
+  const id = escHtml(t.id);
+  const toggle = t.done
+    ? '<button class="btn btn-ghost btn-sm" onclick="changeTask(\'' + id + '\',\'reopen\')">Reopen</button>'
+    : '<button class="btn btn-secondary btn-sm" onclick="changeTask(\'' + id + '\',\'done\')">Done</button>';
+  const who = taskWho(t);
+  return '<tr><td>' + escHtml(t.description) +
+    (who ? '<div class="muted" style="font-size:12px">' + escHtml(who) + '</div>' : '') +
+    '</td><td class="muted" style="white-space:nowrap">' + escHtml(t.due_date || '') + '</td>' +
+    '<td style="text-align:right;white-space:nowrap">' + toggle +
+    ' <button class="btn btn-ghost btn-sm" onclick="changeTask(\'' + id + '\',\'delete\')">Delete</button></td></tr>';
+}
+
+async function loadTasks() {
+  const el = document.getElementById('tasks-list');
+  const showDone = document.getElementById('tasks-show-done').checked;
+  const data = await api('/api/tasks' + (showDone ? '?include_done=true' : ''));
+  if (!data) { el.innerHTML = offlineState(); return; }
+  navCount('nav-tasks', data.filter(t => t.bucket === 'overdue' || t.bucket === 'today').length);
+  if (!data.length) {
+    el.innerHTML = emptyState(icon('tasks'), 'Nothing to do',
+      'Add a follow-up above. When someone replies interested, Harvey adds a task due today.');
+    return;
+  }
+  let html = '';
+  for (const [bucket, label] of TASK_BUCKETS) {
+    const rows = data.filter(t => t.bucket === bucket);
+    if (!rows.length) continue;
+    html += '<div class="card flush" style="margin-bottom:12px"><div class="card-head"><h3>' + label +
+      ' (' + rows.length + ')</h3></div><table><tbody>' + rows.map(taskRow).join('') +
+      '</tbody></table></div>';
+  }
+  el.innerHTML = html;
+}
+
+async function addTask(e) {
+  e.preventDefault();
+  const text = document.getElementById('task-text');
+  const due = document.getElementById('task-due');
+  const r = await api('/api/tasks', {method: 'POST', headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({description: text.value, due_date: due.value})});
+  if (!r || !r.success) { showToast((r && r.message) || 'Could not add the task.', 'error'); return; }
+  text.value = '';
+  due.value = '';
+  loadTasks();
+}
+
+async function changeTask(id, action) {
+  const r = await api('/api/tasks/' + encodeURIComponent(id) + '/' + action, {method: 'POST'});
+  if (!r || !r.success) { showToast((r && r.message) || 'Could not update the task.', 'error'); return; }
+  loadTasks();
+}
+
+// ── Learnings ──
+
+function learningRow(l) {
+  const id = escHtml(l.id);
+  const action = l.active
+    ? '<button class="btn btn-ghost btn-sm" onclick="changeLearning(\'' + id + '\',\'retire\')">Retire</button>'
+    : '<button class="btn btn-secondary btn-sm" onclick="changeLearning(\'' + id + '\',\'restore\')">Restore</button>';
+  return '<tr' + (l.active ? '' : ' class="muted"') + '><td>' + escHtml(l.content) +
+    (l.source_context ? '<div class="muted" style="font-size:12px">from ' + escHtml(l.source_context) + '</div>' : '') +
+    '</td><td class="muted">' + escHtml(l.category) + '</td><td class="muted">' + escHtml(String(l.confidence)) +
+    '</td><td style="text-align:right">' + action + '</td></tr>';
+}
+
+async function loadLearnings() {
+  const el = document.getElementById('learnings-list');
+  const data = await api('/api/learnings?include_retired=true');
+  if (!data) { el.innerHTML = offlineState(); return; }
+  const sel = document.getElementById('learning-category');
+  if (!sel.options.length) {
+    sel.innerHTML = data.categories.map(c => '<option>' + escHtml(c) + '</option>').join('');
+  }
+  document.getElementById('learning-confidence').min = data.min_confidence;
+  if (!data.learnings.length) {
+    el.innerHTML = emptyState(icon('learnings'), 'No learnings yet',
+      'When something works (or fails) more than once, save it here and Harvey applies it to every email it writes and every reply it drafts.');
+    return;
+  }
+  el.innerHTML = '<div class="table-card"><table><thead><tr><th>Learning</th><th>Category</th>' +
+    '<th>Confidence</th><th></th></tr></thead><tbody>' + data.learnings.map(learningRow).join('') +
+    '</tbody></table></div>';
+}
+
+async function addLearning(e) {
+  e.preventDefault();
+  const text = document.getElementById('learning-text');
+  const source = document.getElementById('learning-source');
+  const r = await api('/api/learnings', {method: 'POST', headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({content: text.value,
+      category: document.getElementById('learning-category').value,
+      confidence: parseFloat(document.getElementById('learning-confidence').value),
+      source_context: source.value})});
+  if (!r || !r.success) { showToast((r && r.message) || 'Could not save the learning.', 'error'); return; }
+  text.value = '';
+  source.value = '';
+  showToast('Saved. Harvey applies it from the next email.', 'success');
+  loadLearnings();
+}
+
+async function changeLearning(id, action) {
+  const r = await api('/api/learnings/' + encodeURIComponent(id) + '/' + action, {method: 'POST'});
+  if (!r || !r.success) { showToast((r && r.message) || 'Could not update the learning.', 'error'); return; }
+  loadLearnings();
 }
 
 // ── Init & live refresh ──

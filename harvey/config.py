@@ -596,6 +596,33 @@ class WriterConfig(BaseModel):
     humanizer: bool = False
 
 
+class ScoringConfig(BaseModel):
+    # Points per part of the lead score (harvey.scoring.DEFAULT_WEIGHTS);
+    # only the parts you list change. Totals are capped at 100.
+    weights: dict[str, float] = {}
+
+    @field_validator("weights", mode="before")
+    @classmethod
+    def _known_parts(cls, v):
+        from harvey.scoring import DEFAULT_WEIGHTS
+
+        if v is None:
+            return {}
+        if not isinstance(v, dict):
+            raise ValueError("scoring.weights must be a mapping of part: points.")
+        unknown = sorted(set(v) - set(DEFAULT_WEIGHTS))
+        if unknown:
+            raise ValueError(
+                f"scoring.weights has unknown part(s) {', '.join(map(str, unknown))}; "
+                f"use: {', '.join(DEFAULT_WEIGHTS)}."
+            )
+        for part, points in v.items():
+            if isinstance(points, bool) or not isinstance(points, (int, float)) \
+                    or not 0 <= points <= 100:
+                raise ValueError(f"scoring.weights.{part} must be a number from 0 to 100.")
+        return v
+
+
 class HarveyConfig(BaseModel):
     persona: PersonaConfig
     product: ProductConfig
@@ -605,6 +632,7 @@ class HarveyConfig(BaseModel):
     brain: BrainConfig = BrainConfig()
     compliance: ComplianceConfig = ComplianceConfig()
     writer: WriterConfig = WriterConfig()
+    scoring: ScoringConfig = ScoringConfig()
     # The file it was loaded from, so a running Harvey can re-read the
     # sending mode from that same file (refresh_sending_mode).
     _source_path: str | None = PrivateAttr(default=None)
