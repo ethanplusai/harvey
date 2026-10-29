@@ -7,8 +7,18 @@ therefore writing their keys into Harvey's log files. See
 """
 
 import logging
+import subprocess
+import sys
+import textwrap
+from pathlib import Path
 
-from harvey.log_redaction import REDACTED, SecretRedactingFilter, quiet_httpx_loggers, redact_query_secrets
+from harvey.log_redaction import (
+    REDACTED,
+    SecretRedactingFilter,
+    install_log_redaction,
+    quiet_httpx_loggers,
+    redact_query_secrets,
+)
 
 
 class TestRedactQuerySecrets:
@@ -109,3 +119,82 @@ class TestQuietHttpxLoggers:
         quiet_httpx_loggers()
         assert logging.getLogger("httpx").getEffectiveLevel() == logging.WARNING
         assert logging.getLogger("httpcore").getEffectiveLevel() == logging.WARNING
+
+
+class TestInstallLogRedaction:
+    """The import-time install: a standalone script that imports harvey and
+    configures logging itself is covered without calling anything."""
+
+    def test_install_is_idempotent(self):
+        # Already installed by importing harvey; a second call must not wrap
+        # the factory again.
+        install_log_redaction()
+        factory = logging.getLogRecordFactory()
+        install_log_redaction()
+        assert logging.getLogRecordFactory() is factory
+
+    def test_factory_scrubs_records_for_plain_handlers(self):
+        # A host script's own handler, with no filter of its own, attached to
+        # a logger harvey.main never touches: the record is redacted at
+        # creation, before any handler sees it.
+        import io
+
+        stream = io.StringIO()
+        handler = logging.StreamHandler(stream)
+        test_logger = logging.getLogger("harvey.test_factory_redaction")
+        test_logger.addHandler(handler)
+        test_logger.setLevel(logging.INFO)
+        try:
+            test_logger.info(
+                "GET %s failed (%d attempts)",
+                "https://vendor.example/v1?token=s3cr3t", 2,
+            )
+        finally:
+            test_logger.removeHandler(handler)
+        out = stream.getvalue()
+        assert "s3cr3t" not in out
+        assert f"token={REDACTED}" in out
+        assert "(2 attempts)" in out
+
+    def test_standalone_script_is_covered(self):
+        # The exact shape that leaked: a script that calls basicConfig itself,
+        # before importing harvey, and runs the collectors in-process. Run in
+        # a fresh interpreter because this process already imported harvey.
+        script = textwrap.dedent(
+            """
+            import logging, sys
+
+            logging.basicConfig(level=logging.INFO, stream=sys.stdout,
+                                format="%(levelname)s %(name)s %(message)s")
+
+            import harvey
+
+            httpx = logging.getLogger("httpx")
+            httpx.info(
+                "HTTP Request: GET https://api.hunter.example/v2/domain-search"
+                "?domain=example.com&api_key=hunter-secret-123"
+            )
+            logging.getLogger("script").info("script still logs normally")
+            httpx.setLevel(logging.DEBUG)  # a debugging session re-opens the lines
+            httpx.debug(
+                "HTTP Request: GET https://api.hunter.example/v2/email-finder"
+                "?domain=example.com&api_key=hunter-secret-123"
+            )
+            """
+        )
+        proc = subprocess.run(
+            [sys.executable, "-c", script],
+            capture_output=True, text=True, timeout=120,
+            cwd=str(Path(__file__).resolve().parents[1]),
+        )
+        out = proc.stdout + proc.stderr
+        assert proc.returncode == 0, out
+        assert "hunter-secret-123" not in out
+        # The INFO request line never fired: the httpx logger was quieted at
+        # harvey import, even though the script configured logging first.
+        assert "domain-search" not in out
+        # The script's own logging is untouched.
+        assert "script still logs normally" in out
+        # And with the firehose re-opened by hand, the key is gone anyway.
+        assert f"api_key={REDACTED}" in out
+

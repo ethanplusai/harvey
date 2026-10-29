@@ -481,12 +481,14 @@ minor versions can still change behaviour.
 - **Keep API keys out of log files.** httpx logs one full request URL per
   request at INFO — query string included — so the `api_key` that some
   vendors expect as a query parameter (Hunter's email finder among them)
-  was being written into the heartbeat log on every call. The heartbeat's
-  logging now drops the httpx/httpcore loggers to WARNING (transport
-  errors still surface) and attaches a filter that rewrites any
-  credential-looking query value — `api_key`, `token`, `password` and
-  friends — to `[REDACTED]` before a line reaches a handler, so the keys
-  stay out even while debugging at DEBUG level.
+  was being written into the heartbeat log on every call, and into the log
+  of any standalone script that imports harvey and configures logging
+  itself. Importing `harvey` now drops the httpx/httpcore loggers to
+  WARNING (transport errors still surface) and installs a log-record
+  factory that rewrites any credential-looking query value — `api_key`,
+  `token`, `password` and friends — to `[REDACTED]` as each record is
+  created, so the keys stay out of every handler the process ever
+  configures, even while debugging at DEBUG level.
 
 ### Added
 

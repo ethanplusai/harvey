@@ -16,4 +16,11 @@ if sys.version_info < (3, 11):  # pragma: no cover - version guard
         f"    source .venv/bin/activate && pip install -e ."
     )
 
+# Credential query values must stay out of log files even when a standalone
+# script imports harvey and configures logging itself, so the redaction is
+# installed at package import rather than in each entry point.
+from harvey.log_redaction import install_log_redaction
+
+install_log_redaction()
+
 """Harvey — Autonomous Sales Agent. Always Be Closing."""
