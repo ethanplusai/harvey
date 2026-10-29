@@ -34,6 +34,10 @@ BUSY_TIMEOUT_SECONDS = 30.0
 # Email statuses the Writer drafts for. Shared with the heartbeat so it only
 # chooses write_campaign when there is something the Writer will act on.
 WRITABLE_EMAIL_STATUSES = ("verified", "risky")
+# Grace period (days) before the heartbeat retires a 'new' prospect with no
+# address and no company row to 'undeliverable'. See
+# StateManager.retire_undeliverable_prospects.
+UNDELIVERABLE_AFTER_DAYS = 7
 # Settings key, per prospect: the user emailed them by hand from the
 # dashboard. Its value is the status they had before, so undo is exact; its
 # presence tells the Sender never to email them as well.
@@ -2157,6 +2161,50 @@ class StateManager:
                 (*WRITABLE_EMAIL_STATUSES, since),
             ) as cursor:
                 return (await cursor.fetchone())[0]
+
+    async def retire_undeliverable_prospects(
+        self, older_than_days: int = UNDELIVERABLE_AFTER_DAYS
+    ) -> int:
+        """Retire 'new' prospects that can never be emailed.
+
+        A prospect with no address and no company row has no domain: no
+        email pattern can be learned, a verifier has nothing to check,
+        and no later stage can move it out of 'new' — it just inflates
+        the counts the heartbeat decides from and the dashboard shows.
+        After a grace period such rows are retired to 'undeliverable'
+        (kept, not deleted: their LinkedIn URL stays under its unique
+        index, and the sweep is recorded in the action log). Rows with a
+        company but no address are left alone — a colleague's verified
+        pattern or a future scrape can still fill the address in.
+        Returns how many rows were retired this call.
+        """
+        now = _utcnow().isoformat()
+        cutoff = (_utcnow() - timedelta(days=older_than_days)).isoformat()
+        async with self._connect() as db:
+            cursor = await db.execute(
+                """UPDATE prospects
+                   SET status = 'undeliverable', updated_at = ?
+                   WHERE status = 'new'
+                     AND COALESCE(email, '') = ''
+                     AND COALESCE(company_id, '') = ''
+                     AND datetime(created_at) < datetime(?)""",
+                (now, cutoff),
+            )
+            retired = cursor.rowcount or 0
+            if retired:
+                await db.execute(
+                    "INSERT INTO actions (id, action_type, agent, details_json) "
+                    "VALUES (?, ?, ?, ?)",
+                    (_new_id(), "retired_undeliverable", "heartbeat",
+                     json.dumps({
+                         "retired": retired,
+                         "older_than_days": older_than_days,
+                         "reason": "no email and no company: no domain to "
+                                   "learn an address pattern from",
+                     })),
+                )
+            await db.commit()
+            return retired
 
     async def count_prospects_by_status(self) -> dict[str, int]:
         async with self._connect() as db:

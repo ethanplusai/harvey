@@ -86,6 +86,7 @@ const STATUS = {
   write_failed:   ["Couldn't write", 'bad'],
   queued:         ['Queued', 'active'],
   opted_out:      ['Opted out', 'bad'],
+  undeliverable:  ['Undeliverable', 'idle'],
   // campaigns
   draft:          ['Draft', 'waiting'],
   active:         ['Active', 'good'],

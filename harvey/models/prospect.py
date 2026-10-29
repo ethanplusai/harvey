@@ -31,7 +31,9 @@ class Prospect(BaseModel):
     department: str = ""
     source: str = ""           # how we found them
     source_url: str = ""       # where we found the info
-    status: str = "new"        # new/contacted/replied/meeting/closed/lost
+    # new/queued/contacted/replied/meeting/closed/lost/opted_out/
+    # write_failed/undeliverable (never emailable: no address, no company)
+    status: str = "new"
     score: int = 0
     personalization_notes: str = ""
     # IANA time zone for the send window ("Europe/Oslo"), once known.

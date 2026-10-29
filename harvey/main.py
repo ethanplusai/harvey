@@ -373,6 +373,19 @@ async def heartbeat(stop_event: asyncio.Event | None = None):
                 summary = {}
                 action = "quiet_hours_send"
             else:
+                # Housekeeping before the decision, so the counts it reads
+                # are true: retire 'new' prospects that can never be emailed
+                # (no address, no company row, past a grace period). Pure
+                # SQL, no model call — and never allowed to stop the cycle.
+                try:
+                    retired = await state.retire_undeliverable_prospects()
+                    if retired:
+                        logger.info(
+                            f"Retired {retired} undeliverable prospect(s) "
+                            "(no email and no company to find one from)."
+                        )
+                except Exception as e:
+                    logger.warning(f"Couldn't retire undeliverable prospects: {e}")
                 logger.info("Checking pipeline state...")
                 summary = await state.get_state_summary()
                 action = await decide_next_action(brain, state, config, summary=summary)
