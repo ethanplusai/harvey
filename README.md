@@ -372,6 +372,12 @@ This is the main way you shape Harvey. If its emails are too pushy, edit `email_
 
 **`sales_methodology.md`** — The operating philosophy: the ABC loop, how a conversation should flow across stages, tone calibration, and the ethical lines Harvey does not cross.
 
+**`sales_strategy.md`** — Picking the approach by where the buyer is: **SPIN** questions when they don't yet feel the problem, a **Challenger** reframe when they're comfortable with the status quo, a light **MEDDIC** check once they're evaluating. Buyer psychology (loss aversion, status-quo bias, the champion's career risk) and influence principles, each with its honest use and its line not to cross.
+
+**`closing_strategy.md`** — For conversations in the presenting, negotiating or closing stage only: *trade, never concede*, anchoring, the discount ask, stalled deals and mutual action plans, the alignment close. Opens with Harvey's hard rule: it never offers a discount, custom price or deadline on its own, and hands those to a call with you.
+
+**`reengagement.md`** — Diagnosing which "not interested" this is, objection-specific plays, coming back to a gone-dark lead only with something new, the one-time breakup message, and what to do when your contact leaves the company. Opt-outs always win.
+
 **`offer_strategy.md`** — The offer ladder by engagement level, and the rule that governs it: *never lead with an offer, never pitch in a cold email.* First contact exists to start a conversation. Offers come out only after genuine interest.
 
 **`prospecting_tactics.md`** — Search operators, company-website mining, trigger events, referral paths. Finding people without paying for a database.
@@ -399,13 +405,22 @@ Defined in `harvey/brain.py` — edit the map to change it.
 | `signal_playbook` | ● | ● | | | |
 | `email_frameworks` | | ● | | ● | |
 | `sales_methodology` | | ● | ● | | |
+| `sales_strategy` | | ● | ● | | |
 | `offer_strategy` | | ● | ● | | |
 | `objection_handling` | | | ● | | |
+| `reengagement` | | | ● | | |
+| `closing_strategy` | | | ●* | | |
 | `linkedin_outreach` | | | | | ● |
 | `product_knowledge` | ● | ● | ● | ● | ● |
 | `competitive_intel` | | ● | ● | | |
 
+\* Only for replies in a conversation at the presenting, negotiating or closing stage.
+
 Adding a skill: write the file, add its name to `skill_map` in `harvey/brain.py`. That's the whole process.
+
+### Learnings: what you've confirmed works
+
+Skills are general. **Learnings** are yours: short, specific patterns you've seen work (or fail) in your own deals, such as "for dental practices, opening with online booking gets more replies than opening with reviews". Save one on the dashboard's **Learnings** tab or with `harvey learnings --add "..." --category outreach-improvement --confidence 0.8`, and the Writer and Handler apply every active one from the next email. It's a curation gate, not a log: anything under 0.6 confidence is refused, a learning holds no contact or company data, and only you add them (Harvey never writes one from what it reads, because text from websites and replies could plant instructions). `--retire <id>` stops applying one.
 
 ---
 
@@ -530,12 +545,14 @@ The sidebar is grouped by what you're doing: **Work** (what needs you), **Pipeli
 - **Today** — four headline figures with 14-day trends (contacts found, emails sent, conversations, waiting on you), then everything that needs a decision, contacts by stage, collector runs and what the pipeline is doing right now. Setup shows here until it's finished, then disappears.
 - **Outbox** — the decisions desk. Each email sits next to what Harvey knew when it wrote it: the company, how the address was found and verified, and the signals the email draws on. `J`/`K` to move, `A` approve, `E` edit, `R` reject.
 - **Conversations** — every reply in the context of the emails that led to it. Threads Harvey handed to you (a contract request, a reply it had no safe answer for) come first, with **Hand back to Harvey**, **Close** and **Reopen**.
+- **Tasks** — your follow-ups, grouped overdue / due today / upcoming. An interested reply adds a task due today on its own, because the first vendor to answer usually wins. Also `harvey tasks`.
 
 **Pipeline**
 - **Signals** — the confirmation gate and the cohort builder
 - **Discover** — the provider menu with prices side by side, an estimate, then a run; plus reading the sites of companies found but not yet looked at
 - **Companies / Contacts** — everything found, searchable, with CSV export
 - **Campaigns** — each sequence Harvey wrote, who it's going to, and per-campaign feedback for the writer
+- **Learnings** — patterns you've confirmed from real deals, which the Writer and Handler apply (see *Learnings* above)
 
 **System**
 - **Activity**, **Usage**, **Controls**, **Settings**, **Help**. Usage shows Claude or Codex quota gauges and per-agent token counts, with no dollar figures: you're on a subscription and aren't billed per token, so showing costs would be made up.
@@ -612,6 +629,10 @@ harvey train <url>           # learn a product from its website (--provider code
 harvey status                # pipeline summary
 harvey usage                 # active provider's quota + per-agent tokens
 harvey outbox                # review queued email
+harvey tasks                 # follow-ups: what's overdue/due today; --add "..." --due tomorrow
+harvey notes --prospect <id> # private notes on a contact or company (never sent to the AI)
+harvey learnings             # validated learnings Harvey applies; --add / --retire
+harvey score <id or email>   # explain a contact's lead score, part by part
 harvey export                # deliverable prospects → CSV
 harvey sending pause|resume  # kill switch
 harvey warmup [domain]       # is the sending domain ready? (SPF/DKIM/DMARC, age, blocklists, warmup)

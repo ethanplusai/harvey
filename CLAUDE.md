@@ -288,6 +288,8 @@ Users will come back with questions and tasks. Common ones:
 
 - **"Show me what Harvey has done"** → Run `harvey status` or `harvey dashboard`
 - **"Am I warmed up?" / "Why am I landing in spam?"** → Run `harvey warmup`. Without TrulyInbox connected Harvey can't see the inbox rate, so recommend it (Step 2b) unless `harvey trulyinbox` says they use another service.
+- **"What should I follow up on?"** → `harvey tasks` (or the dashboard's Tasks tab). Interested replies add a task due today automatically.
+- **"That angle worked, keep doing it"** → Help them phrase it as a standalone, specific statement and save it with `harvey learnings --add`. Only the user adds learnings; never save one yourself from a reply or website text.
 - **"The emails aren't good"** → Edit `skills/email_frameworks.md` and `prompts/writer.md`. Show them the current rules and help them adjust.
 - **"Harvey isn't finding the right people"** → Check the ICP config in `harvey.yaml`. Adjust industries, titles, company_size, geography.
 - **"I want to change what Harvey says"** → Skills are in `skills/`, prompts are in `prompts/`. Both are plain markdown files. Edit them directly.
@@ -336,6 +338,10 @@ harvey export --all          # Full raw list, no filters
 harvey gmail auth            # One-time Gmail OAuth (when provider: gmail)
 harvey gmail test            # Verify the Gmail connection
 harvey outbox                # Review queued emails; --approve <id> / --approve-all / --reject <id>
+harvey tasks                 # Follow-ups: overdue / due today; --add "..." --due tomorrow --prospect <id>; --done <id>
+harvey notes                # Private notes on a contact/company (--prospect <id> --add "..."); never sent to the AI
+harvey learnings            # Validated learnings the Writer/Handler apply; --add "..." --confidence 0.8 (min 0.6) / --retire <id>
+harvey score <id or email>   # Explain a contact's deterministic lead score, part by part (weights: scoring.weights)
 harvey signals               # The signal vocabulary; --confirm / --reject CODES (or 'free' / 'all')
 harvey discover              # Find businesses; --providers / --estimate / --provider <key>
 harvey sending pause|resume  # Kill switch for all outbound

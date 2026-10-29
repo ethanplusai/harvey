@@ -49,6 +49,7 @@ from harvey.integrations.linkedin import LinkedInAutomation
 from harvey.models.company import Company
 from harvey.models.prospect import COMPANY_INBOX_SOURCE, Prospect
 from harvey.public_http import public_http_client
+from harvey.scoring import score_prospect, title_fits_icp
 from harvey.state import StateManager
 from harvey.untrusted import UNTRUSTED_RULE, fence
 
@@ -121,13 +122,6 @@ USER_AGENTS = [
 ]
 
 # Seniority / title vocabulary reused for ICP heuristics.
-_SENIOR_KEYWORDS = (
-    "ceo", "cto", "cfo", "cmo", "coo", "cro", "chief", "founder",
-    "co-founder", "president", "owner", "partner", "vp", "vice president",
-    "svp", "evp", "head of", "director",
-)
-
-
 class Scout:
     def __init__(
         self,
@@ -1200,9 +1194,16 @@ class Scout:
         if not contacts:
             return contacts
 
-        # Seed every contact with a heuristic baseline first.
+        # Seed every contact with the deterministic baseline first.
+        companies: dict[str, Company | None] = {}
         for c in contacts:
-            c.score = self._heuristic_score(c)
+            if c.company_id and c.company_id not in companies:
+                try:
+                    companies[c.company_id] = await self.state.get_company(c.company_id)
+                except Exception as e:
+                    logger.debug(f"Scout: no company for scoring {c.company_id}: {e}")
+                    companies[c.company_id] = None
+            c.score = self._heuristic_score(c, companies.get(c.company_id))
 
         contact_summaries = []
         for i, c in enumerate(contacts):
@@ -1269,41 +1270,14 @@ Respond ONLY with the JSON array."""
         contacts.sort(key=lambda c: c.score, reverse=True)
         return contacts
 
-    def _heuristic_score(self, contact: Prospect) -> int:
-        """Deterministic ICP fit score used as a fallback / baseline."""
-        score = 40
-
-        # Title / seniority fit.
-        if self._title_matches_icp(contact.title):
-            score += 25
-        seniority_bonus = {
-            "c_suite": 20, "vp": 15, "director": 10, "manager": 5, "individual": 0,
-        }
-        score += seniority_bonus.get(contact.seniority, 0)
-
-        # Industry fit.
-        if contact.industry and self.config.icp.industries:
-            if any(
-                ind.lower() in contact.industry.lower()
-                or contact.industry.lower() in ind.lower()
-                for ind in self.config.icp.industries
-            ):
-                score += 10
-
-        # Deliverability: reward confidence in the address.
-        if contact.email_status == "verified":
-            score += 8
-        elif contact.email_status == "risky":
-            score += 3
-        elif contact.email:
-            score += 1
-
-        # Timely buying signals (hiring for a relevant role right now)
-        # outperform static fit — reward them strongly.
-        if "Signal: hiring" in (contact.personalization_notes or ""):
-            score += 10
-
-        return max(1, min(100, score))
+    def _heuristic_score(self, contact: Prospect, company: Company | None = None) -> int:
+        """Deterministic ICP fit score (harvey.scoring), the baseline and fallback."""
+        return score_prospect(
+            contact, self.config.icp,
+            getattr(getattr(self.config, "scoring", None), "weights", None),
+            company=company,
+            title_match=self._title_matches_icp(contact.title),
+        ).total
 
     # ── Shared utilities ──
 
@@ -2112,14 +2086,7 @@ Respond ONLY with the JSON array."""
         satisfy "President", and owner synonyms (Proprietor, Principal,
         Managing Partner, Founder, CEO) satisfy an owner-type ICP.
         """
-        if not title:
-            return False
-        if self.config.icp.titles:
-            return people_mod.title_matches(title, self.config.icp.titles)
-        # No explicit ICP titles → fall back to any senior title.
-        title_lower = title.lower()
-        return any(re.search(rf"(?<![\w-]){re.escape(kw)}\b", title_lower)
-                   for kw in _SENIOR_KEYWORDS)
+        return title_fits_icp(title, self.config.icp.titles)
 
     def _icp_wants_owner(self) -> bool:
         """Does the ICP target owners (Owner, Founder, President, CEO...)?"""

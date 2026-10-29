@@ -519,6 +519,49 @@ MIGRATIONS: list[str] = [
     -- knows about the recipient. Empty until then.
     ALTER TABLE prospects ADD COLUMN timezone TEXT DEFAULT '';
     """,
+    # ── v15: follow-up tasks, private notes, curated learnings ──
+    """
+    -- A task or note belongs to a contact, a company, or both (both empty is
+    -- a general to-do). due_date is a plain YYYY-MM-DD, '' when undated.
+    CREATE TABLE IF NOT EXISTS tasks (
+        id TEXT PRIMARY KEY,
+        prospect_id TEXT DEFAULT '',
+        company_id TEXT DEFAULT '',
+        description TEXT DEFAULT '',
+        due_date TEXT DEFAULT '',
+        done INTEGER DEFAULT 0,
+        source TEXT DEFAULT 'you',
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        done_at TIMESTAMP
+    );
+    CREATE INDEX IF NOT EXISTS idx_tasks_open_due ON tasks(done, due_date);
+    CREATE INDEX IF NOT EXISTS idx_tasks_prospect ON tasks(prospect_id);
+
+    -- Notes are the owner's private record. Unlike feedback, they are never
+    -- put in a prompt.
+    CREATE TABLE IF NOT EXISTS notes (
+        id TEXT PRIMARY KEY,
+        prospect_id TEXT DEFAULT '',
+        company_id TEXT DEFAULT '',
+        content TEXT DEFAULT '',
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    );
+    CREATE INDEX IF NOT EXISTS idx_notes_prospect ON notes(prospect_id);
+    CREATE INDEX IF NOT EXISTS idx_notes_company ON notes(company_id);
+
+    -- Validated, reusable sales experience the owner chose to keep (never
+    -- CRM data). Only rows at or above harvey.crm.MIN_CONFIDENCE get in, and
+    -- active ones go into the Writer's and Handler's prompts.
+    CREATE TABLE IF NOT EXISTS learnings (
+        id TEXT PRIMARY KEY,
+        category TEXT DEFAULT '',
+        content TEXT DEFAULT '',
+        source_context TEXT DEFAULT '',
+        confidence REAL DEFAULT 0.6,
+        active INTEGER DEFAULT 1,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    );
+    """,
 ]
 
 BRAIN_PROVIDERS = ("claude", "codex")
@@ -2243,6 +2286,167 @@ class StateManager:
                                     "created_at": r["created_at"]})
         out.sort(key=lambda n: str(n.get("created_at") or ""), reverse=True)  # newest first
         return out
+
+    # ── Tasks, notes and learnings (rules in harvey.crm) ──
+
+    async def add_task(
+        self, description: str, due_date: str = "", prospect_id: str = "",
+        company_id: str = "", source: str = "you",
+    ) -> str:
+        """A follow-up to-do. Callers pass already-validated values."""
+        task_id = _new_id()
+        if prospect_id and not company_id:
+            prospect = await self.get_prospect(prospect_id)
+            company_id = prospect.company_id if prospect else ""
+        async with self._connect() as db:
+            await db.execute(
+                """INSERT INTO tasks (id, prospect_id, company_id, description,
+                                      due_date, source, created_at)
+                   VALUES (?, ?, ?, ?, ?, ?, ?)""",
+                (task_id, prospect_id, company_id, description, due_date,
+                 source, _utcnow().isoformat()),
+            )
+            await db.commit()
+        return task_id
+
+    async def get_tasks(
+        self, include_done: bool = False, prospect_id: str = "",
+        company_id: str = "", limit: int = 200,
+    ) -> list[dict]:
+        """Tasks with who they're about. Open first, by due date (undated last)."""
+        where, params = [], []
+        if not include_done:
+            where.append("t.done = 0")
+        if prospect_id:
+            where.append("t.prospect_id = ?")
+            params.append(prospect_id)
+        if company_id:
+            where.append("t.company_id = ?")
+            params.append(company_id)
+        clause = ("WHERE " + " AND ".join(where)) if where else ""
+        async with self._connect() as db:
+            db.row_factory = aiosqlite.Row
+            async with db.execute(
+                f"""SELECT t.*, p.first_name, p.last_name, p.email,
+                           COALESCE(NULLIF(c.name, ''), p.company, '') AS company_name
+                    FROM tasks t
+                    LEFT JOIN prospects p ON p.id = t.prospect_id AND t.prospect_id != ''
+                    LEFT JOIN companies c ON c.id = t.company_id AND t.company_id != ''
+                    {clause}
+                    ORDER BY t.done, t.due_date = '', t.due_date, t.created_at
+                    LIMIT ?""",
+                (*params, int(limit)),
+            ) as cursor:
+                return [dict(r) for r in await cursor.fetchall()]
+
+    async def has_open_task(self, prospect_id: str, source: str) -> bool:
+        """An open task from this source for this person (so one isn't doubled)."""
+        async with self._connect() as db:
+            async with db.execute(
+                "SELECT 1 FROM tasks WHERE prospect_id = ? AND source = ? AND done = 0 LIMIT 1",
+                (prospect_id, source),
+            ) as cursor:
+                return await cursor.fetchone() is not None
+
+    async def set_task_done(self, task_id: str, done: bool = True) -> bool:
+        async with self._connect() as db:
+            cursor = await db.execute(
+                "UPDATE tasks SET done = ?, done_at = ? WHERE id = ?",
+                (1 if done else 0, _utcnow().isoformat() if done else None, task_id),
+            )
+            await db.commit()
+            return cursor.rowcount > 0
+
+    async def delete_task(self, task_id: str) -> bool:
+        async with self._connect() as db:
+            cursor = await db.execute("DELETE FROM tasks WHERE id = ?", (task_id,))
+            await db.commit()
+            return cursor.rowcount > 0
+
+    async def add_note(self, content: str, prospect_id: str = "", company_id: str = "") -> str:
+        note_id = _new_id()
+        if prospect_id and not company_id:
+            prospect = await self.get_prospect(prospect_id)
+            company_id = prospect.company_id if prospect else ""
+        async with self._connect() as db:
+            await db.execute(
+                """INSERT INTO notes (id, prospect_id, company_id, content, created_at)
+                   VALUES (?, ?, ?, ?, ?)""",
+                (note_id, prospect_id, company_id, content, _utcnow().isoformat()),
+            )
+            await db.commit()
+        return note_id
+
+    async def get_notes(self, prospect_id: str = "", company_id: str = "",
+                        limit: int = 100) -> list[dict]:
+        """Notes on a contact (and their company's), or on a company, newest first."""
+        if prospect_id:
+            prospect = await self.get_prospect(prospect_id)
+            company = prospect.company_id if prospect else ""
+            sql = ("SELECT * FROM notes WHERE prospect_id = ? "
+                   "OR (? != '' AND company_id = ? AND prospect_id = '')")
+            params: tuple = (prospect_id, company, company)
+        elif company_id:
+            sql, params = "SELECT * FROM notes WHERE company_id = ?", (company_id,)
+        else:
+            sql, params = "SELECT * FROM notes", ()
+        async with self._connect() as db:
+            db.row_factory = aiosqlite.Row
+            async with db.execute(
+                sql + " ORDER BY created_at DESC LIMIT ?", (*params, int(limit))
+            ) as cursor:
+                return [dict(r) for r in await cursor.fetchall()]
+
+    async def delete_note(self, note_id: str) -> bool:
+        async with self._connect() as db:
+            cursor = await db.execute("DELETE FROM notes WHERE id = ?", (note_id,))
+            await db.commit()
+            return cursor.rowcount > 0
+
+    async def add_learning(self, category: str, content: str, confidence: float,
+                           source_context: str = "") -> str:
+        """Store a learning that passed harvey.crm.validate_learning."""
+        learning_id = _new_id()
+        async with self._connect() as db:
+            await db.execute(
+                """INSERT INTO learnings (id, category, content, source_context,
+                                          confidence, created_at)
+                   VALUES (?, ?, ?, ?, ?, ?)""",
+                (learning_id, category, content, source_context, confidence,
+                 _utcnow().isoformat()),
+            )
+            await db.commit()
+        return learning_id
+
+    async def get_learnings(self, active_only: bool = True, query: str = "",
+                            limit: int = 100) -> list[dict]:
+        """Learnings, most confident and newest first; ``query`` matches text."""
+        where, params = [], []
+        if active_only:
+            where.append("active = 1")
+        if query.strip():
+            where.append("(content LIKE ? ESCAPE '\\' OR category LIKE ? ESCAPE '\\')")
+            like = "%" + query.strip().replace("\\", "\\\\").replace("%", "\\%") \
+                .replace("_", "\\_") + "%"
+            params += [like, like]
+        clause = ("WHERE " + " AND ".join(where)) if where else ""
+        async with self._connect() as db:
+            db.row_factory = aiosqlite.Row
+            async with db.execute(
+                f"SELECT * FROM learnings {clause} "
+                "ORDER BY confidence DESC, created_at DESC LIMIT ?",
+                (*params, int(limit)),
+            ) as cursor:
+                return [dict(r) for r in await cursor.fetchall()]
+
+    async def set_learning_active(self, learning_id: str, active: bool) -> bool:
+        async with self._connect() as db:
+            cursor = await db.execute(
+                "UPDATE learnings SET active = ? WHERE id = ?",
+                (1 if active else 0, learning_id),
+            )
+            await db.commit()
+            return cursor.rowcount > 0
 
     # ── Reply Deduplication ──
 

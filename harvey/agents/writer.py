@@ -16,6 +16,7 @@ from datetime import datetime, timezone
 
 from harvey.brain import Brain
 from harvey.config import HarveyConfig
+from harvey.crm import PROMPT_LEARNINGS, learnings_prompt_block
 from harvey.humanize import humanize, humanizer_enabled
 from harvey.integrations.mail_provider import NATIVE_PROVIDERS
 from harvey.models.campaign import Campaign, EmailStep
@@ -270,6 +271,15 @@ class Writer:
             + lines
         )
 
+    async def _learnings_block(self) -> str:
+        """The owner's validated learnings as prompt text ("" when none)."""
+        try:
+            rows = await self.state.get_learnings(limit=PROMPT_LEARNINGS)
+        except Exception as e:
+            logger.warning(f"Writer: could not read learnings: {e}")
+            return ""
+        return learnings_prompt_block(rows)
+
     async def _write_personal_email(self, prospect) -> dict | None:
         """One grounded draft for one person. Facts in, one email out."""
         inbox_rule = ""
@@ -328,6 +338,7 @@ class Writer:
         if startup is not None:
             prompt += self._startup_playbook()
         prompt += await self._feedback_block([prospect.id])
+        prompt += await self._learnings_block()
 
         prompt += f"""
 
@@ -417,6 +428,7 @@ Pricing: {self.config.product.pricing}"""
         # Campaign notes only: this template goes to the whole batch, so a
         # note about one person ("met her at the expo") must never reach it.
         prompt += await self._feedback_block([])
+        prompt += await self._learnings_block()
 
         prompt += f"""
 
