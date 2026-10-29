@@ -857,13 +857,43 @@ class Scout:
                 if not company:
                     continue
 
+                # A company name alone is still a dead prospect: with no
+                # domain there is no company row, no learnable email
+                # pattern, and nothing to verify or send. Resolve the name
+                # to a domain and attach the company before saving; skip
+                # when nothing resolves.
+                domain = ""
+                try:
+                    domain = await self._guess_domain(company)
+                except Exception:
+                    domain = ""
+                if not domain:
+                    continue
+                company_id = await self._ensure_company(
+                    name=company,
+                    domain=domain,
+                    industry=industry,
+                    source="web_search",
+                    source_url=url,
+                )
+
+                email, email_status = await self._resolve_email(
+                    parsed.get("first_name", ""),
+                    parsed.get("last_name", ""),
+                    domain,
+                )
+
                 prospect = Prospect(
                     first_name=parsed.get("first_name", ""),
                     last_name=parsed.get("last_name", ""),
+                    email=email,
+                    email_status=email_status,
+                    email_verified=(email_status == "verified"),
                     linkedin_url=url,
                     title=title,
                     seniority=self._infer_seniority(title),
                     company=company,
+                    company_id=company_id,
                     industry=industry,
                     source="web_search",
                     source_url=url,
