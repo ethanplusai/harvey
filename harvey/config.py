@@ -377,9 +377,22 @@ DEFAULT_OPT_OUT_LINE = 'Not interested? Reply "no thanks" and I won\'t email aga
 # opt_out_line must ask for one of them ("Reply STOP", 'reply "no thanks"').
 OPT_OUT_WORDS = ("no thanks", "no thank you", "unsubscribe", "stop", "remove me",
                  "opt out")
+# The same in Hebrew ('השיבו "הסר"', 'תגידו לי "לא תודה"').
+HEBREW_OPT_OUT_WORDS = ("הסר", "הסירו", "הסרה", "לא תודה", "הסירו אותי", "תורידו אותי")
+_OPT_OUT_WORD_RE = "(?:" + "|".join(
+    r"[\s,]+".join(map(re.escape, w.split()))
+    for w in OPT_OUT_WORDS + HEBREW_OPT_OUT_WORDS) + ")"
 _ASKS_FOR_OPT_OUT_RE = re.compile(
-    r"\breply(?:\s+with)?\s*[\"'\u201c\u2018]?\s*(?:"
-    + "|".join(re.escape(w) for w in OPT_OUT_WORDS) + r")\b", re.IGNORECASE)
+    r"\breply(?:\s+with)?\s*[\"'\u201c\u2018]?\s*" + _OPT_OUT_WORD_RE + r"\b", re.IGNORECASE)
+# Reply / answer / write / tell me, then a few words at most ("במייל חוזר").
+_ASKS_FOR_OPT_OUT_HE_RE = re.compile(
+    r"(?<!\w)ו?(?:השיב[וי]?|השב|תשיב[וי]?|ענ[הוי]|תענ[הוי]|כתוב|כתב[וי]|תכתוב|תכתב[וי]"
+    r"|הגב|הגיב[וי]|תגיב[וי]?|שלח[וי]?|תשלח[וי]?|תגיד[וי]?|אמור|אמר[וי])"
+    r"(?:\s+[^\s\"'\u05f3\u05f4\u201c\u201d\u2018\u2019]+){0,3}?"
+    r"\s*[\"'\u05f3\u05f4\u201c\u201d\u2018\u2019]?\s*" + _OPT_OUT_WORD_RE + r"(?!\w)",
+    re.IGNORECASE)
+# "Click" in Hebrew: a footer has no link to click.
+_HEBREW_CLICK_RE = re.compile(r"(?<!\w)ו?(?:לחצו|לחצי|לחץ\s+(?:כאן|על)|הקליקו|הקליקי|הקלק)(?!\w)")
 
 
 class ComplianceConfig(BaseModel):
@@ -388,7 +401,8 @@ class ComplianceConfig(BaseModel):
     # CAN-SPAM requires a postal address you receive mail at (a street
     # address, PO box or virtual mailbox) and a working way to opt out.
     postal_address: str = ""
-    # Must ask for wording Harvey recognises as an opt-out (OPT_OUT_WORDS).
+    # Must ask for wording Harvey recognises as an opt-out (OPT_OUT_WORDS,
+    # HEBREW_OPT_OUT_WORDS).
     # "" leaves it off (and harvey warns).
     opt_out_line: str = DEFAULT_OPT_OUT_LINE
     # Companies this operator will never email: competitors, existing
@@ -439,16 +453,17 @@ class ComplianceConfig(BaseModel):
         lowered = v.lower()
         if not v:
             return v
-        if any(bit in lowered for bit in ("http", "www.", "click", "@")):
+        if (any(bit in lowered for bit in ("http", "www.", "click", "@"))
+                or _HEBREW_CLICK_RE.search(v)):
             raise ValueError(
                 "opt_out_line can't contain a link or an email address: cold email "
                 "allows one link, and opting out must be as simple as replying."
             )
-        if not _ASKS_FOR_OPT_OUT_RE.search(v):
+        if not (_ASKS_FOR_OPT_OUT_RE.search(v) or _ASKS_FOR_OPT_OUT_HE_RE.search(v)):
             raise ValueError(
                 "opt_out_line must ask for a reply Harvey recognises as an opt-out, "
-                'e.g. Reply "no thanks" / Reply STOP. Recognised: '
-                + ", ".join(f'"{w}"' for w in OPT_OUT_WORDS) + "."
+                'e.g. Reply "no thanks" / Reply STOP, or in Hebrew השיבו "הסר". Recognised: '
+                + ", ".join(f'"{w}"' for w in OPT_OUT_WORDS + HEBREW_OPT_OUT_WORDS) + "."
             )
         return v
 

@@ -78,11 +78,68 @@ OPT_OUT_PATTERNS = (
 NO_THANKS_RE = re.compile(
     r"(?<!\bor )\bno,?[ \t]+thank(?:s|[ \t]+you)\b(?![ \t]+(?:needed|necessary|required))")
 # A reply that says only this (signature aside) is an opt-out ("Reply STOP").
+# "הסר" is the Hebrew one, the word Israeli marketing asks for ("להסרה השיבו הסר").
 BARE_OPT_OUTS = {"stop", "unsubscribe", "remove", "remove me", "opt out",
-                 "no thanks", "no thank you"}
+                 "no thanks", "no thank you",
+                 "הסר", "הסירו", "הסירי", "תסיר", "תסירו", "להסיר", "הסרה", "להסרה"}
+# Said around a bare opt-out without changing it ("הסר בבקשה", "הסר, תודה").
+_BARE_COURTESIES = {"בבקשה", "נא", "תודה", "רבה"}
 _MOBILE_SIGNATURE_RE = re.compile(
-    r"^[ \t]*(?:sent from my \w[^\n]*|get outlook for \w[^\n]*|sent from \w+ mail[^\n]*)$",
+    r"^[ \t\u200e\u200f]*(?:sent from my \w[^\n]*|get outlook for \w[^\n]*"
+    r"|sent from \w+ mail[^\n]*|נשלח מ[^\n]*|קבל(?:ו)? את outlook[^\n]*)$",
     re.IGNORECASE | re.MULTILINE)
+
+# Hebrew opt-outs. Each needs a verb aimed at the sender and its object
+# ("תורידו אותי", "תפסיקו לשלוח"), since the verb alone is ordinary Hebrew:
+# "הסר את סעיף 4" negotiates, "הספק הפסיק לשלוח" is news, "הסרתי" is past.
+_HE_ME = r"(?:אותי|אותנו)"
+_HE_TO_ME = r"(?:אליי|אלי|אלינו|לי|לנו)"
+_HE_REMOVE = (r"(?:הסר|הסירו|הסירי|תסיר|תסירו|תסירי|להסיר|הורד|הורידו|הורידי|תוריד|תורידו"
+              r"|תורידי|להוריד|מחק|מחקו|מחקי|תמחק|תמחקו|תמחקי|למחוק)")
+_HE_TAKE_OUT = r"(?:הוצא|הוציאו|תוציא|תוציאו|תוציאי|להוציא|הסרה|להסרה|הורדה)"
+_HE_LIST = r"מ(?:ה)?(?:רשימ|תפוצ|דיוור|מאגר)\w*"
+_HE_CONTACT = r"ל(?:שלוח|פנות|כתוב|הטריד|התקשר|הציק)"
+_HE_NOT_INTERESTED = r"(?:לא|אינני|איני|איננו)\s+מעוני{1,2}(?:ן|נת|נים|נות)"
+HEBREW_OPT_OUT_PATTERNS = (
+    # Remove / take down / delete me (from the list).
+    _HE_REMOVE + r"\s+(?:(?:נא|בבקשה)\s+)?" + _HE_ME,
+    _HE_REMOVE + r"\s+את\s+ה?(?:מייל|אימייל|כתובת|פרטים|מספר)\w*\s+(?:שלי|שלנו)",
+    r"(?:" + _HE_REMOVE + "|" + _HE_TAKE_OUT + r")\s+(?:" + _HE_ME + r"\s+)?" + _HE_LIST,
+    r"(?:אבקש|מבקש|מבקשת|מבקשים|מבקשות|בקשת|בקשה)\s+(?:ל)?הסרה(?!\s+(?:של|את)(?!\w))",
+    # Stop sending / contacting. Past tense "הפסיקו" (they stopped) needs "me".
+    r"(?:תפסיק|תפסיקו|תפסיקי|הפסק|הפסיקי)\s+(?:(?:כבר|בבקשה)\s+)?" + _HE_CONTACT,
+    r"(?:הפסיקו|להפסיק)\s+(?:(?:כבר|בבקשה)\s+)?" + _HE_CONTACT + r"\s+(?:" + _HE_TO_ME
+    + "|" + _HE_ME + ")",
+    r"(?:נא|בבקשה)\s+להפסיק",
+    # Don't contact / write to / send me.
+    r"אל\s+תפנ(?:ה|ו|י)\s+(?:אליי|אלי|אלינו)",
+    r"(?:אל\s+(?:תכתוב|תכתבו|תכתבי)|(?:לא|אין)\s+לכתוב)\s+" + _HE_TO_ME,
+    r"(?:אל\s+(?:תשלח|תשלחו|תשלחי)|(?:לא|אין)\s+לשלוח)\s+" + _HE_TO_ME
+    + r"(?:\s+(?:עוד|יותר|שוב|מיילים|מייל|הודעות|דואר)|(?=\s*(?:[.!]|$)))",
+    r"אל\s+(?:תטריד|תטרידו|תטרידי)\s+" + _HE_ME,
+    r"(?:נא|בבקשה)\s+לא\s+להטריד",
+    r"(?:אל\s+(?:תיצור|תיצרו|תיצרי|תצור|תצרו)|(?:לא|אין)\s+ליצור)\s+"
+    r"(?:(?:איתי|איתנו|אתי|אתנו|עמי|עמנו)\s+)?קשר",
+    r"(?:לא|אין)\s+לפנות\s+(?:אליי|אלי|אלינו|שוב)",
+    r"(?:לא|אינני|איני|איננו)\s+(?:רוצה|רוצים|רוצות|מעוני{1,2}(?:ן|נת|נים|נות))\s+לקבל\s+"
+    r"(?:(?:יותר|עוד|שוב)\s+)?(?:מיילים|מייל|אימיילים|הודעות|פניות|דיוור|דואר)",
+)
+# Hebrew joins "and", "that", "to" onto the next word ("ותורידו אותי").
+HEBREW_OPT_OUT_RE = re.compile(
+    r"(?<!\w)[ובכלמשה]{0,2}(?:" + "|".join(HEBREW_OPT_OUT_PATTERNS) + r")(?!\w)")
+# "לא תודה" / "לא מעוניין, תודה" / "תודה, לא מעוניינים": one line, as with
+# "no thanks". Not "כן או לא, תודה", and not "לא מעוניין לשלם מראש, תודה"
+# or "תודה, לא מעוניין בחבילה הגדולה", which bargain rather than leave.
+_HE_FOR_NOW = r"(?:\s+(?:כרגע|בינתיים|עכשיו|בזה|בכך))?"
+HEBREW_NO_THANKS_RE = re.compile(
+    r"(?<!\w)(?<!או )(?:לא[ \t,]+|" + _HE_NOT_INTERESTED + _HE_FOR_NOW + r"[ \t,.!-]*)תודה(?!\w)"
+    r"|(?<!\w)תודה[ \t,.!-]+(?:(?:אבל|אך)[ \t]+)?(?:(?:אני|אנחנו|אנו)[ \t]+)?"
+    + _HE_NOT_INTERESTED + _HE_FOR_NOW
+    + r"(?=[ \t]*(?:[.!,]|$))")
+# Direction marks a mail client puts around Hebrew, and Hebrew vowel points:
+# they change no word, so they mustn't hide one.
+_INVISIBLE_RE = re.compile(
+    r"[\u200e\u200f\u202a-\u202e\u2066-\u2069\u0591-\u05bd\u05bf\u05c1\u05c2\u05c4\u05c5\u05c7]")
 # A line of their reply at least this long that repeats what Harvey wrote
 # for this person is our text, not theirs. Shorter unmarked lines are always
 # theirs, so a reply of "No thanks" or "STOP" is never taken for a quote.
@@ -97,6 +154,7 @@ def _flat(text: str) -> str:
     quotes and spacing evened out, so text compares however a mail client
     re-quoted it."""
     text = _LINK_ANNOTATION_RE.sub("", html.unescape(text or ""))
+    text = _INVISIBLE_RE.sub("", text)
     text = re.sub(r"^[ \t>]+", "", text, flags=re.MULTILINE)
     text = (text.replace("\u201c", '"').replace("\u201d", '"')
             .replace("\u2018", "'").replace("\u2019", "'"))
@@ -155,14 +213,24 @@ def _opt_out_reason(their_text: str, own_words: str) -> dict | None:
         if p in flat:
             return {"rule": "phrase", "matched": p,
                     "why": f'Their reply contains "{p}".'}
+    m = HEBREW_OPT_OUT_RE.search(flat)
+    if m:
+        return {"rule": "phrase", "matched": m.group(0),
+                "why": f'Their reply contains "{m.group(0)}".'}
     for line in their_text.split("\n"):
-        m = NO_THANKS_RE.search(_flat(line))
+        line = _flat(line)
+        m = NO_THANKS_RE.search(line)
         if m:
             return {"rule": "no_thanks", "matched": m.group(0),
                     "why": f'Their reply says "{m.group(0)}", what the opt-out line asks for.'}
+        m = HEBREW_NO_THANKS_RE.search(line)
+        if m:
+            return {"rule": "no_thanks", "matched": m.group(0),
+                    "why": f'Their reply says "{m.group(0)}" (no thanks).'}
     bare = _flat(_MOBILE_SIGNATURE_RE.sub("", own_words or ""))
     bare = re.sub(r"[^\w\s-]", "", bare).strip()
-    if bare in BARE_OPT_OUTS:
+    if (bare in BARE_OPT_OUTS
+            or " ".join(w for w in bare.split() if w not in _BARE_COURTESIES) in BARE_OPT_OUTS):
         return {"rule": "only_words", "matched": bare,
                 "why": f'Their reply was only "{bare}".'}
     return None

@@ -559,3 +559,100 @@ async def test_template_lines_with_merge_tags_are_recognised_when_quoted(state):
     handler.brain = RecordingBrain("interested")
     await handler._run_native()
     assert handler.brain.prompts  # our pitch's "attorney" didn't escalate
+
+
+# ── Hebrew ──
+
+HEBREW_LINE = 'לא רלוונטי? השיבו "הסר" ולא אפנה שוב.'
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("body", [
+    "הסר",
+    "הסירו",
+    "'הסר'",
+    "הסר בבקשה",
+    "הסר, תודה",
+    "הסר\n\nנשלח מה-iPhone שלי",
+    "\u200fהסר\u200f",                       # direction marks around it
+    "הָסֵר",                                  # with vowel points
+    "תורידו אותי מהרשימה בבקשה.",
+    "אפשר להסיר אותי מהרשימה?",
+    "ותורידו אותנו מרשימת התפוצה",
+    "תמחקו את המייל שלי",
+    "תפסיקו לשלוח לי מיילים.",
+    "נא לא לפנות אליי שוב.",
+    "אל תכתבו לי יותר.",
+    "אל תשלחו לי עוד",
+    "אני לא רוצה לקבל יותר מיילים",
+    "לא תודה",
+    "לא מעוניין, תודה.",
+    "לא מעוניינת כרגע, תודה רבה",
+    "תודה, אבל אנחנו לא מעוניינים.",
+], ids=["bare", "bare-plural", "quoted", "please", "thanks", "iphone-signature", "rlm",
+        "niqqud", "take-me-off", "remove-me", "and-take-us-off", "delete-my-email",
+        "stop-sending", "dont-contact-again", "dont-write", "dont-send-more",
+        "dont-want-emails", "no-thanks", "not-interested-thanks", "not-interested-for-now",
+        "thanks-not-interested"])
+async def test_hebrew_opt_outs_are_caught_without_the_model(state, body):
+    status, prompts = await _reply(state, body)
+    assert status == "opted_out" and prompts == []
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("body", [
+    "לא",
+    "הסרתי את הקובץ המצורף, אפשר לשלוח שוב?",
+    "מעוניין, תודה! מתי נוח לדבר?",
+    "זה חודשי, כן או לא, תודה",
+    "מקווה שלא\nתודה",
+    "לא מעוניין לשלם מראש, תודה. אפשר חודשי?",
+    "תודה, לא מעוניין בחבילה הגדולה אבל הקטנה נשמעת טוב",
+    "הסר את סעיף 4 ואני חותם",
+    "אני מבקש הסרה של סעיף הקנס",
+    "הספק הקודם הפסיק לשלוח לנו דוחות, אתם עושים את זה?",
+    "אל תשלחו את החוזה עד שנדבר",
+    "אנחנו עושים הסרת שיער בלייזר, זה מתאים?",
+    "לא רציתי להטריד, אבל יש לי שאלה על המחיר",
+], ids=["no-alone", "i-removed", "interested-thanks", "yes-or-no-thanks", "hope-not-then-thanks",
+        "not-paying-upfront", "not-the-big-package", "remove-a-clause", "removal-of-a-clause",
+        "supplier-stopped", "dont-send-the-contract-yet", "hair-removal", "didnt-want-to-bother"])
+async def test_ordinary_hebrew_is_not_an_opt_out(state, body):
+    status, prompts = await _reply(state, body)
+    assert status != "opted_out" and prompts
+
+
+@pytest.mark.asyncio
+async def test_quoting_our_hebrew_footer_is_not_an_opt_out(state):
+    sent = "הודעה קצרה ופשוטה. שאלה?\n\n" + ADDRESS + "\n" + HEBREW_LINE
+    status, prompts = await _reply_after_sending(
+        state, "כן, בואו נדבר ביום שלישי.\n\nב-יום ג׳ Harvey כתב:\n> " + sent.replace("\n", "\n> "),
+        sent_bodies=[sent], line=HEBREW_LINE)
+    assert status != "opted_out" and prompts
+
+
+def test_every_reply_an_opt_out_line_can_ask_for_is_caught():
+    from harvey.agents.handler import _opt_out_reason
+    from harvey.config import HEBREW_OPT_OUT_WORDS, OPT_OUT_WORDS
+    for word in OPT_OUT_WORDS + HEBREW_OPT_OUT_WORDS:
+        assert _opt_out_reason(word, word), word
+
+
+def test_opt_out_line_can_ask_in_hebrew():
+    import pydantic
+    for good in (HEBREW_LINE, "להסרה השיבו הסר", "להסרה השב 'הסר'",
+                 'ואם זה לא בשבילכם, תגידו לי "לא תודה" ולא אכתוב שוב.',
+                 "השיבו במייל חוזר ״הסר״ ונסיר אתכם.", "ואם לא מתאים, פשוט ענו לא, תודה.",
+                 'בלי לחץ: השיבו "הסר" ולא אפנה שוב.'):
+        assert ComplianceConfig(opt_out_line=good).opt_out_line == good
+    for bad in (
+        "ואם זה לא בשבילכם, תגידו לי ולא אכתוב שוב.",   # names no reply Harvey catches
+        'השיבו "הסרתי"',
+        "תודה שקראתם!",
+        "להסרה לחצו כאן",
+        'להסרה השיבו "הסר" או לחצו כאן',
+        "להסרה: https://example.com/u",
+        "להסרה כתבו ל-remove@example.com",
+    ):
+        with pytest.raises(pydantic.ValidationError):
+            ComplianceConfig(opt_out_line=bad)
