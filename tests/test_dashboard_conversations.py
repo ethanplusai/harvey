@@ -88,3 +88,38 @@ def test_conversation_status_rejects_bad_input(client):
     assert client.post("/api/conversations/c1/status", json={"status": "needs_human"}).status_code == 400
     assert client.post("/api/conversations/c1/status", json=["closed"]).status_code == 400
     assert client.post("/api/conversations/nope/status", json={"status": "closed"}).status_code == 404
+
+
+def _render_actions(convo):
+    """Run app.js's convoActions under node with the real escaping helpers."""
+    import re
+    import shutil
+    import subprocess
+    from pathlib import Path
+    import pytest
+
+    node = shutil.which("node")
+    if not node:
+        pytest.skip("node is not installed")
+    source = (Path(__file__).resolve().parent.parent / "harvey" / "web" / "app.js").read_text(encoding="utf-8")
+    parts = []
+    for pattern in (r"^function escHtml\(.*?^}\n", r"^function jsq\(.*?^}\n",
+                    r"^function icon\(.*?^}\n", r"^function convoActions\(.*?^}\n"):
+        match = re.search(pattern, source, re.S | re.M)
+        assert match, pattern
+        parts.append(match.group(0))
+    script = "\n".join(parts) + f"\nprocess.stdout.write(convoActions({json.dumps(convo)}));"
+    return subprocess.run([node, "-e", script], capture_output=True, text=True, encoding="utf-8",
+                          check=True, timeout=30).stdout
+
+
+def test_an_escalation_from_someone_who_opted_out_cant_be_handed_back():
+    html = _render_actions({"id": "c1", "status": "needs_human", "prospect_status": "opted_out",
+                            "prospect_id": "p1", "prospect_email": "i@x.test"})
+    assert "Opted out, and Harvey handed this to you" in html
+    assert "Hand back to Harvey" not in html
+    assert "Close</button>" in html and "Why opted out?" in html
+    # Anyone else's escalation can still go back to Harvey.
+    html = _render_actions({"id": "c2", "status": "needs_human", "prospect_status": "replied",
+                            "prospect_id": "p2", "prospect_email": "b@x.test"})
+    assert "Hand back to Harvey" in html and "Why opted out?" not in html

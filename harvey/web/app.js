@@ -2512,6 +2512,15 @@ function convoCard(c) {
 // Harvey answers new replies only on open conversations: an escalated one
 // waits for you to reply yourself, then close it or hand it back.
 function convoActions(c) {
+  if (c.status === 'needs_human' && c.prospect_status === 'opted_out') {
+    // A complaint or legal threat from someone who opted out: handing it
+    // back wouldn't help, Harvey never answers them.
+    return '<div class="convo-actions"><span class="muted">' + icon('alert') +
+      'Opted out, and Harvey handed this to you. Reply from your inbox if you need to, then:</span>' +
+      '<button class="btn btn-secondary btn-sm" onclick="setConvoStatus(' + jsq(c.id) + ',\'closed\')">Close</button>' +
+      '<button class="btn btn-secondary btn-sm" onclick="showOptOut(' + jsq(c.prospect_id) + ',' + jsq(c.prospect_email) +
+      ')">Why opted out?</button></div>';
+  }
   if (c.status === 'needs_human') {
     return '<div class="convo-actions"><span class="muted">' + icon('alert') +
       'Harvey handed this to you. Reply from your inbox, then:</span>' +

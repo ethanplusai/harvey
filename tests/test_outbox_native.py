@@ -321,6 +321,9 @@ async def _logged(state, action_type):
     ("No thanks, we're all set for now.", "question", "no_thanks", "no thanks"),
     ("STOP", "question", "only_words", "stop"),
     ("Please never write to this address again.", "unsubscribe", "model", ""),
+    ("תורידו אותי מהרשימה.", "question", "phrase", "תורידו אותי"),
+    ("לא מעוניין, תודה.", "question", "no_thanks", "לא מעוניין, תודה"),
+    ("הסר", "question", "only_words", "הסר"),
 ])
 async def test_an_opt_out_records_why(state, body, intent, rule, matched):
     pid = await seed_prospect(state, status="contacted")
