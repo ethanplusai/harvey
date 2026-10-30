@@ -80,6 +80,16 @@ channels:
     #   end: "17:00"
     #   weekdays_only: true      # Monday to Friday, in every country
     #   recipient_timezone: true  # false: one zone for everyone (quiet_hours.timezone)
+    # A logo under every email, cold or reply: the email goes out as HTML
+    # with the image embedded. Blank logo = plain text, as before. If the
+    # file can't be used, approved email waits instead of going out without
+    # it. Gmail/Microsoft/SMTP only.
+    signature:
+      logo: ""                  # PNG/JPEG/GIF up to 100 KB, e.g. "data/assets/logo.png"
+      width: 120                # display width in pixels
+      alt: ""                   # text when images are off; blank = persona.company
+      link: ""                  # optional web address the logo opens
+      direction: "auto"         # rtl for Hebrew or Arabic email
   linkedin:
     enabled: false             # explicit opt-in; credentials alone do not enable it
     max_daily_connections: 20
