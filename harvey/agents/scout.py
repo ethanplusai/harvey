@@ -40,7 +40,8 @@ from harvey.brain import Brain
 from harvey.collectors import people as people_mod
 from harvey.collectors.discover import site_name_from_html
 from harvey.collectors.profile import _reads_like_title, looks_like_challenge
-from harvey.config import HarveyConfig, EnvConfig
+from harvey.config import HarveyConfig, EnvConfig, live_do_not_contact
+from harvey.gate import do_not_contact_domain_match, do_not_contact_match
 from harvey.integrations.email_finder import (
     DEFAULT_PATTERN, SMALL_BUSINESS_PATTERN, find_email, site_email_evidence,
     verify_published_address,
@@ -104,6 +105,9 @@ MAX_PROSPECTS_PER_CYCLE = 25
 # integrations/email_finder.py); this just paces it, since a heartbeat every
 # 15 minutes would spend a free-tier month in a few hours otherwise.
 HUNTER_DOMAINS_PER_CYCLE = 1
+# Pages of the backfill query to look through for companies that aren't on
+# the do-not-contact list, before settling for fewer this cycle.
+BACKFILL_PAGES = 5
 
 # Rotate a small pool of realistic desktop user-agents. Scrapers that always
 # send one UA are trivially fingerprinted and blocked.
@@ -581,7 +585,7 @@ class Scout:
 
         batch_size = min(remaining, HUNTER_DOMAINS_PER_CYCLE)
         try:
-            companies = await self.state.companies_needing_prospects(limit=batch_size)
+            companies = await self._companies_needing_prospects(batch_size)
         except Exception as e:
             logger.debug(f"companies_needing_prospects failed: {e}")
             return 0
@@ -667,9 +671,7 @@ class Scout:
         )
 
         try:
-            companies = await self.state.companies_needing_prospects(
-                limit=MAX_COMPANIES_PER_CYCLE
-            )
+            companies = await self._companies_needing_prospects(MAX_COMPANIES_PER_CYCLE)
         except Exception as e:
             logger.debug(f"companies_needing_prospects failed: {e}")
             return 0
@@ -1064,7 +1066,54 @@ class Scout:
             return False
         if self._is_noise_domain(domain):
             return False
+        if self._listed(domain):
+            self._seen_domains.add(domain)
+            return False
         return True
+
+    def _listed(self, domain: str) -> str:
+        """The do-not-contact entry ``domain`` falls under, or "".
+
+        The send gate would hold every email to it, so crawling its site and
+        verifying addresses there only spends verifier credits and drafts
+        nobody can send. Read live, so a domain added while Harvey runs is
+        skipped from the next company on, not the next restart.
+        """
+        return do_not_contact_domain_match(domain, self._do_not_contact())
+
+    def _do_not_contact(self) -> list[str]:
+        return live_do_not_contact(getattr(self, "config", None))
+
+    async def _companies_needing_prospects(self, limit: int) -> list[dict]:
+        """Companies on file to backfill contacts for, none of them listed.
+
+        A listed company is marked checked and passed over, so it neither
+        takes one of the cycle's few slots (Hunter's is one) nor comes back
+        next cycle. Marking it is what moves the query on to the next page.
+        """
+        kept: list[dict] = []
+        for _ in range(BACKFILL_PAGES):
+            # Kept companies aren't marked yet, so each page brings them back.
+            page = await self.state.companies_needing_prospects(limit=limit + len(kept))
+            taken = {c["id"] for c in kept}
+            listed = 0
+            for company in page:
+                if company["id"] in taken or len(kept) >= limit:
+                    continue
+                domain = (company.get("domain") or "").strip()
+                if entry := self._listed(domain):
+                    listed += 1
+                    logger.info(f"Scout: Skipping {domain}: '{entry}' is on the "
+                                "do-not-contact list.")
+                    try:
+                        await self.state.mark_prospects_checked(company["id"])
+                    except Exception as e:
+                        logger.debug(f"mark_prospects_checked failed for {domain}: {e}")
+                else:
+                    kept.append(company)
+            if not listed or len(kept) >= limit:
+                break
+        return kept
 
     async def _scrape_directory_page(self, url: str) -> list[dict]:
         """Scrape a directory/list page for company links."""
@@ -1173,6 +1222,8 @@ class Scout:
         pattern cache) so the domain's pattern is learned once and reused.
         """
         if not (first_name and last_name and domain):
+            return "", "invalid"
+        if self._listed(domain):
             return "", "invalid"
         # What the company's own site published: this person's exact address
         # if it's there, and the default to guess with when nothing is.
@@ -1603,6 +1654,8 @@ Respond ONLY with the JSON array."""
         source: str = "company_website",
     ) -> list[Prospect]:
         """Team-page scrape → ICP-matched, email-resolved, deduped prospects."""
+        if self._listed(domain):
+            return []
         try:
             team_members = await self._scrape_team_page(domain)
         except Exception as e:
@@ -1720,7 +1773,7 @@ Respond ONLY with the JSON array."""
         guessed one, and it is verified like any other before sending.
         """
         email = await self._find_inbox_address(domain)
-        if not email:
+        if not email or do_not_contact_match(email, self._do_not_contact()):
             return None
         try:
             status = await verify_published_address(email, env=self.env)

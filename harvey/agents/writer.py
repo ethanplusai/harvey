@@ -15,7 +15,8 @@ import re
 from datetime import datetime, timezone
 
 from harvey.brain import Brain
-from harvey.config import HarveyConfig
+from harvey.config import HarveyConfig, live_do_not_contact
+from harvey.gate import do_not_contact_match
 from harvey.humanize import humanize, humanizer_enabled
 from harvey.integrations.mail_provider import NATIVE_PROVIDERS
 from harvey.models.campaign import Campaign, EmailStep
@@ -31,6 +32,10 @@ logger = logging.getLogger("harvey.writer")
 # outage never counts; only a reply that came back unusable does.
 MAX_WRITE_ATTEMPTS = 3
 WRITE_ATTEMPTS_KEY = "write_attempts:"
+
+# Prospect status for someone whose address is on compliance.do_not_contact:
+# out of 'new', so the heartbeat stops choosing write_campaign for them.
+DO_NOT_CONTACT_STATUS = "do_not_contact"
 
 # Merge variables that name a person; a company inbox has none of them.
 PERSON_VAR = re.compile(r"\{\{\s*(first_?name|last_?name|title)\s*\}\}", re.IGNORECASE)
@@ -78,6 +83,7 @@ class Writer:
             p for p in new_prospects
             if p.email and (p.email_status or "guess") in WRITABLE_EMAIL_STATUSES
         ]
+        prospects_with_email = await self._drop_listed(prospects_with_email)
         # Someone at their company already replied: no cold email to write.
         prospects_with_email = [
             p for p in prospects_with_email
@@ -152,6 +158,33 @@ class Writer:
                 f"Writer: Campaign '{batch_name}' created with "
                 f"{len(sequence)} emails for {len(prospects)} prospects."
             )
+
+    async def _drop_listed(self, prospects: list) -> list:
+        """The prospects not on the do-not-contact list.
+
+        The send gate holds every email to a listed address, so a draft for
+        one is a model call nobody can send. Each listed prospect moves to
+        'do_not_contact': left 'new', it would make the heartbeat choose
+        write_campaign every cycle with nothing to write.
+        """
+        entries = live_do_not_contact(self.config)
+        if not entries:
+            return prospects
+        kept, listed = [], []
+        for p in prospects:
+            if do_not_contact_match(p.email, entries):
+                await self.state.update_prospect_status(p.id, DO_NOT_CONTACT_STATUS)
+                listed.append(p.email)
+            else:
+                kept.append(p)
+        if listed:
+            await self.state.log_action(
+                action_type="do_not_contact",
+                agent="writer",
+                details={"prospects": listed},
+            )
+            logger.info(f"Writer: Skipped {len(listed)} prospect(s) on the do-not-contact list.")
+        return kept
 
     async def _count_failed_attempt(self, batch_name: str, prospects: list):
         """Count one unusable sequence against each prospect in the batch.
