@@ -167,8 +167,17 @@ async def decide_next_action(
     open_conversations = summary.get("open_conversations", 0) or 0
 
     # Held Instantly drafts can't deploy; choosing send_campaign for them
-    # every cycle would starve the writer and scout forever.
-    deployable = 0 if legacy_sending_held(config) else draft_campaigns
+    # every cycle would starve the writer and scout forever. Native
+    # providers have no campaign deployment either — their drafts are the
+    # Outbox rows the sender drains every cycle under any action, and their
+    # campaign rows are containers that stay 'draft' forever — so counting
+    # those as deployable would win send_campaign every cycle and starve
+    # the writer exactly the same way after the very first campaign.
+    deployable = (
+        0
+        if _native_email(config) or legacy_sending_held(config)
+        else draft_campaigns
+    )
 
     if open_conversations > 0:
         action, reason = "handle_replies", f"{open_conversations} open conversation(s) waiting"

@@ -138,13 +138,25 @@ async def test_held_drafts_do_not_block_writing_or_prospecting(new, expected):
 
 
 @pytest.mark.asyncio
-async def test_drafts_still_deploy_on_instantly_autopilot_and_native_providers():
+async def test_drafts_still_deploy_on_instantly_autopilot():
     from harvey.main import decide_next_action
     summary = {"prospects": {"new": 30}, "draft_campaigns": 1, "open_conversations": 0}
     assert await decide_next_action(None, None, legacy_config(False), summary=summary) == "send_campaign"
+
+
+@pytest.mark.asyncio
+async def test_native_draft_campaigns_do_not_starve_the_writer():
+    # Native providers never deploy campaigns — the sender drains the Outbox
+    # every cycle under any action — so a shelf of 'draft' campaign
+    # containers must not win send_campaign over prospects still waiting
+    # for their first email (or over prospecting once none are writable).
+    from harvey.main import decide_next_action
+    summary = {"prospects": {"new": 30}, "draft_campaigns": 1, "open_conversations": 0}
     native = legacy_config()
     native.channels.email.provider = "gmail"
-    assert await decide_next_action(None, None, native, summary=summary) == "send_campaign"
+    assert await decide_next_action(None, None, native, summary=summary) == "write_campaign"
+    idle = {**summary, "prospects": {"new": 0}}
+    assert await decide_next_action(None, None, native, summary=idle) != "send_campaign"
 
 
 def test_held_instantly_is_announced_plainly():
