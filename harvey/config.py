@@ -594,6 +594,57 @@ class WriterConfig(BaseModel):
     # or HARVEY_HUMANIZER_SKILL). Off by default: installing the skill for
     # your own Claude Code use never changes what Harvey sends on its own.
     humanizer: bool = False
+    # Your own rules for the emails Harvey drafts, as a markdown file:
+    # length, structure, what to say about the product, links, subject lines,
+    # sign-off. When set, it replaces the Writer's built-in shape (email 1
+    # under 75 words, an observation and a question, no pitch). A path
+    # relative to the Harvey folder; skills/email_rules.md is gitignored.
+    # The FACTS rule, the send gate and do-not-contact still apply. A file
+    # that is set but can't be read stops writing until it's fixed.
+    email_rules: str = ""
+
+    @field_validator("email_rules", mode="before")
+    @classmethod
+    def _blank_rules(cls, v):
+        if v is None:
+            return ""
+        return v.strip() if isinstance(v, str) else v
+
+
+# Long enough for a full house style with examples; anything bigger is
+# probably the wrong file and would crowd out the facts in every prompt.
+MAX_EMAIL_RULES_CHARS = 20_000
+
+
+class EmailRulesError(ConfigError):
+    """writer.email_rules names a file Harvey can't use."""
+
+
+def load_email_rules(config) -> str:
+    """The operator's email rules (writer.email_rules), or "" when none are set.
+
+    Raises EmailRulesError when a file is set but missing, unreadable, empty
+    or too long: the Writer then writes nothing rather than fall back to the
+    built-in shape the operator chose to replace.
+    """
+    raw = str(getattr(getattr(config, "writer", None), "email_rules", "") or "").strip()
+    if not raw:
+        return ""
+    path = Path(raw).expanduser()
+    if not path.is_absolute():
+        path = PROJECT_ROOT / path
+    try:
+        text = read_user_text(path).strip()
+    except FileNotFoundError:
+        raise EmailRulesError(f"{raw} doesn't exist") from None
+    except OSError as e:
+        raise EmailRulesError(f"{raw} can't be read ({e})") from None
+    if not text:
+        raise EmailRulesError(f"{raw} is empty")
+    if len(text) > MAX_EMAIL_RULES_CHARS:
+        raise EmailRulesError(
+            f"{raw} is {len(text):,} characters; the limit is {MAX_EMAIL_RULES_CHARS:,}")
+    return text
 
 
 class HarveyConfig(BaseModel):

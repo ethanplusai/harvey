@@ -21,6 +21,8 @@ linkedin_cookies.json
 
 # Generated during setup/training — contains your product details
 skills/product_knowledge.md
+# Your own email rules (writer.email_rules) — product-specific
+skills/email_rules.md
 
 # Local agent tooling
 .agents/
