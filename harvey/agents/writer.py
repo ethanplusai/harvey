@@ -9,9 +9,12 @@ Steps 2-3 stay campaign-level (proof point + breakup are less personal by
 design). Every draft still passes the deterministic pre-send gate.
 """
 
+import asyncio
 import json
 import logging
+import math
 import re
+import time
 from datetime import datetime, timezone
 
 from harvey.brain import Brain
@@ -48,6 +51,24 @@ PERSON_VAR = re.compile(r"\{\{\s*(first_?name|last_?name|title)\s*\}\}", re.IGNO
 NATIVE_BATCH_CAP = 8
 LEGACY_BATCH_CAP = 50
 
+# A batch's personal drafts are independent brain calls (one prospect
+# each), so they run concurrently instead of one at a time. The cap keeps a
+# full 8-prospect batch from firing eight CLI calls at once: a subscription
+# rate-limits, and every retry burns time the cycle doesn't have.
+PERSONAL_DRAFT_CONCURRENCY = 3
+
+# Rough wall-clock cost of one model call, measured on the usage ledger
+# (sequence ~90s avg / ~160s max, personal email ~45s avg / ~170s max).
+# The Writer checks these against the heartbeat's cycle bound before
+# STARTING another unit of work: one that won't fit what's left of the
+# cycle waits for the next heartbeat — the same "leftovers ride the next
+# cycle" contract as the caps above — instead of being cancelled mid-draft
+# by the cycle bound, which wastes every in-flight call and makes the next
+# cycle pay for them again.
+SEQUENCE_BUDGET_SECONDS = 150
+PERSONAL_BUDGET_SECONDS = 60
+HUMANIZE_BUDGET_SECONDS = 45
+
 
 class Writer:
     def __init__(
@@ -66,12 +87,25 @@ class Writer:
     def is_native(self) -> bool:
         return self.config.channels.email.provider in NATIVE_PROVIDERS
 
-    async def run(self):
-        """Create email campaigns for prospects that need outreach."""
+    async def run(self, deadline: float | None = None):
+        """Create email campaigns for prospects that need outreach.
+
+        ``deadline`` is a time.monotonic() timestamp marking the end of this
+        heartbeat cycle's hard bound (main.CYCLE_TIMEOUT_SECONDS, which
+        cancels the whole agent gather). Once something has been written
+        this run, a batch whose estimated cost doesn't fit the time left
+        waits for the next cycle rather than starting and being cancelled
+        mid-draft. None (tests, direct calls) keeps the ungated behavior.
+        """
         logger.info("Writer: Crafting email campaigns...")
 
         # Load foundational skills for this agent
         self.skills = self.brain.load_skills_for_agent("writer")
+
+        # Whether any model work has been started this run — the first unit
+        # always runs (see _fits), so a full cycle is never spent deciding
+        # not to write.
+        started = False
 
         # Prospects that entered the table as 'queued' (an import, an ops
         # run) never match the 'new' query below. Ones already in a campaign
@@ -96,6 +130,17 @@ class Writer:
                 else:
                     by_campaign.setdefault(campaign.id, (campaign, []))[1].append(p)
             for campaign, prospects in by_campaign.values():
+                # Stranded drafts run one at a time (see _repersonalize), so
+                # their estimate is a plain per-prospect sum.
+                estimate = self._personal_estimate(len(prospects))
+                if not self._fits(deadline, started, estimate):
+                    logger.info(
+                        f"Writer: leaving {len(prospects)} stranded draft(s) in "
+                        f"'{campaign.name}' for the next cycle — not enough of "
+                        "this one left to write them."
+                    )
+                    continue
+                started = True
                 await self._repersonalize(campaign, prospects)
 
         # Get prospects that haven't been contacted yet
@@ -129,6 +174,15 @@ class Writer:
             if not prospects:
                 continue
 
+            if not self._fits(deadline, started, self._batch_estimate(prospects)):
+                logger.info(
+                    f"Writer: leaving campaign '{batch_name}' "
+                    f"({len(prospects)} prospect(s)) for the next cycle — not "
+                    "enough of this one left to draft it."
+                )
+                continue
+
+            started = True
             logger.info(
                 f"Writer: Creating campaign '{batch_name}' for "
                 f"{len(prospects)} prospects."
@@ -186,6 +240,44 @@ class Writer:
                 f"{len(sequence)} emails for {len(prospects)} prospects."
             )
 
+    def _fits(self, deadline: float | None, started: bool, estimate: float) -> bool:
+        """Whether this run may start another unit of model work.
+
+        No deadline (tests, direct calls): always. The first unit: always —
+        a cycle must make progress even when one batch can't fit the whole
+        bound, and the heartbeat's hard cancel still catches a truly
+        runaway batch. After that, a unit that won't fit the time left
+        waits for the next cycle instead of being cancelled mid-flight.
+        """
+        if deadline is None or not started:
+            return True
+        return time.monotonic() + estimate <= deadline
+
+    def _personal_estimate(self, count: int) -> float:
+        """Rough seconds for `count` personal drafts plus their polish.
+        Stranded drafts run one at a time, so each draft costs a full slot."""
+        per = PERSONAL_BUDGET_SECONDS
+        if humanizer_enabled(self.config):
+            per += HUMANIZE_BUDGET_SECONDS
+        return count * per
+
+    def _batch_estimate(self, prospects: list) -> float:
+        """Rough seconds to write one campaign batch: one sequence call,
+        then the personal drafts in PERSONAL_DRAFT_CONCURRENCY-sized waves
+        (native mode only; a partial last wave costs like a full one, so
+        the estimate errs high, never low), plus the humanizer pass."""
+        if not prospects:
+            return 0.0
+        estimate = SEQUENCE_BUDGET_SECONDS
+        if self.is_native:
+            waves = math.ceil(len(prospects) / PERSONAL_DRAFT_CONCURRENCY)
+            estimate += waves * PERSONAL_BUDGET_SECONDS
+            if humanizer_enabled(self.config):
+                estimate += len(prospects) * HUMANIZE_BUDGET_SECONDS
+        elif humanizer_enabled(self.config):
+            estimate += 3 * HUMANIZE_BUDGET_SECONDS  # the three sequence steps
+        return estimate
+
     async def _count_failed_attempt(self, batch_name: str, prospects: list):
         """Count one unusable sequence against each prospect in the batch.
 
@@ -229,6 +321,10 @@ class Writer:
         coming back unusable gives up after MAX_WRITE_ATTEMPTS tries and the
         campaign template stands in, exactly as for a fresh campaign whose
         personalization failed.
+
+        Drafts run one at a time, unlike _personalize_first_emails: the
+        outage check below reads the brain's last_reply_empty right after
+        each call, and concurrent calls would overwrite each other's flag.
         """
         logger.info(
             f"Writer: drafting the missing first email for {len(prospects)} "
@@ -331,17 +427,27 @@ class Writer:
         can't overwrite these rows — a personalized draft always wins the
         (campaign, prospect, step 1) slot. If a draft fails, the slot stays
         empty and the sender falls back to the campaign template.
-        """
-        pending = []
-        for prospect in prospects:
-            try:
-                draft = await self._write_personal_email(prospect)
-            except Exception as e:
-                logger.warning(f"Writer: personal draft failed for {prospect.email}: {e}")
-                continue
-            if draft:
-                pending.append((prospect, draft))
 
+        Each draft is an independent brain call, so they run concurrently
+        (bounded by PERSONAL_DRAFT_CONCURRENCY): a full batch costs one
+        sequence call plus a few personal waves, not one call per prospect
+        in a row — which is what pushed 3-campaign cycles past the
+        heartbeat's cycle bound in production.
+        """
+        gate = asyncio.Semaphore(PERSONAL_DRAFT_CONCURRENCY)
+
+        async def draft_for(prospect):
+            async with gate:
+                try:
+                    return prospect, await self._write_personal_email(prospect)
+                except Exception as e:
+                    logger.warning(
+                        f"Writer: personal draft failed for {prospect.email}: {e}"
+                    )
+                    return prospect, None
+
+        results = await asyncio.gather(*(draft_for(p) for p in prospects))
+        pending = [(prospect, draft) for prospect, draft in results if draft]
         await self._stage_personal_drafts(pending, campaign_id)
 
     async def _startup(self, company_id) -> list[str] | None:

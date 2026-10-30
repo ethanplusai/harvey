@@ -5,6 +5,7 @@ import logging
 import signal
 import sys
 from datetime import datetime, time, timedelta
+from time import monotonic
 
 import pytz
 
@@ -38,6 +39,12 @@ ERROR_BACKOFF_CAP = 900
 # heartbeat loop down silently with it. This is the only thing standing
 # between one stuck agent and Harvey freezing for hours with no agent
 # knowing it's dead — found in production after exactly that happened.
+#
+# Agents that make many model calls plan against this bound (the Writer is
+# handed it as a deadline) so legitimate slow work spreads across cycles
+# instead of being cancelled mid-draft — the ceiling stays a hang guard,
+# not a throughput cap. Heavy write cycles were cancelled here in
+# production (2026-10-29/30), wasting every in-flight draft.
 CYCLE_TIMEOUT_SECONDS = 600
 
 # Cap on a single quiet-hours sleep chunk. See the quiet-hours block in
@@ -413,7 +420,15 @@ async def heartbeat(stop_event: asyncio.Event | None = None):
                 # Analyst is cheap (no Claude calls) — keep analytics fresh
                 tasks.append(("analyze", analyst.run()))
             elif action == "write_campaign":
-                tasks.append(("write_campaign", writer.run()))
+                # The writer plans its batches against the same bound that
+                # cancels this gather: a batch that won't fit what's left of
+                # the cycle waits for the next heartbeat instead of being
+                # cancelled mid-draft (its in-flight model calls wasted, its
+                # prospects still 'new' so the next cycle pays again).
+                tasks.append((
+                    "write_campaign",
+                    writer.run(deadline=monotonic() + CYCLE_TIMEOUT_SECONDS),
+                ))
                 if has_open_convos:
                     tasks.append(("handle_replies", handler.run()))
             elif action == "idle":
