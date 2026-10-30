@@ -198,13 +198,22 @@ def cmd_status(args):
     async def _status():
         state = StateManager()
         await state.init_db()
-        summary = await state.get_state_summary()
+        # A draft is an outbox row on a native provider and a campaign on a
+        # legacy one; the count is only exact when the summary knows which.
+        native = False
+        try:
+            from harvey.config import load_config
+            from harvey.integrations.mail_provider import NATIVE_PROVIDERS
+            native = load_config().channels.email.provider in NATIVE_PROVIDERS
+        except Exception:
+            pass  # a broken config must not stop status from printing
+        summary = await state.get_state_summary(native_email=native)
 
         print("\n  Harvey Pipeline Status")
         print("  " + "=" * 40)
         print(f"  Prospects:            {summary['prospects']}")
         print(f"  Ready to write for:   {summary.get('writable_prospects', 0)} "
-              "(new, with a verified or catch-all email)")
+              "(no draft yet, with a verified or catch-all email)")
         write_failed = (summary.get("prospects") or {}).get("write_failed", 0)
         if write_failed:
             print(f"  Couldn't write for:   {write_failed} (the model's drafts kept coming back "

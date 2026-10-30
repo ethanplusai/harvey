@@ -19,9 +19,14 @@ from harvey.config import HarveyConfig
 from harvey.humanize import humanize, humanizer_enabled
 from harvey.integrations.mail_provider import NATIVE_PROVIDERS
 from harvey.models.campaign import Campaign, EmailStep
-from harvey.state import WRITABLE_EMAIL_STATUSES, StateManager
 from harvey.sending_mode import sync_sending_mode
 from harvey.startups import startup_facts
+from harvey.state import (
+    MAX_WRITE_ATTEMPTS,
+    PERSONAL_ATTEMPTS_KEY,
+    WRITABLE_EMAIL_STATUSES,
+    StateManager,
+)
 from harvey.untrusted import UNTRUSTED_RULE, fence
 
 logger = logging.getLogger("harvey.writer")
@@ -29,7 +34,10 @@ logger = logging.getLogger("harvey.writer")
 # How many times the model may fail to write a usable sequence for a
 # prospect before Harvey stops trying (status 'write_failed'). A provider
 # outage never counts; only a reply that came back unusable does.
-MAX_WRITE_ATTEMPTS = 3
+# PERSONAL_ATTEMPTS_KEY is the same cap for a personalized first email
+# written into a campaign that already exists; there the campaign template
+# stands in instead of a 'write_failed' status. Both live in harvey.state
+# because its queries stop at them.
 WRITE_ATTEMPTS_KEY = "write_attempts:"
 
 # Merge variables that name a person; a company inbox has none of them.
@@ -65,9 +73,34 @@ class Writer:
         # Load foundational skills for this agent
         self.skills = self.brain.load_skills_for_agent("writer")
 
+        # Prospects that entered the table as 'queued' (an import, an ops
+        # run) never match the 'new' query below. Ones already in a campaign
+        # only lack their personalized first email — stage it into that
+        # campaign; the rest join the 'new' prospects through the normal
+        # flow, so nothing sits queued forever without a draft. Capped like
+        # the batches below: the rest are picked up on later cycles.
+        stranded = await self.state.get_stranded_queued_prospects(
+            native=self.is_native,
+            limit=NATIVE_BATCH_CAP if self.is_native else LEGACY_BATCH_CAP,
+        )
+        fresh = []
+        if stranded:
+            campaigns = await self.state.get_campaigns_for_prospects(
+                [p.id for p in stranded]
+            )
+            by_campaign: dict[str, tuple] = {}
+            for p in stranded:
+                campaign = campaigns.get(p.id)
+                if campaign is None:
+                    fresh.append(p)
+                else:
+                    by_campaign.setdefault(campaign.id, (campaign, []))[1].append(p)
+            for campaign, prospects in by_campaign.values():
+                await self._repersonalize(campaign, prospects)
+
         # Get prospects that haven't been contacted yet
         new_prospects = await self.state.get_prospects_by_status("new")
-        if not new_prospects:
+        if not new_prospects and not fresh:
             logger.info("Writer: No new prospects to write for.")
             return
 
@@ -75,7 +108,7 @@ class Writer:
         # invalid addresses are skipped so we don't spend Claude calls (or
         # sending reputation) on mail that will bounce.
         prospects_with_email = [
-            p for p in new_prospects
+            p for p in new_prospects + fresh
             if p.email and (p.email_status or "guess") in WRITABLE_EMAIL_STATUSES
         ]
         # Someone at their company already replied: no cold email to write.
@@ -185,14 +218,74 @@ class Writer:
                 f"{MAX_WRITE_ATTEMPTS} unusable drafts; marked write_failed."
             )
 
-    async def _personalize_first_emails(self, campaign_id: str, prospects: list):
-        """Draft a grounded, per-prospect email 1 and stage it in the outbox.
+    async def _repersonalize(self, campaign, prospects: list):
+        """Stage the personalized first email 'queued' prospects are missing.
 
-        The outbox unique index means the sender's later template staging
-        can't overwrite these rows — a personalized draft always wins the
-        (campaign, prospect, step 1) slot. If a draft fails, the slot stays
-        empty and the sender falls back to the campaign template.
+        They already belong to a campaign — an ops run staged one, or the
+        Writer's own campaign outlived a failed personalization — so no new
+        campaign is written and no sequence call is spent: the missing step-1
+        draft goes into the campaign they have, and the outbox's unique
+        (campaign, prospect, step) slot keeps it single. A draft that keeps
+        coming back unusable gives up after MAX_WRITE_ATTEMPTS tries and the
+        campaign template stands in, exactly as for a fresh campaign whose
+        personalization failed.
         """
+        logger.info(
+            f"Writer: drafting the missing first email for {len(prospects)} "
+            f"prospect(s) already queued in '{campaign.name}'."
+        )
+        pending = []
+        for prospect in prospects:
+            try:
+                draft = await self._write_personal_email(prospect)
+            except Exception as e:
+                # Same contract as a fresh campaign's personalization: skip
+                # this one, don't count it, let a later cycle try again.
+                logger.warning(f"Writer: personal draft failed for {prospect.email}: {e}")
+                continue
+            if draft:
+                await self.state.delete_setting(PERSONAL_ATTEMPTS_KEY + prospect.id)
+                pending.append((prospect, draft))
+                continue
+            if getattr(self.brain, "last_reply_empty", False):
+                # No reply at all (logout, rate limit, timeout): not the
+                # model's fault, nothing to count, and the rest of the batch
+                # would come back just as empty.
+                return
+            if await self._count_personal_attempt(prospect):
+                logger.warning(
+                    f"Writer: {MAX_WRITE_ATTEMPTS} unusable first emails for "
+                    f"{prospect.email}; the '{campaign.name}' template stands in."
+                )
+        drafted = await self._stage_personal_drafts(pending, campaign.id)
+        if drafted:
+            await self.state.log_action(
+                action_type="write_campaign",
+                agent="writer",
+                details={
+                    "campaign_id": campaign.id,
+                    "campaign_name": campaign.name,
+                    "prospect_count": drafted,
+                    "personalized_only": True,
+                },
+            )
+
+    async def _count_personal_attempt(self, prospect) -> bool:
+        """Count one unusable personalized first email for a prospect whose
+        campaign already exists. Returns True at the cap, where the campaign
+        template takes over for good (the key stays at the cap value so the
+        stranded queries stop offering this prospect)."""
+        key = PERSONAL_ATTEMPTS_KEY + prospect.id
+        try:
+            attempts = int(await self.state.get_setting(key) or 0) + 1
+        except ValueError:
+            attempts = 1
+        await self.state.set_setting(key, str(attempts))
+        return attempts >= MAX_WRITE_ATTEMPTS
+
+    async def _stage_personal_drafts(self, pending: list, campaign_id: str) -> int:
+        """Polish and stage (prospect, draft) pairs as step-1 outbox rows.
+        Returns how many landed in the outbox."""
         await sync_sending_mode(self.config, self.state)
         require_approval = getattr(
             self.config.channels.email, "require_approval", True
@@ -200,16 +293,6 @@ class Writer:
         status = "pending_review" if require_approval else "approved"
         now = datetime.now(timezone.utc).replace(tzinfo=None).isoformat()
         provider = self.config.channels.email.provider
-
-        pending = []
-        for prospect in prospects:
-            try:
-                draft = await self._write_personal_email(prospect)
-            except Exception as e:
-                logger.warning(f"Writer: personal draft failed for {prospect.email}: {e}")
-                continue
-            if draft:
-                pending.append((prospect, draft))
 
         # One Humanizer pass over the whole batch before anything is staged.
         polished = await humanize(
@@ -239,6 +322,27 @@ class Writer:
                 f"Writer: drafted {drafted} personalized first email(s) "
                 f"({'awaiting approval' if require_approval else 'approved'})."
             )
+        return drafted
+
+    async def _personalize_first_emails(self, campaign_id: str, prospects: list):
+        """Draft a grounded, per-prospect email 1 and stage it in the outbox.
+
+        The outbox unique index means the sender's later template staging
+        can't overwrite these rows — a personalized draft always wins the
+        (campaign, prospect, step 1) slot. If a draft fails, the slot stays
+        empty and the sender falls back to the campaign template.
+        """
+        pending = []
+        for prospect in prospects:
+            try:
+                draft = await self._write_personal_email(prospect)
+            except Exception as e:
+                logger.warning(f"Writer: personal draft failed for {prospect.email}: {e}")
+                continue
+            if draft:
+                pending.append((prospect, draft))
+
+        await self._stage_personal_drafts(pending, campaign_id)
 
     async def _startup(self, company_id) -> list[str] | None:
         """Fact lines when the company is a startup (YC, another accelerator,

@@ -96,11 +96,18 @@ async def test_old_guesses_do_not_stop_a_mixed_setup_returning_to_prospecting(st
         await add(state, n, f"p{n}@co{n}.test", "guess")
     await age_all(state, days=3)
     await add(state, 100, "v@verified.test", "verified")
-    summary = await state.get_state_summary()
+    summary = await state.get_state_summary(native_email=True)
     assert await decide_next_action(None, state, CONFIG, summary=summary) == "write_campaign"
     [verified] = [p for p in await state.get_prospects_by_status("new") if p.email_status == "verified"]
-    await state.update_prospect_status(verified.id, "queued")  # what the Writer does
-    summary = await state.get_state_summary()
+    # What the Writer really does: queue them AND stage their first email —
+    # a 'queued' row with no draft anywhere is stranded, and the heartbeat
+    # keeps choosing write_campaign until one exists.
+    await state.update_prospect_status(verified.id, "queued")
+    await state.add_outbox_item(
+        prospect_id=verified.id, step=1, to_email="v@verified.test",
+        subject="written", body="Done.", send_at="2026-01-01T00:00:00",
+    )
+    summary = await state.get_state_summary(native_email=True)
     assert await decide_next_action(None, state, CONFIG, summary=summary) == "prospect"
 
 

@@ -119,6 +119,16 @@ def _new_counts(summary: dict) -> tuple[int, int]:
     return new, writable
 
 
+def _native_email(config) -> bool:
+    """Whether mail goes out through a native provider. That is what a draft
+    looks like there (an outbox row) versus a campaign on a legacy provider,
+    so the writable count the heartbeat decides from must know it."""
+    try:
+        return config.channels.email.provider in NATIVE_PROVIDERS
+    except AttributeError:
+        return False
+
+
 def unusable_backlog_notice(summary: dict) -> str:
     """Why Harvey paused prospecting for the day, or ""."""
     _, writable = _new_counts(summary)
@@ -148,7 +158,7 @@ async def decide_next_action(
     every cycle and removes a fragile LLM string-parsing step.
     """
     if summary is None:
-        summary = await state.get_state_summary()
+        summary = await state.get_state_summary(native_email=_native_email(config))
 
     # Only prospects the Writer can draft for trigger writing: one with a
     # guessed email stays 'new' for good, and counting it starved Scout.
@@ -165,7 +175,7 @@ async def decide_next_action(
     elif deployable > 0:
         action, reason = "send_campaign", f"{draft_campaigns} draft campaign(s) ready to deploy"
     elif writable > 0:
-        action, reason = "write_campaign", f"{writable} new prospect(s) with no drafts ready"
+        action, reason = "write_campaign", f"{writable} prospect(s) with no draft ready"
     elif unusable_backlog_notice(summary):
         action, reason = "idle", "a day's worth of prospects with no usable email"
         logger.warning(unusable_backlog_notice(summary))
@@ -374,7 +384,9 @@ async def heartbeat(stop_event: asyncio.Event | None = None):
                 action = "quiet_hours_send"
             else:
                 logger.info("Checking pipeline state...")
-                summary = await state.get_state_summary()
+                summary = await state.get_state_summary(
+                    native_email=_native_email(config)
+                )
                 action = await decide_next_action(brain, state, config, summary=summary)
 
             # 5. Execute — run independent agents in parallel where possible

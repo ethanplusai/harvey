@@ -34,6 +34,19 @@ BUSY_TIMEOUT_SECONDS = 30.0
 # Email statuses the Writer drafts for. Shared with the heartbeat so it only
 # chooses write_campaign when there is something the Writer will act on.
 WRITABLE_EMAIL_STATUSES = ("verified", "risky")
+# How many times the model may come back with an unusable draft for one
+# prospect before Harvey stops asking: three strikes for a whole sequence
+# (the prospect moves to 'write_failed') and for a personalized first email
+# written into a campaign that already exists (the campaign template stands
+# in instead). A provider outage never counts; only a reply that came back
+# unusable does. Shared with the Writer, whose queries stop at these values.
+MAX_WRITE_ATTEMPTS = 3
+# Settings key, per prospect: how many unusable personalized first emails the
+# Writer has produced for someone whose campaign already exists. At
+# MAX_WRITE_ATTEMPTS the template takes over for good, so the stranded
+# queries treat the prospect as drafted rather than re-spending a model call
+# every cycle.
+PERSONAL_ATTEMPTS_KEY = "personal_attempts:"
 # Settings key, per prospect: the user emailed them by hand from the
 # dashboard. Its value is the status they had before, so undo is exact; its
 # presence tells the Sender never to email them as well.
@@ -101,6 +114,35 @@ def _company_answered(p: str) -> str:
     """SQL: someone at prospect ``p``'s company has replied."""
     return (f"EXISTS (SELECT 1 FROM prospects c, settings s "
             f"WHERE s.key = '{COMPANY_STOP_KEY}' || c.id AND {_colleagues(p, 'c')})")
+
+
+def _undrafted(p: str, native: bool) -> str:
+    """SQL: prospect ``p`` is 'queued' with no draft anyone left for them.
+
+    Rows can enter the table as 'queued' directly — an import, an ops run —
+    and never match the Writer's 'new' query, so this is what keeps them from
+    being stranded. A draft exists when a step-1 sequence email sits in the
+    Outbox (native providers: the Writer stages one per prospect) or, on a
+    legacy provider where the campaign template *is* the draft, when the
+    prospect belongs to a campaign that isn't failed. A prospect whose
+    personalized first email came back unusable MAX_WRITE_ATTEMPTS times has
+    fallen back to that template, which counts as drafted.
+    """
+    legacy_drafted = (
+        "" if native else
+        f" AND NOT EXISTS (SELECT 1 FROM campaigns c WHERE c.status != 'failed'"
+        f" AND EXISTS (SELECT 1 FROM json_each(COALESCE(c.prospect_ids_json, '[]')) j"
+        f" WHERE j.value = {p}.id))"
+    )
+    return (
+        f"{p}.status = 'queued'"
+        f" AND NOT EXISTS (SELECT 1 FROM outbox o WHERE o.prospect_id = {p}.id"
+        f" AND (o.kind IS NULL OR o.kind = 'sequence') AND o.step = 1)"
+        f" AND NOT EXISTS (SELECT 1 FROM settings s WHERE s.key ="
+        f" '{PERSONAL_ATTEMPTS_KEY}' || {p}.id"
+        f" AND CAST(s.value AS INTEGER) >= {MAX_WRITE_ATTEMPTS})"
+        f"{legacy_drafted}"
+    )
 # Outbox error on what autopilot had approved when it was turned off.
 AUTOPILOT_OFF_REASON = "waiting for you: autopilot was turned off before it went out"
 # Outbox error on an approved cold email the compliance check couldn't answer
@@ -822,6 +864,35 @@ class StateManager:
                 "SELECT * FROM prospects WHERE status = ? ORDER BY created_at DESC",
                 (status,),
             ) as cursor:
+                rows = await cursor.fetchall()
+                return [self._prospect_from_row(r) for r in rows]
+
+    async def get_stranded_queued_prospects(
+        self, native: bool = False, limit: int = 0
+    ) -> list[Prospect]:
+        """'queued' prospects no draft exists for (see ``_undrafted``).
+
+        Only rows the Writer can act on are returned: a deliverable email
+        (verified or catch-all) and no colleague who already replied. The
+        Writer picks these up alongside its 'new' prospects so rows inserted
+        straight to 'queued' still get their first email drafted.
+        """
+        marks = ",".join("?" for _ in WRITABLE_EMAIL_STATUSES)
+        sql = (
+            "SELECT p.* FROM prospects p"
+            f" WHERE {_undrafted('p', native)}"
+            f" AND COALESCE(p.email, '') != ''"
+            f" AND COALESCE(p.email_status, '') IN ({marks})"
+            f" AND NOT {_company_answered('p')}"
+            " ORDER BY p.created_at"
+        )
+        params = list(WRITABLE_EMAIL_STATUSES)
+        if limit and limit > 0:
+            sql += " LIMIT ?"
+            params.append(int(limit))
+        async with self._connect() as db:
+            db.row_factory = aiosqlite.Row
+            async with db.execute(sql, tuple(params)) as cursor:
                 rows = await cursor.fetchall()
                 return [self._prospect_from_row(r) for r in rows]
 
@@ -2066,15 +2137,24 @@ class StateManager:
                 return row[0] if row else default
 
     async def retry_write_failed(self) -> int:
-        """Give every 'write_failed' prospect another try. Returns how many."""
+        """Give every 'write_failed' prospect another try. Returns how many.
+
+        Also clears the personalized-first-email strike count, so prospects
+        that fell back to a campaign template after unusable drafts get their
+        personal draft tried again."""
         async with self._connect() as db:
             cursor = await db.execute(
                 "UPDATE prospects SET status = 'new', updated_at = ? "
                 "WHERE status = 'write_failed'",
                 (_utcnow().isoformat(),),
             )
+            retried = cursor.rowcount
+            await db.execute(
+                "DELETE FROM settings WHERE key LIKE ?",
+                (PERSONAL_ATTEMPTS_KEY + "%",),
+            )
             await db.commit()
-            return cursor.rowcount
+            return retried
 
     async def delete_setting(self, key: str):
         async with self._connect() as db:
@@ -2131,14 +2211,21 @@ class StateManager:
                         return True
         return False
 
-    async def count_writable_prospects(self) -> int:
-        """New prospects the Writer can draft for (a deliverable email)."""
+    async def count_writable_prospects(self, native: bool = False) -> int:
+        """Prospects the Writer can draft for: 'new' with a deliverable email,
+        plus 'queued' rows no draft exists for. Must match the Writer's own
+        selection (``get_prospects_by_status('new')`` +
+        ``get_stranded_queued_prospects``) exactly — the heartbeat chooses
+        write_campaign on this count, and counting a prospect the Writer then
+        ignores would starve Scout exactly like the drafts it can't deploy."""
         marks = ",".join("?" for _ in WRITABLE_EMAIL_STATUSES)
         async with self._connect() as db:
             async with db.execute(
                 f"""SELECT COUNT(*) FROM prospects p
-                    WHERE status = 'new' AND email != ''
-                      AND email_status IN ({marks}) AND NOT {_company_answered('p')}""",
+                    WHERE (p.status = 'new' OR {_undrafted('p', native)})
+                      AND COALESCE(p.email, '') != ''
+                      AND COALESCE(p.email_status, '') IN ({marks})
+                      AND NOT {_company_answered('p')}""",
                 WRITABLE_EMAIL_STATUSES,
             ) as cursor:
                 return (await cursor.fetchone())[0]
@@ -2302,6 +2389,39 @@ class StateManager:
                     d["prospect_ids"] = json.loads(d.pop("prospect_ids_json") or "[]")
                     campaigns.append(Campaign(**d))
                 return campaigns
+
+    async def get_campaigns_for_prospects(
+        self, prospect_ids: list[str]
+    ) -> dict[str, Campaign]:
+        """The newest non-failed campaign each prospect belongs to.
+
+        A prospect can sit in several campaigns over time (an ops run staged
+        one, an older one failed); the latest one that can still deploy is
+        the one a missing personalized first email belongs in.
+        """
+        wanted = set(prospect_ids)
+        found: dict[str, Campaign] = {}
+        if not wanted:
+            return found
+        async with self._connect() as db:
+            db.row_factory = aiosqlite.Row
+            async with db.execute(
+                "SELECT * FROM campaigns WHERE status != 'failed'"
+                " ORDER BY created_at"
+            ) as cursor:
+                rows = await cursor.fetchall()
+        for r in rows:
+            d = dict(r)
+            ids = json.loads(d.pop("prospect_ids_json") or "[]")
+            if not any(pid in wanted for pid in ids):
+                continue
+            d["sequence"] = Campaign.sequence_from_json(d.pop("sequence_json"))
+            d["prospect_ids"] = ids
+            # Created-ascending order, so a later campaign wins per prospect.
+            for pid in ids:
+                if pid in wanted:
+                    found[pid] = Campaign(**d)
+        return found
 
     async def update_campaign(self, campaign_id: str, **kwargs):
         """Update whitelisted campaign columns in a single atomic statement."""
@@ -2596,7 +2716,11 @@ class StateManager:
 
     # ── Summary for Decision Making ──
 
-    async def get_state_summary(self) -> dict:
+    async def get_state_summary(self, native_email: bool = False) -> dict:
+        """Pipeline counts the heartbeat decides from. ``native_email`` says
+        whether mail goes through a native provider, which is what a draft
+        looks like there (an Outbox row) versus on a legacy provider (a
+        campaign) — see ``_undrafted``."""
         prospect_counts = await self.count_prospects_by_status()
         today = date.today().isoformat()
         async with self._connect() as db:
@@ -2622,10 +2746,11 @@ class StateManager:
 
         return {
             "prospects": prospect_counts,
-            # The 'new' prospects the Writer can act on. A guessed or invalid
-            # address stays 'new' forever, so deciding from the raw count
-            # would keep choosing write_campaign with nothing to write.
-            "writable_prospects": await self.count_writable_prospects(),
+            # The prospects the Writer can act on: 'new' with a deliverable
+            # address, plus 'queued' rows no draft exists for. A guessed or
+            # invalid address stays 'new' forever, so deciding from the raw
+            # count would keep choosing write_campaign with nothing to write.
+            "writable_prospects": await self.count_writable_prospects(native_email),
             # Unusable ones found in the last day: the heartbeat pauses
             # prospecting for the day when these alone fill the backlog.
             "recent_unusable_prospects": await self.count_recent_unusable_prospects(),
