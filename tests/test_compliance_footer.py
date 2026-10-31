@@ -800,3 +800,24 @@ async def test_a_plain_opt_out_is_closed_not_handed_to_you(state):
     assert status == "opted_out"
     assert await state.get_conversations_by_status("needs_human") == []
     assert await _logged(state, "escalation") == []
+
+
+# ── Hebrew escalation: review follow-ups ──
+
+@pytest.mark.parametrize("reply", [
+    "עורך-דין יטפל בזה", "עורךֿדין יטפל בזה".replace("ֿ", "־"), "עורכת-דין שלי תדבר איתכם",
+    "אפנה לבית-המשפט", "נפגש בבית-המשפט",
+    "עו׳׳ד שלי בתמונה",
+    "אני אתבע את העסק", "אתבע את החברה שלכם", "אתבע על זה", "אתבע אם לא תפסיקו",
+    "אלך למשטרה", "נפנה למשטרה", "אפנה למשטרה",
+    "הפסיקו להטריד אותי", "תפסיקו להטריד אותי",
+])
+def test_more_ways_to_say_a_hebrew_legal_threat(reply):
+    from harvey.agents.handler import _escalates, _flat
+    assert _escalates(_flat(reply))
+
+
+@pytest.mark.parametrize("reply", ["עוד-שאלה קטנה", "בית-ספר ליד המשרד", "אתבונן בזה", "תפסיקו לדאוג, נדבר"])
+def test_hyphens_and_near_words_dont_escalate(reply):
+    from harvey.agents.handler import _escalates, _flat
+    assert not _escalates(_flat(reply))

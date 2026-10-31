@@ -287,7 +287,7 @@ ESCALATION_PATTERNS = (
 _HE_YOU = r"(?:אתכם|אותכם|אתכן|אותכן|אותך|אתך)"
 _HE_AGAINST_YOU = r"(?:נגדכם|נגדכן|נגדך)"
 _HE_ABOUT_YOU = r"(?:עליכם|עליכן|עלייך|עליך)"   # also "you must" ("עליכם להגיש")
-_HE_ACRONYM = r"[\"״']{1,2}"   # עו"ד is a lawyer, עוד is "more"
+_HE_ACRONYM = r"[\"״'׳]{1,2}"   # עו"ד is a lawyer, עוד is "more"
 _HE_NOT_INSURER = r"(?!\s+(?:ל|ב|מול\s+|אל\s+|דרך\s+)?ה?(?:ביטוח|חבר[הת]|קופ))"
 HEBREW_ESCALATION_PATTERNS = (
     # A lawyer, legal counsel, the legal department.
@@ -305,7 +305,7 @@ HEBREW_ESCALATION_PATTERNS = (
     r"תביעות\s+קטנות",
     # Suing, and a lawsuit ("תביעה" alone is also an insurance claim).
     r"(?:אתבע|נתבע|לתבוע|תובע|תובעת|תובעים|תובעות|תבעתי|תבענו)\s+" + _HE_YOU,
-    r"אתבע(?:\s+על\s+כל|(?=\s*(?:[.!]|$)))",
+    r"אתבע(?:\s+(?:על|אם|את)(?!\w)|(?=\s*(?:[.!]|$)))",
     r"תביע(?:ה|ות)\s+(?:משפטית|משפטיות|ייצוגית|ייצוגיות)",
     r"(?:תביע(?:ה|ות)|תלונ(?:ה|ות))\s+(?:רשמית\s+)?(?:" + _HE_AGAINST_YOU
     + "|" + _HE_ABOUT_YOU + r"(?!\s+ל))",
@@ -319,6 +319,7 @@ HEBREW_ESCALATION_PATTERNS = (
     r"(?:אתלונן|נתלונן|להתלונן|התלוננתי|אדווח|נדווח|לדווח|דיווחתי|דיווחנו)\s+(?:"
     + _HE_AGAINST_YOU + "|" + _HE_ABOUT_YOU + ")",
     r"(?:תלונ(?:ה|ות)|אתלונן|נתלונן|להתלונן|התלוננתי)\s+(?:\S+\s+)?[בל]משטרה",
+    r"(?:אלך|נלך|אפנה|נפנה|אגש|ניגש)\s+למשטרה",
     r"רשות\s+ל?הגנת\s+ה?(?:פרטיות|צרכן)",
     # The spam law (תיקון 40 לחוק התקשורת, סעיף 30א) and spam complaints.
     r"חוק\s+ה?(?:ספאם|תקשורת)",
@@ -336,6 +337,7 @@ HEBREW_ESCALATION_PATTERNS = (
     r"(?:תלונ(?:ה|ות)|תביע(?:ה|ות)|בגין)\s+(?:על\s+)?ה?הטרד(?:ה|ות)",
     r"די\s+(?:עם\s+ה|ל)הטרד(?:ה|ות)",
     r"(?:אתם|אתה|אתן)\s+מטריד(?:ים|ות)?\s+(?:אותי|אותנו)",
+    r"(?:תפסיק|תפסיקו|תפסיקי|הפסק|הפסיקו|הפסיקי)\s+להטריד",
     r"רשימ(?:ה|ות)\s+ה?שחור(?:ה|ות)",
     r"בלא?קליסט",
 )
@@ -346,8 +348,10 @@ HEBREW_ESCALATION_RE = re.compile(
 
 def _escalates(flat: str) -> bool:
     """Whether their words (flattened, our text removed) need a human."""
+    # "עורך-דין" and "בית־המשפט" are the same words as with a space.
+    spaced = re.sub(r"(?<=[\u05d0-\u05ea])[-\u05be](?=[\u05d0-\u05ea])", " ", flat)
     return (any(p in flat for p in ESCALATION_PATTERNS)
-            or HEBREW_ESCALATION_RE.search(flat) is not None)
+            or HEBREW_ESCALATION_RE.search(spaced) is not None)
 
 
 # The conversation a reply is written from. Cold-email threads are short, so
