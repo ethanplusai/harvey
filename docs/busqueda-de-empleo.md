@@ -1,14 +1,14 @@
-# Harvey para buscar empleo
+# Morthy para buscar empleo
 
-Esta versión de Harvey está adaptada para conseguir trabajo, no para vender.
-Tu CV hace de "producto", y Harvey trabaja por ti en cinco frentes:
+Esta versión de Morthy está adaptada para conseguir trabajo, no para vender.
+Tu CV hace de "producto", y Morthy trabaja por ti en cinco frentes:
 
 | Qué hace | Cómo |
 |---|---|
 | **Busca vacantes remotas** para tu nivel en 8 fuentes públicas | `tools/vacantes_remotas.py` |
 | **Llena formularios de postulación** con tu perfil, y tú los envías | `tools/aplicar.py` |
-| **Escribe a quien decide** (CTO, founder) en empresas que te interesan, en frío | el ciclo de Harvey (`harvey run`) |
-| **Manda una nota corta** a una persona de la empresa 2-21 días después de que postulas | el ciclo de Harvey |
+| **Escribe a quien decide** (CTO, founder) en empresas que te interesan, en frío | el ciclo de Morthy (`morthy run`) |
+| **Manda una nota corta** a una persona de la empresa 2-21 días después de que postulas | el ciclo de Morthy |
 | **Lee tus respuestas** (sistemas de postulación, reclutadores) y te dice qué dicen | pestaña **Otros correos** del dashboard |
 
 **Nada sale sin tu aprobación.** Cada correo espera en el **Outbox** del
@@ -27,12 +27,12 @@ dashboard hasta que lo apruebes, y `aplicar.py` nunca pulsa "enviar".
   - **Claude**: una suscripción Claude Pro/Max con Claude Code instalado.
   - **Codex**: una suscripción de ChatGPT (ver el README principal).
 - Opcional pero recomendado: una llave gratis de un **verificador de correos**
-  (Reoon da 600 al mes). Sin ella, Harvey no envía a direcciones que no pudo verificar.
+  (Reoon da 600 al mes). Sin ella, Morthy no envía a direcciones que no pudo verificar.
 
 ## Instalación (unos 15 minutos)
 
 ```bash
-git clone <este repo> harvey && cd harvey
+git clone https://github.com/JJhiru/morthy.git && cd morthy
 python3 -m venv .venv && source .venv/bin/activate
 pip install -e .
 python -m playwright install chromium     # para aplicar.py
@@ -53,7 +53,7 @@ GMAIL_CLIENT_SECRET=...
 REOON_API_KEY=...              # verificador de correos (recomendado)
 ```
 
-Para buscar en la web, Harvey usa DuckDuckGo y Bing sin llave. Una llave de
+Para buscar en la web, Morthy usa DuckDuckGo y Bing sin llave. Una llave de
 **Serper** (2.500 búsquedas gratis) lo hace más confiable: `SERPER_API_KEY=`.
 
 ### 2. Tu configuración (`harvey.local.yaml`)
@@ -66,7 +66,7 @@ Edítala de arriba abajo, cambiando todo lo de "Ana Ejemplo" por tus datos:
 
 - **`persona`**: tu nombre, tu Gmail y tu **firma**, con los links a tu GitHub,
   LinkedIn y CV. Va al final de cada correo.
-- **`product`**: tu CV en pocas líneas. Harvey **solo dice de ti lo que está aquí**
+- **`product`**: tu CV en pocas líneas. Morthy **solo dice de ti lo que está aquí**
   y en `job_search.projects`; nunca inventa experiencia ni números.
 - **`icp`**: el tipo de empresas a las que quieres escribir y los cargos de quien decide.
 - **`brain`**: `provider: deepseek` (o `claude`). `max_daily_usd` es el tope de gasto diario.
@@ -74,7 +74,7 @@ Edítala de arriba abajo, cambiando todo lo de "Ana Ejemplo" por tus datos:
   - `intro` y `role_sought`: cómo te presentas y qué buscas.
   - `country`: tu país; el buscador también acepta vacantes abiertas para él.
   - `projects`: **la parte más importante.** Cada proyecto lleva los sectores
-    para los que sirve y la frase con sus datos reales. Harvey elige uno por
+    para los que sirve y la frase con sus datos reales. Morthy elige uno por
     empresa según su sector. Un proyecto con `sectors: []` es el que usa por defecto.
   - `signature_es`: tu firma en español, para empresas hispanohablantes.
 - **`channels.email.link_domains`**: los dominios de los links de tu firma.
@@ -99,21 +99,21 @@ También está en `.gitignore`.
    activa la **Gmail API** y crea credenciales **OAuth** de tipo "Desktop app".
 2. Pon el client id y el secret en `.env`.
 3. En la pantalla de consentimiento OAuth, agrega tu Gmail como usuario de prueba,
-   o publica la app. **Si la dejas en "Testing", Google desconecta a Harvey cada 7 días**
+   o publica la app. **Si la dejas en "Testing", Google desconecta a Morthy cada 7 días**
    y tienes que repetir el paso 4.
-4. Corre `harvey gmail auth` (abre el navegador) y después `harvey gmail test`.
+4. Corre `morthy gmail auth` (abre el navegador) y después `morthy gmail test`.
 
 ### 5. Comprobar y arrancar
 
 ```bash
-harvey status --check      # dice si el cerebro y el correo están listos
-harvey signals --confirm free
-harvey run                 # el ciclo: cada 15 minutos revisa qué hay que hacer
-harvey dashboard           # en otra terminal; abre el link que imprime
+morthy status --check      # dice si el cerebro y el correo están listos
+morthy signals --confirm free
+morthy run                 # el ciclo: cada 15 minutos revisa qué hay que hacer
+morthy dashboard           # en otra terminal; abre el link que imprime
 ```
 
-Harvey **solo trabaja mientras tu computadora está despierta.** Si se
-suspende, Harvey se detiene con ella y sigue al despertar.
+Morthy **solo trabaja mientras tu computadora está despierta.** Si se
+suspende, Morthy se detiene con ella y sigue al despertar.
 
 ---
 
@@ -137,12 +137,12 @@ redactó, y **tú revisas y envías**. Al marcarla como enviada, te pregunta el
 **peso**: pesado (calza con tu CV), aprender o interesante.
 
 **En el dashboard:**
-- **Outbox:** aprueba, edita o rechaza los correos que Harvey preparó: correos
+- **Outbox:** aprueba, edita o rechaza los correos que Morthy preparó: correos
   en frío y notas de seguimiento después de postular.
-- **Otros correos:** las respuestas de empresas. Harvey sugiere de qué postulación
+- **Otros correos:** las respuestas de empresas. Morthy sugiere de qué postulación
   son y si es rechazo, prueba técnica, entrevista o acuse. Con **Anotar** queda
   registrado. El botón "Importar últimos 30 días" trae lo que llegó antes.
-- **Conversations:** cuando alguien responde a un correo de Harvey, aquí está
+- **Conversations:** cuando alguien responde a un correo de Morthy, aquí está
   el hilo y el borrador de respuesta, que también espera tu aprobación.
 
 **Ver qué funciona:**
@@ -154,11 +154,11 @@ python tools/seguimiento.py marcar 3 entrevista "llamada el martes"
 
 ## Costos con DeepSeek
 
-Harvey usa `deepseek-flash` sin "modo pensamiento". Un correo cuesta una
+Morthy usa `deepseek-flash` sin "modo pensamiento". Un correo cuesta una
 fracción de centavo. `brain.max_daily_usd` (0,50 USD por defecto) detiene a
-Harvey ese día si lo alcanza; el gasto es una estimación con tarifas de hora
-pico, así que lo real suele ser menos. Mira el consumo con `harvey usage`.
-Si te quedas sin saldo, Harvey se pausa solo y te lo dice en `harvey status`.
+Morthy ese día si lo alcanza; el gasto es una estimación con tarifas de hora
+pico, así que lo real suele ser menos. Mira el consumo con `morthy usage`.
+Si te quedas sin saldo, Morthy se pausa solo y te lo dice en `morthy status`.
 
 ## Seguridad y privacidad
 
@@ -168,16 +168,16 @@ Si te quedas sin saldo, Harvey se pausa solo y te lo dice en `harvey status`.
 - El cerebro (DeepSeek, Claude o Codex) **no tiene herramientas**: solo
   devuelve texto. No puede leer archivos ni ejecutar nada, aunque una página
   web o un correo le pida hacerlo.
-- Harvey tiene límites de envío diario, horas de silencio, y frena solo si
+- Morthy tiene límites de envío diario, horas de silencio, y frena solo si
   rebotan demasiados correos o alguien pide no ser contactado.
 
 ## Problemas comunes
 
 | Síntoma | Qué hacer |
 |---|---|
-| `command not found: harvey` | `source .venv/bin/activate` |
-| "Gmail token refresh rejected" | `harvey gmail auth` (y publica la app OAuth; ver paso 4) |
+| `command not found: morthy` | `source .venv/bin/activate` |
+| "Gmail token refresh rejected" | `morthy gmail auth` (y publica la app OAuth; ver paso 4) |
 | `DEEPSEEK_API_KEY is not set` | Falta la llave en `.env` |
 | "DeepSeek balance is empty" | Recarga saldo en platform.deepseek.com |
 | `aplicar.py` dice "El perfil aún no está revisado" | Quedan `"REVISAR"` en `perfil_aplicacion.yaml` |
-| No llegan notas de seguimiento | Solo salen 2-21 días después de postular, y solo si Harvey encuentra a una persona con un correo verificable |
+| No llegan notas de seguimiento | Solo salen 2-21 días después de postular, y solo si Morthy encuentra a una persona con un correo verificable |

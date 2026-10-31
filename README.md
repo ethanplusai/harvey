@@ -1,3 +1,65 @@
+# Morthy
+
+**Un agente de IA para conseguir trabajo, construido sobre [Harvey](https://github.com/ethanplusai/harvey).**
+*An AI job-search agent: a fork of Harvey, the autonomous sales agent, repurposed to land a job.*
+
+Morthy busca vacantes remotas para tu nivel, te ayuda a llenar los formularios
+de postulación, escribe a la persona que decide (CTO, founder) y lee las
+respuestas para decirte qué dicen. Corre en tu computadora, con Claude, Codex
+o DeepSeek como cerebro.
+
+**Empieza aquí: [docs/busqueda-de-empleo.md](docs/busqueda-de-empleo.md)**, la
+guía en español: instalación, configuración y el día a día.
+
+## La visión
+
+Harvey es un agente de ventas: encuentra empresas, averigua algo concreto de
+cada una, les escribe y trabaja la conversación. Buscar trabajo, sobre todo
+como junior, es el mismo problema con otro objetivo: tu CV hace de producto y
+quien decide en la empresa es tu "cliente". Morthy reutiliza ese motor tal
+cual y le agrega lo que una búsqueda de empleo necesita, con tres principios:
+
+- **Los canales que funcionan.** Postular por la página oficial de la empresa
+  es el canal principal. El correo va a una persona concreta, no a `info@`, y
+  sirve sobre todo para que alguien lea tu postulación.
+- **Tú decides.** Ningún correo sale sin tu aprobación, y los formularios los
+  envías tú. Morthy nunca inventa experiencia, números ni disponibilidad: solo
+  dice de ti lo que pusiste en tu configuración.
+- **Medir antes de creer.** Cada postulación y cada respuesta quedan
+  registradas, para saber con datos qué canal y qué tipo de vacante te consigue
+  entrevistas.
+
+## Qué agregamos a Harvey
+
+| | |
+|---|---|
+| **Modo búsqueda de empleo** | Los prompts del writer y del handler se llenan desde `job_search` en tu config: tus proyectos, tu firma, tu país. Nada tuyo vive en el código. |
+| **Buscador de vacantes** | `tools/vacantes_remotas.py`: vacantes remotas junior en 8 fuentes públicas (Remotive, RemoteOK, Himalayas, Jobicy, Arbeitnow, Get on Board, We Work Remotely, Hacker News), en dos grupos: para tu nivel y para estirarte. |
+| **Asistente de postulación** | `tools/aplicar.py`: abre el formulario oficial, lo llena con tu perfil y redacta la carta solo con hechos reales. Nunca pulsa enviar. |
+| **Otros correos** | Una pestaña del dashboard con las respuestas de sistemas de postulación y reclutadores, unidas a tu postulación, con una sugerencia (rechazo, prueba técnica, entrevista, acuse). |
+| **Nota después de postular** | 2-21 días después de postular, un correo corto a una persona de la empresa, que espera tu aprobación en el Outbox. |
+| **Seguimiento** | `tools/seguimiento.py`: respuestas y entrevistas por canal y por el "peso" que le diste a cada vacante. |
+| **DeepSeek como cerebro** | `brain.provider: deepseek`: llamadas directas a la API, sin herramientas, con un tope de gasto diario. |
+
+**Lo que no cambiamos:** el motor de Harvey (prospección, verificación de
+correos, Outbox, límites de envío, detección de rebotes y bajas), y sus cerebros
+Claude y Codex, que funcionan igual. Con `job_search.enabled: false`, Morthy
+vuelve a ser Harvey, el agente de ventas.
+
+El comando es `morthy` (`morthy run`, `morthy dashboard`); `harvey` sigue
+funcionando igual. Por dentro, el paquete se sigue llamando `harvey`, para poder
+traer las mejoras del repo original.
+
+## Créditos y licencia
+
+Morthy es una modificación de [Harvey](https://github.com/ethanplusai/harvey),
+de Ethan Rogers, bajo la [licencia MIT](LICENSE), igual que este fork.
+
+---
+
+> Lo que sigue es el README original de Harvey: describe el motor sobre el que
+> corre Morthy y todas sus opciones de ventas, que siguen disponibles.
+
 # Harvey
 
 **An autonomous sales agent that runs on your Claude Code or Codex subscription.**
