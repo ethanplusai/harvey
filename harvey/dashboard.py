@@ -780,7 +780,7 @@ async def get_stats():
         # get_usage_today use date.today()); SQLite's date('now') is UTC and
         # can select a different day's counts on either side of UTC midnight.
         usage = await query_db(
-            "SELECT claude_calls, codex_calls FROM usage_log WHERE date = ?",
+            "SELECT claude_calls, codex_calls, litellm_calls FROM usage_log WHERE date = ?",
             (date.today().isoformat(),),
         )
         usage_today = (usage[0]["claude_calls"] or 0) if usage else 0
@@ -794,6 +794,7 @@ async def get_stats():
             "actions_total": action_count,
             "claude_calls_today": usage_today,
             "codex_calls_today": codex_today,
+            "litellm_calls_today": (usage[0]["litellm_calls"] or 0) if usage else 0,
             "brain_provider": _active_provider(),
             "brain_status": await _brain_status(),
         }

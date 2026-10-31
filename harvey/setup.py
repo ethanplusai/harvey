@@ -8,6 +8,7 @@ import shutil
 from pathlib import Path
 
 import yaml
+from dotenv import load_dotenv
 
 from pydantic import ValidationError
 
@@ -132,11 +133,12 @@ async def _test_claude(brain: Brain) -> bool:
 
 def _ask_brain_config() -> BrainConfig:
     """Ask which subscription Harvey thinks with. Claude is the default."""
-    _print_harvey("I think with an AI subscription you already pay for:")
+    _print_harvey("Choose how Harvey makes model calls:")
     print("    claude — your Claude plan, via Claude Code (default)")
     print("    codex  — your ChatGPT plan, via the Codex CLI")
+    print("    litellm — your LiteLLM AI Gateway (API usage is billed by your providers)")
     while True:
-        provider = _ask("Which one? (claude/codex)", default="claude").lower()
+        provider = _ask("Which one? (claude/codex/litellm)", default="claude").lower()
         if provider == "codex":
             from harvey.codex import CodexError, require_supported_platform
             try:
@@ -144,9 +146,9 @@ def _ask_brain_config() -> BrainConfig:
             except CodexError as e:
                 print(f"    ({e})")
                 continue
-        if provider in ("claude", "codex"):
+        if provider in ("claude", "codex", "litellm"):
             break
-        print("    (type claude or codex)")
+        print("    (type claude, codex or litellm)")
     if provider == "codex":
         from harvey.codex import SUGGESTED_MODEL
         print(f"    {SUGGESTED_MODEL} is the Codex model Harvey has verified as text-only")
@@ -155,7 +157,8 @@ def _ask_brain_config() -> BrainConfig:
         if provider == "codex":
             model = _ask("Model", default=SUGGESTED_MODEL, required=False)
         else:
-            model = _ask("Model (leave blank for the default)", required=False)
+            model = _ask("Gateway model alias" if provider == "litellm" else
+                         "Model (leave blank for the default)", required=provider == "litellm")
         try:
             return BrainConfig(provider=provider, model=model)
         except ValidationError:
@@ -188,7 +191,7 @@ class SetupWizard:
 
     async def run(self):
         """Run the full interactive setup."""
-        print(f"""
+        print("""
 ╔══════════════════════════════════════════════════════════╗
 ║                                                          ║
 ║   Harvey Setup Wizard                                    ║
@@ -240,10 +243,25 @@ class SetupWizard:
     async def _check_prerequisites(self):
         """Pick the brain provider and verify its CLI is installed and working."""
         self.brain_config = _ask_brain_config()
-        if self.brain_config.provider == "codex":
+        if self.brain_config.provider == "litellm":
+            await self._check_litellm()
+        elif self.brain_config.provider == "codex":
             await self._check_codex()
         else:
             await self._check_claude()
+
+    async def _check_litellm(self):
+        from harvey.litellm_gateway import LiteLLMClient, LiteLLMError
+
+        _print_harvey("Set LITELLM_BASE_URL and LITELLM_API_KEY in .env before setup.")
+        load_dotenv(ENV_FILE)
+        try:
+            await LiteLLMClient(self.brain_config.model).preflight()
+        except LiteLLMError as e:
+            _print_harvey(str(e))
+            raise SystemExit(1)
+        print("  ✓ LiteLLM AI Gateway and model checked (no prompt sent)")
+        self._check_python_packages()
 
     async def _check_claude(self):
         # Check Claude CLI
@@ -809,7 +827,7 @@ class SetupWizard:
 
     async def _print_summary(self):
         """Print final summary and next steps."""
-        print(f"""
+        print("""
 ╔══════════════════════════════════════════════════════════╗
 ║                                                          ║
 ║   Setup Complete!                                        ║
@@ -818,10 +836,14 @@ class SetupWizard:
 """)
 
         # Show what's configured
+        if self.brain_config.provider == "litellm":
+            brain_checks = {"LiteLLM AI Gateway": True}
+        elif self.brain_config.provider == "codex":
+            brain_checks = {"Codex CLI (ChatGPT plan)": _check_codex_cli()}
+        else:
+            brain_checks = {"Claude Code CLI": _check_claude_cli()}
         checks = {
-            ("Codex CLI (ChatGPT plan)" if self.brain_config.provider == "codex"
-             else "Claude Code CLI"): (_check_codex_cli() if self.brain_config.provider == "codex"
-                                      else _check_claude_cli()),
+            **brain_checks,
             "Instantly API": bool(self.env_vars.get("INSTANTLY_API_KEY")),
             "LinkedIn": bool(self.env_vars.get("LINKEDIN_EMAIL")),
             "Cloudflare Crawl": bool(self.env_vars.get("CLOUDFLARE_ACCOUNT_ID")),
