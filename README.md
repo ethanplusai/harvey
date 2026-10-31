@@ -8,8 +8,8 @@ de postulación, escribe a la persona que decide (CTO, founder) y lee las
 respuestas para decirte qué dicen. Corre en tu computadora, con Claude, Codex
 o DeepSeek como cerebro.
 
-**Empieza aquí: [docs/busqueda-de-empleo.md](docs/busqueda-de-empleo.md)**, la
-guía en español: instalación, configuración y el día a día.
+**Empieza aquí: [docs/guia-rapida.md](docs/guia-rapida.md)**, Morthy en 10 pasos.
+Los detalles están en [docs/busqueda-de-empleo.md](docs/busqueda-de-empleo.md).
 
 ## La visión
 
