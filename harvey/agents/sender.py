@@ -27,6 +27,7 @@ from harvey.send_window import in_window, next_send_time, recipient_country, rec
 from harvey.integrations.instantly import InstantlyClient
 from harvey.integrations.mail_provider import NATIVE_PROVIDERS, get_mail_provider
 from harvey.integrations.precleared import PreclearedClient, clear_hold, record_hold
+from harvey.integrations.signature import signature_problem
 from harvey.sending_mode import sync_sending_mode
 from harvey.state import (
     AUTOPILOT_OFF_REASON, COLLEAGUE_REPLIED, HAND_SENT_REASON, HELD_FOR_REVIEW,
@@ -811,6 +812,12 @@ class Sender:
                 f"Sender: mail provider '{self.provider.name}' is not configured "
                 "yet — outbox is holding. See CLAUDE.md → provider setup."
             )
+            return
+        # Every email carries the configured logo, or none goes out: a
+        # broken logo holds approved email rather than failing it.
+        problem = signature_problem(self.config)
+        if problem:
+            logger.warning(f"Sender: email signature can't be used ({problem}) — outbox is holding.")
             return
 
         max_daily = self.config.channels.email.max_daily_sends
