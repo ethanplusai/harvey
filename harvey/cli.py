@@ -522,6 +522,201 @@ def cmd_outbox(args):
     asyncio.run(_outbox())
 
 
+async def _find_prospect(state, who: str):
+    """A prospect by id or email, or None."""
+    if not who:
+        return None
+    return (await state.get_prospect(who)) or (await state.get_prospect_by_email(who))
+
+
+def _person(row: dict) -> str:
+    name = " ".join(x for x in (row.get("first_name"), row.get("last_name")) if x)
+    who = name or row.get("email") or ""
+    company = row.get("company_name") or ""
+    return f"{who} ({company})" if who and company else who or company
+
+
+def cmd_tasks(args):
+    """Follow-up tasks: what's due, add one, tick one off."""
+    from harvey.crm import CrmInputError, MAX_TASK_CHARS, clean_text, parse_due_date, task_bucket
+    from harvey.state import StateManager
+
+    async def _tasks():
+        state = StateManager()
+        await state.init_db()
+
+        if args.done or args.undo:
+            task_id = args.done or args.undo
+            ok = await state.set_task_done(task_id, done=bool(args.done))
+            print(f"\n  {'Updated.' if ok else 'No task with that id.'}\n")
+            return
+        if args.delete:
+            ok = await state.delete_task(args.delete)
+            print(f"\n  {'Deleted.' if ok else 'No task with that id.'}\n")
+            return
+        if args.add:
+            prospect = await _find_prospect(state, args.prospect)
+            if args.prospect and not prospect:
+                print(f"\n  No contact with id or email '{args.prospect}'.\n")
+                return
+            try:
+                text = clean_text(args.add, MAX_TASK_CHARS, "task")
+                due = parse_due_date(args.due)
+            except CrmInputError as e:
+                print(f"\n  {e}\n")
+                return
+            task_id = await state.add_task(
+                text, due_date=due, prospect_id=prospect.id if prospect else "")
+            print(f"\n  Added task {task_id}" + (f", due {due}" if due else "") + ".\n")
+            return
+
+        prospect = await _find_prospect(state, args.prospect)
+        if args.prospect and not prospect:
+            print(f"\n  No contact with id or email '{args.prospect}'.\n")
+            return
+        rows = await state.get_tasks(include_done=args.all,
+                                     prospect_id=prospect.id if prospect else "")
+        if not rows:
+            print("\n  No open tasks. Add one: harvey tasks --add \"Call back\" "
+                  "--due tomorrow --prospect <id or email>\n")
+            return
+        labels = {"overdue": "OVERDUE", "today": "Due today", "upcoming": "Upcoming",
+                  "undated": "No date", "done": "Done"}
+        groups: dict[str, list[dict]] = {}
+        for row in rows:
+            groups.setdefault(task_bucket(row["due_date"], bool(row["done"])), []).append(row)
+        for bucket, label in labels.items():
+            if bucket not in groups:
+                continue
+            print(f"\n  {label} ({len(groups[bucket])})")
+            print("  " + "-" * 60)
+            for row in groups[bucket]:
+                who = _person(row)
+                due = f"  [{row['due_date']}]" if row["due_date"] else ""
+                print(f"  {row['id']}{due}  {row['description']}" + (f"  — {who}" if who else ""))
+        print("\n  Tick off: harvey tasks --done <id>\n")
+
+    asyncio.run(_tasks())
+
+
+def cmd_notes(args):
+    """Private notes on a contact or company. Never shown to the AI."""
+    from harvey.crm import CrmInputError, MAX_NOTE_CHARS, clean_text
+    from harvey.state import StateManager
+
+    async def _notes():
+        state = StateManager()
+        await state.init_db()
+        if args.delete:
+            ok = await state.delete_note(args.delete)
+            print(f"\n  {'Deleted.' if ok else 'No note with that id.'}\n")
+            return
+        prospect = await _find_prospect(state, args.prospect)
+        if args.prospect and not prospect:
+            print(f"\n  No contact with id or email '{args.prospect}'.\n")
+            return
+        if args.add:
+            if not prospect and not args.company:
+                print("\n  Say who it's about: --prospect <id or email> or --company <id>.\n")
+                return
+            try:
+                text = clean_text(args.add, MAX_NOTE_CHARS, "note", single_line=False)
+            except CrmInputError as e:
+                print(f"\n  {e}\n")
+                return
+            note_id = await state.add_note(
+                text, prospect_id=prospect.id if prospect else "", company_id=args.company)
+            print(f"\n  Saved note {note_id}.\n")
+            return
+        rows = await state.get_notes(prospect_id=prospect.id if prospect else "",
+                                     company_id=args.company)
+        if not rows:
+            print("\n  No notes yet.\n")
+            return
+        for row in rows:
+            print(f"\n  {row['id']}  {str(row['created_at'])[:16]}")
+            for line in row["content"].splitlines():
+                print(f"    {line}")
+        print()
+
+    asyncio.run(_notes())
+
+
+def cmd_learnings(args):
+    """Validated learnings the Writer and Handler apply to every email."""
+    from harvey.crm import CrmInputError, LEARNING_CATEGORIES, MIN_CONFIDENCE, validate_learning
+    from harvey.state import StateManager
+
+    async def _learnings():
+        state = StateManager()
+        await state.init_db()
+        if args.retire or args.restore:
+            ok = await state.set_learning_active(args.retire or args.restore,
+                                                 active=bool(args.restore))
+            print(f"\n  {'Updated.' if ok else 'No learning with that id.'}\n")
+            return
+        if args.add:
+            try:
+                category, content, confidence = validate_learning(
+                    args.category, args.add, args.confidence)
+            except CrmInputError as e:
+                print(f"\n  {e}\n")
+                return
+            learning_id = await state.add_learning(category, content, confidence,
+                                                   source_context=args.source)
+            print(f"\n  Saved learning {learning_id}. Harvey applies it from the next email.\n")
+            return
+        rows = await state.get_learnings(active_only=not args.all, query=args.search)
+        if not rows:
+            print("\n  No learnings yet. Save one you've seen work more than once:")
+            print(f"  harvey learnings --add \"...\" --category {LEARNING_CATEGORIES[0]} "
+                  f"--confidence 0.8   (minimum {MIN_CONFIDENCE})\n")
+            return
+        for row in rows:
+            flag = "" if row["active"] else "  (retired)"
+            print(f"\n  {row['id']}  [{row['category']}]  confidence {row['confidence']}{flag}")
+            print(f"    {row['content']}")
+            if row["source_context"]:
+                print(f"    from: {row['source_context']}")
+        print("\n  Retire one: harvey learnings --retire <id>\n")
+
+    asyncio.run(_learnings())
+
+
+def cmd_score(args):
+    """Explain a contact's lead score, part by part."""
+    from harvey.config import load_config
+    from harvey.scoring import score_prospect
+    from harvey.state import StateManager
+
+    async def _score():
+        state = StateManager()
+        await state.init_db()
+        prospect = await _find_prospect(state, args.prospect)
+        if not prospect:
+            print(f"\n  No contact with id or email '{args.prospect}'.\n")
+            return
+        config = load_config()
+        company = await state.get_company(prospect.company_id) if prospect.company_id else None
+        result = score_prospect(prospect, config.icp, config.scoring.weights, company=company)
+        print(f"\n  {prospect.full_name() or prospect.email}: deterministic score "
+              f"{result.total}/100 (stored score {prospect.score})")
+        print("  " + "-" * 60)
+        for part in result.parts:
+            if not part.weight:
+                continue
+            print(f"  {part.name:<10} {part.points:>5.1f} / {part.weight:<5g} {part.reason}")
+        off = [p.name for p in result.parts if not p.weight]
+        if off:
+            print(f"\n  Off (weight 0): {', '.join(off)}. Turn on under scoring.weights "
+                  "in harvey.yaml.")
+        if result.total != prospect.score:
+            print("  The stored score also reflects the Scout's Claude review of the contact.")
+        print()
+
+    asyncio.run(_score())
+
+
 def cmd_profile(args):
     """Read what companies' own websites say about them. Free, no Claude calls."""
     from harvey.state import StateManager
@@ -1038,6 +1233,42 @@ def main():
     sub.add_argument("--approve-all", action="store_true", help="Approve all pending")
     sub.add_argument("--reject", metavar="ID", default="", help="Reject one item")
     sub.set_defaults(func=cmd_outbox)
+
+    sub = subparsers.add_parser("tasks", help="Follow-up tasks: what's due, add, tick off")
+    sub.add_argument("--add", metavar="TEXT", default="", help="Add a task")
+    sub.add_argument("--due", default="", help="Due date: YYYY-MM-DD, today or tomorrow")
+    sub.add_argument("--prospect", metavar="ID_OR_EMAIL", default="",
+                     help="The contact it's about (also filters the list)")
+    sub.add_argument("--done", metavar="ID", default="", help="Mark a task done")
+    sub.add_argument("--undo", metavar="ID", default="", help="Reopen a done task")
+    sub.add_argument("--delete", metavar="ID", default="", help="Delete a task")
+    sub.add_argument("--all", action="store_true", help="Include done tasks")
+    sub.set_defaults(func=cmd_tasks)
+
+    sub = subparsers.add_parser("notes", help="Private notes on contacts and companies")
+    sub.add_argument("--prospect", metavar="ID_OR_EMAIL", default="")
+    sub.add_argument("--company", metavar="ID", default="")
+    sub.add_argument("--add", metavar="TEXT", default="", help="Add a note")
+    sub.add_argument("--delete", metavar="ID", default="", help="Delete a note")
+    sub.set_defaults(func=cmd_notes)
+
+    sub = subparsers.add_parser(
+        "learnings", help="Validated learnings Harvey applies when writing and replying")
+    sub.add_argument("--add", metavar="TEXT", default="", help="Save a learning")
+    sub.add_argument("--category", default="sales-learning",
+                     help="sales-learning, outreach-improvement or industry-insight")
+    sub.add_argument("--confidence", type=float, default=0.7,
+                     help="How sure you are, 0-1 (below 0.6 isn't saved)")
+    sub.add_argument("--source", default="", help="Where it came from (e.g. 'three dental deals')")
+    sub.add_argument("--search", default="", help="Filter by text")
+    sub.add_argument("--retire", metavar="ID", default="", help="Stop applying one")
+    sub.add_argument("--restore", metavar="ID", default="", help="Apply a retired one again")
+    sub.add_argument("--all", action="store_true", help="Include retired learnings")
+    sub.set_defaults(func=cmd_learnings)
+
+    sub = subparsers.add_parser("score", help="Explain a contact's lead score")
+    sub.add_argument("prospect", metavar="ID_OR_EMAIL")
+    sub.set_defaults(func=cmd_score)
 
     # harvey sending pause|resume|status
     sub = subparsers.add_parser("discover", help="Find businesses matching your ICP")

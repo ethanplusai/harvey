@@ -27,6 +27,8 @@
     <symbol id="i-settings" viewBox="0 0 24 24"><path d="M4 6h9M17 6h3M4 12h3M11 12h9M4 18h11M19 18h1"/><circle cx="15" cy="6" r="2"/><circle cx="9" cy="12" r="2"/><circle cx="17" cy="18" r="2"/></symbol>
     <symbol id="i-controls" viewBox="0 0 24 24"><path d="M12 3v9"/><path d="M18.4 6.6a9 9 0 1 1-12.8 0"/></symbol>
     <symbol id="i-help" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M9.5 9.5a2.5 2.5 0 0 1 4.9.7c0 1.7-2.4 2.2-2.4 3.8"/><path d="M12 17h.01"/></symbol>
+    <symbol id="i-tasks" viewBox="0 0 24 24"><rect x="4" y="4" width="16" height="16" rx="2"/><path d="m8 12 3 3 5-6"/></symbol>
+    <symbol id="i-learnings" viewBox="0 0 24 24"><path d="M9 18h6M10 21h4"/><path d="M12 3a6 6 0 0 0-3.5 10.9c.6.5 1 1.2 1 2.1h5c0-.9.4-1.6 1-2.1A6 6 0 0 0 12 3z"/></symbol>
     <symbol id="i-check" viewBox="0 0 24 24"><path d="m5 12.5 4.5 4.5L19 7.5"/></symbol>
     <symbol id="i-alert" viewBox="0 0 24 24"><path d="M12 9v4M12 17h.01"/><path d="M10.3 3.9 2.4 17.5A2 2 0 0 0 4.1 20.5h15.8a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0z"/></symbol>
     <symbol id="i-arrow" viewBox="0 0 24 24"><path d="M5 12h14M13 6l6 6-6 6"/></symbol>
@@ -73,6 +75,7 @@
       <button class="active" onclick="showTab('today', this)"><svg class="icon" aria-hidden="true"><use href="#i-today"/></svg><span class="label">Today</span><span class="nav-count" id="nav-today"></span></button>
       <button onclick="showTab('outbox', this)"><svg class="icon" aria-hidden="true"><use href="#i-outbox"/></svg><span class="label">Outbox</span><span class="nav-count" id="nav-outbox"></span></button>
       <button onclick="showTab('conversations', this)"><svg class="icon" aria-hidden="true"><use href="#i-conversations"/></svg><span class="label">Conversations</span><span class="nav-count" id="nav-conversations"></span></button>
+      <button onclick="showTab('tasks', this)"><svg class="icon" aria-hidden="true"><use href="#i-tasks"/></svg><span class="label">Tasks</span><span class="nav-count" id="nav-tasks"></span></button>
     </div>
     <div class="nav-group">
       <div class="nav-label">Pipeline</div>
@@ -81,6 +84,7 @@
       <button onclick="showTab('companies', this)"><svg class="icon" aria-hidden="true"><use href="#i-companies"/></svg><span class="label">Companies</span></button>
       <button onclick="showTab('prospects', this)"><svg class="icon" aria-hidden="true"><use href="#i-contacts"/></svg><span class="label">Contacts</span></button>
       <button onclick="showTab('campaigns', this)"><svg class="icon" aria-hidden="true"><use href="#i-campaigns"/></svg><span class="label">Campaigns</span></button>
+      <button onclick="showTab('learnings', this)"><svg class="icon" aria-hidden="true"><use href="#i-learnings"/></svg><span class="label">Learnings</span></button>
     </div>
     <div class="nav-group">
       <div class="nav-label">System</div>
@@ -246,6 +250,45 @@
 <div id="campaigns" class="section">
   <div class="section-head"><div><h2>Campaigns</h2><p>Email sequences Harvey has written, and how far each one has got.</p></div></div>
   <div id="campaigns-list"></div>
+</div>
+
+<!-- Tasks: follow-ups, what's due -->
+<div id="tasks" class="section">
+  <div class="section-head"><div><h2>Tasks</h2><p>Follow-ups for you to do. An interested reply adds one due today: the first to answer usually wins.</p></div></div>
+  <div class="card">
+    <form onsubmit="addTask(event)" class="form-row">
+      <div class="form-group"><label class="form-label" for="task-text">New task</label>
+        <input type="text" class="form-input" id="task-text" maxlength="500" placeholder="Call back about the pilot" autocomplete="off"></div>
+      <div class="form-group" style="max-width:170px"><label class="form-label" for="task-due">Due</label>
+        <input type="date" class="form-input" id="task-due"></div>
+      <button class="btn btn-primary" type="submit">Add</button>
+    </form>
+  </div>
+  <label class="muted" style="display:inline-flex;gap:6px;align-items:center;margin:12px 0;font-size:13px">
+    <input type="checkbox" id="tasks-show-done" onchange="loadTasks()"> Show done</label>
+  <div id="tasks-list"></div>
+</div>
+
+<!-- Learnings: validated experience Harvey applies -->
+<div id="learnings" class="section">
+  <div class="section-head"><div><h2>Learnings</h2><p>Patterns you've confirmed from real deals. Harvey applies every active one when it writes and replies. Only save what you've seen more than once.</p></div></div>
+  <div class="card">
+    <form onsubmit="addLearning(event)">
+      <div class="form-group"><label class="form-label" for="learning-text">Learning</label>
+        <input type="text" class="form-input" id="learning-text" maxlength="500" autocomplete="off"
+          placeholder="For dental practices, opening with online booking gets more replies than opening with reviews"></div>
+      <div class="form-row">
+        <div class="form-group"><label class="form-label" for="learning-category">Category</label>
+          <select class="form-input" id="learning-category"></select></div>
+        <div class="form-group" style="max-width:140px"><label class="form-label" for="learning-confidence">Confidence (0-1)</label>
+          <input type="number" class="form-input" id="learning-confidence" min="0" max="1" step="0.05" value="0.7"></div>
+        <div class="form-group"><label class="form-label" for="learning-source">Where from (optional)</label>
+          <input type="text" class="form-input" id="learning-source" maxlength="200" placeholder="three dental replies in March" autocomplete="off"></div>
+        <button class="btn btn-primary" type="submit">Save</button>
+      </div>
+    </form>
+  </div>
+  <div id="learnings-list" style="margin-top:12px"></div>
 </div>
 
 <!-- Outbox: the decisions desk -->
