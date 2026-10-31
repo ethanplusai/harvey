@@ -703,3 +703,100 @@ def test_hebrew_that_only_looks_like_an_opt_out_is_left_to_the_model(reply):
 ])
 def test_hebrew_opt_outs_still_caught_after_tightening(reply):
     assert _opt_out_reason(reply, reply) is not None
+
+
+# ── Hebrew escalation ──
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("body", [
+    "העברתי את המייל לעורך הדין שלי.",
+    "עורכת הדין שלי תהיה איתכם בקשר.",
+    'העברתי לעו"ד.',
+    "עוֹרֵךְ דִּין יטפל בזה",                    # with vowel points
+    "‏עוד מייל אחד ואני אתבע אתכם.‏",  # direction marks around it
+    "אגיש נגדכם תביעה בתביעות קטנות.",
+    "תקבלו ממני תביעה משפטית.",
+    "ננקוט נגדכם בהליכים משפטיים.",
+    "ניפגש בבית המשפט.",
+    "זו הטרדה.",
+    "מדובר בהטרדה, וזה לא בסדר",
+    "אגיש עליכם תלונה במשטרה.",
+    "כבר שלחתי תלונה על ספאם.",
+    "זה בניגוד לחוק הספאם.",
+    "אפנה לרשות להגנת הפרטיות.",
+    "דבר פרסומת בלי הסכמה, פיצוי ללא הוכחת נזק.",
+    "סימנתי אתכם כספאם.",
+], ids=["my-lawyer", "my-lawyer-f", "acronym", "niqqud", "sue-you-rlm", "small-claims",
+        "lawsuit", "legal-action", "see-you-in-court", "harassment", "its-harassment",
+        "police-complaint", "spam-complaint", "spam-law", "privacy-authority",
+        "statutory-damages", "marked-as-spam"])
+async def test_hebrew_legal_threats_escalate_without_the_model(state, body):
+    status, prompts = await _reply(state, body)
+    assert status != "opted_out" and prompts == []  # no model call, no auto-reply
+    assert len(await state.get_conversations_by_status("needs_human")) == 1
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("body", [
+    "אנחנו מגישים תביעות ביטוח כל יום, זה יעזור?",
+    "אגיש תביעה לחברת הביטוח ואחזור אליכם.",
+    "את התביעה עליכם להגיש דרך הקופה?",
+    "סליחה על ההטרדה, כמה זה עולה?",
+    "סליחה אם זה מהווה הטרדה, אבל מה המחיר?",
+    "עוד שאלה: יש חוזה?",
+    "המרפאה קרובה לבית המשפט, קל להגיע.",
+    "מה שמטריד אותי זה המחיר.",
+    "אנחנו מקפידים על הגנת הפרטיות של המטופלים.",
+    "המייל שלכם הגיע לי לספאם, אבל נשמע מעניין.",
+], ids=["insurance-claims", "claim-to-insurer", "you-must-file", "sorry-to-bother",
+        "if-its-a-bother", "one-more-question", "near-the-court", "what-bothers-me",
+        "patient-privacy", "landed-in-spam"])
+async def test_ordinary_hebrew_does_not_escalate(state, body):
+    status, prompts = await _reply(state, body)
+    assert status != "opted_out" and prompts  # the model read it
+
+
+@pytest.mark.asyncio
+async def test_a_hebrew_pitch_mentioning_lawyers_doesnt_escalate_when_quoted(state):
+    sent = "אנחנו עוזרים למשרדי עורכי דין למלא את היומן. נדבר?"
+    status, prompts = await _reply_after_sending(
+        state, "כן, בואו נדבר.\n\nב-יום ג׳ Harvey כתב:\n> " + sent, sent_bodies=[sent])
+    assert status != "opted_out" and prompts  # not escalated over our own "עורכי דין"
+
+
+@pytest.mark.asyncio
+async def test_a_hebrew_legal_threat_after_an_opt_out_goes_to_you(state):
+    pid = await seed_prospect(state, status="opted_out")
+    provider = FakeProvider()
+    provider.inbound = [InboundMessage(
+        provider_id="in1", from_email="jane@acme.com", subject="Re: hello there",
+        body="ביקשתי שתסירו אותי. עורכת הדין שלי תהיה בקשר.")]
+    await make_handler(state, provider)._run_native()
+    assert [c.prospect_id for c in await state.get_conversations_by_status("needs_human")] == [pid]
+
+
+# ── An opt-out that also threatens ──
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("body", [
+    "Stop emailing me. My attorney will be in touch.",
+    "תפסיקו לשלוח לי מיילים. עורכת הדין שלי תהיה בקשר.",
+], ids=["english", "hebrew"])
+async def test_an_opt_out_with_a_legal_threat_is_honoured_and_goes_to_you(state, body):
+    from tests.test_outbox_native import _logged
+    status, prompts = await _reply(state, body)
+    assert status == "opted_out" and prompts == []  # honoured, nothing drafted
+    [convo] = await state.get_conversations_by_status("needs_human")
+    assert convo.intent == "unsubscribe" and convo.stage == "closed_lost"
+    [opt_out] = await _logged(state, "opt_out")
+    assert opt_out["rule"] == "phrase" and opt_out["conversation_id"] == convo.id
+    assert len(await _logged(state, "escalation")) == 1
+
+
+@pytest.mark.asyncio
+async def test_a_plain_opt_out_is_closed_not_handed_to_you(state):
+    from tests.test_outbox_native import _logged
+    status, _ = await _reply(state, "תורידו אותי מהרשימה.")
+    assert status == "opted_out"
+    assert await state.get_conversations_by_status("needs_human") == []
+    assert await _logged(state, "escalation") == []
