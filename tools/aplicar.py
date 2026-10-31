@@ -8,6 +8,10 @@ Local (no forma parte de Harvey upstream). Uso:
     ... --lista          solo muestra la cola, no abre nada
     ... --prueba         sin ventana: llena, guarda una captura y no registra nada
     ... --sin-carta      no redacta carta de presentación
+    ... --preparar       sin ventana ni preguntas: llena cada formulario, redacta carta y
+                         respuestas, y lo deja todo (link, valores, pendientes, captcha,
+                         captura) en postulaciones_preparadas.md para que lo envíes tú.
+                         No registra nada; --maximo N limita cuántas.
 
 Los portales con verificación anti-bots (Himalayas, RemoteOK) se abren en tu
 navegador normal: llegas al formulario de la empresa y pegas su enlace.
@@ -25,6 +29,7 @@ Registro en ~/harvey/data/aplicaciones.csv (las ya enviadas o saltadas no vuelve
 import argparse
 import asyncio
 import csv
+import html
 import os
 import re
 import sys
@@ -316,7 +321,13 @@ Output only the letter."""
     # Solo la carta: cualquier nota del modelo antes del saludo se descarta, y
     # sin saludo no hay carta.
     inicio = re.search(r"^(Dear|Estimad[oa]s?)\b", texto, re.M)
-    return texto[inicio.start():].strip() if inicio else ""
+    if not inicio:
+        return ""
+    carta = texto[inicio.start():]
+    # ...y nada después de la firma (el modelo a veces añade notas, p. ej. sobre
+    # instrucciones escondidas en la vacante).
+    firma = re.search(rf"^\s*{re.escape(nombre)}\s*$", carta, re.M)
+    return (carta[:firma.end()] if firma else carta).strip()
 
 
 async def responder_abiertas(perfil: dict, vacante: dict, descripcion: str, preguntas: list[str]) -> list[str]:
@@ -901,6 +912,279 @@ async def aplicar(cola: list[dict], perfil: dict, prueba: bool, con_carta: bool)
         await nav.cerrar()
 
 
+# --- Preparar sin ti (--preparar) -------------------------------------------------
+
+PREPARADAS_MD = VACANTES_CSV.parent / "postulaciones_preparadas.md"
+PREPARADAS_JSON = ROOT / "data" / "postulaciones_preparadas.json"
+
+# Lo que quedó escrito en cada campo marcado, para copiarlo después.
+JS_VALORES = r"""
+() => {
+  const out = {};
+  for (const el of document.querySelectorAll('[data-aplicar]')) {
+    const n = el.getAttribute('data-aplicar'); let v = '';
+    if (el.tagName === 'SELECT') v = el.selectedIndex > 0 ? el.options[el.selectedIndex].text : '';
+    else if (el.type === 'file') v = el.files && el.files.length ? '(archivo) ' + el.files[0].name : '';
+    else if (el.type === 'radio' || el.type === 'checkbox') v = el.checked ? 'marcado' : '';
+    else if (el.tagName === 'BUTTON') v = el.getAttribute('aria-pressed') === 'true' || /selected|active/i.test(el.className) ? 'pulsado' : '';
+    else v = el.value || '';
+    out[n] = v.trim();
+  }
+  return out;
+}
+"""
+
+JS_CAPTCHA = r"""
+() => [...new Set([...document.querySelectorAll('iframe, script, div, [name]')].map(el => {
+  const s = ((el.src || '') + ' ' + (el.className || '') + ' ' + (el.getAttribute('name') || '')).toLowerCase();
+  if (/recaptcha|grecaptcha/.test(s)) return 'reCAPTCHA';
+  if (/hcaptcha/.test(s)) return 'hCaptcha';
+  if (/turnstile|challenges\.cloudflare/.test(s)) return 'Cloudflare Turnstile';
+  if (/arkoselabs|funcaptcha/.test(s)) return 'Arkose';
+  return '';
+}).filter(Boolean))]
+"""
+
+
+# El enlace "Apply" de una página de vacante (WWR, Remotive, la web de la empresa).
+JS_ENLACE_APPLY = r"""
+() => {
+  const re = /^(apply|apply now|apply for (this|the) (job|position|role)|apply here|postular|postúlate|aplicar)\b/i;
+  for (const a of document.querySelectorAll('a[href]')) {
+    const t = (a.innerText || a.getAttribute('aria-label') || '').trim();
+    if (re.test(t) && /^https?:/.test(a.href)) return a.href;
+  }
+  return '';
+}
+"""
+
+
+def _md(texto: str) -> str:
+    return (texto or "").replace("|", "\\|").replace("\n", " ").strip()
+
+
+def _ya_preparadas() -> set[str]:
+    try:
+        import json
+        return set(json.loads(PREPARADAS_JSON.read_text(encoding="utf-8")))
+    except (OSError, ValueError):
+        return set()
+
+
+def _anotar_preparada(url: str):
+    import json
+    hechas = _ya_preparadas() | {url}
+    PREPARADAS_JSON.parent.mkdir(parents=True, exist_ok=True)
+    PREPARADAS_JSON.write_text(json.dumps(sorted(hechas)), encoding="utf-8")
+
+
+def _escribir_entrada(v: dict, form: str, estado: str, campos: list[tuple[str, str, str]],
+                      pendientes: list[str], carta: str, captchas: list[str], captura: str,
+                      extracto: str = ""):
+    """Agrega una vacante a postulaciones_preparadas.md."""
+    nuevo = not PREPARADAS_MD.exists()
+    lineas = []
+    if nuevo:
+        lineas += ["# Postulaciones preparadas", "",
+                   "Morthy llenó estos formularios sin enviarlos. Para cada una: abre el link,",
+                   "copia los valores, completa lo que te toca, revisa y envía tú. Después",
+                   "anótala con `python tools/aplicar.py URL` (opción [e]) o en el dashboard.", ""]
+    lineas += [f"## {v['titulo'] or '(sin título)'} · {v['empresa'] or '?'}", "",
+               f"- **Formulario:** {form}",
+               f"- **Vacante:** {v['url']}" if v["url"] != form else "",
+               f"- **Ubicación:** {v['ubicacion'] or 'sin restricción'} · **Portal:** {v['fuente'] or '-'}",
+               f"- **Estado:** {estado}",
+               f"- **Captcha:** {', '.join(captchas)}" if captchas else "- **Captcha:** no se ve ninguno",
+               f"- **Captura:** {captura}" if captura else "",
+               f"- Preparada: {datetime.now():%Y-%m-%d %H:%M}", ""]
+    if campos:
+        lineas += ["| Campo | Valor | De dónde |", "|---|---|---|"]
+        lineas += [f"| {_md(e)[:120]} | {_md(val)[:400]} | {o} |" for e, val, o in campos]
+        lineas.append("")
+    if pendientes:
+        lineas += ["**Te tocan:**", ""] + [f"- [ ] {_md(p)[:200]}" for p in pendientes] + [""]
+    if extracto:
+        lineas += ["<details><summary>Sobre la vacante (extracto)</summary>", "", "```text",
+                   extracto.strip().replace("```", "'''"), "```", "", "</details>", ""]
+    if carta:
+        lineas += ["<details><summary>Carta de presentación (revísala)</summary>", "", "```text",
+                   carta.strip(), "```", "", "</details>", ""]
+    lineas += ["---", ""]
+    PREPARADAS_MD.parent.mkdir(parents=True, exist_ok=True)
+    with PREPARADAS_MD.open("a", encoding="utf-8") as f:
+        f.write("\n".join(l for l in lineas if l is not None) + "\n")
+
+
+async def _carta_sin_formulario(v: dict, perfil: dict, client, texto: str = "",
+                                info: dict | None = None) -> str:
+    """Sin formulario que llenar, la carta igual queda lista para pegar; el
+    texto de la vacante va a info["extracto"]."""
+    descripcion = texto if texto and not pagina_bloqueada(texto) else ""
+    hn = re.search(r"news\.ycombinator\.com/item\?id=(\d+)", v["url"])
+    if hn:
+        # El post de "Who is hiring?" es la vacante entera; la página trae además los comentarios.
+        try:
+            r = await client.get(f"https://hacker-news.firebaseio.com/v0/item/{hn.group(1)}.json")
+            descripcion = html.unescape(re.sub(r"<p>", "\n", re.sub(r"<(?!p>)[^>]+>", "",
+                                                                    r.json().get("text") or "")))
+        except Exception:
+            pass
+    if len(descripcion) < 500 and not hn:
+        try:
+            r = await client.get(v["url"], follow_redirects=True,
+                                 headers={"User-Agent": "Mozilla/5.0 (personal job search script)"})
+            if r.status_code == 200 and not pagina_bloqueada(r.text):
+                descripcion = re.sub(r"\s+", " ", re.sub(r"<(script|style)[^>]*>.*?</\1>|<[^>]+>", " ",
+                                                         r.text, flags=re.S | re.I))
+        except httpx.HTTPError:
+            pass
+    if info is not None:
+        info["extracto"] = re.sub(r"[ \t]+", " ", descripcion).strip()[:1500]
+    try:
+        return await redactar_carta(perfil, v, descripcion or v["titulo"])
+    except Exception as e:
+        print(f"  No pude redactar la carta: {e}")
+        return ""
+
+
+async def preparar_una(nav, v: dict, perfil: dict, con_carta: bool, client, i: int):
+    form = await url_formulario(v["url"], client)
+
+    info = {}
+
+    async def carta_sola(texto=""):
+        if not con_carta:
+            return ""
+        return await _carta_sin_formulario(v, perfil, client, texto, info)
+
+    def escribir(*args):
+        # Los argumentos ya se evaluaron (carta_sola incluida): info tiene el extracto.
+        _escribir_entrada(*args, extracto=info.get("extracto", ""))
+
+    if PORTALES_RE.match(form):
+        escribir(v, form, "portal con verificación anti-bots: ábrelo tú, pulsa Apply y "
+                          "usa `python tools/aplicar.py URL-del-formulario`", [], [],
+                          await carta_sola(), [], "")
+        return "portal"
+    page = await nav.abrir(form)
+    try:
+        texto = await page.evaluate("document.body ? document.body.innerText : ''")
+        captchas = await page.evaluate(JS_CAPTCHA)
+        if pagina_bloqueada(texto):
+            escribir(v, page.url, "la página pide verificar que eres humano antes del "
+                              "formulario: ábrelo tú", [], [], await carta_sola(),
+                              captchas or ["verificación"], "")
+            return "bloqueada"
+        if not await page.evaluate(JS_CAMPOS):
+            # Página de la vacante sin formulario: sigue una vez su enlace "Apply".
+            destino_apply = await page.evaluate(JS_ENLACE_APPLY)
+            if destino_apply and destino_apply.split("#")[0] != page.url.split("#")[0]:
+                await nav.soltar(page)
+                page = await nav.abrir(await url_formulario(destino_apply, client))
+                texto = await page.evaluate("document.body ? document.body.innerText : ''")
+                captchas = sorted(set(captchas) | set(await page.evaluate(JS_CAPTCHA)))
+                if pagina_bloqueada(texto):
+                    escribir(v, page.url, "la página pide verificar que eres humano antes "
+                                      "del formulario: ábrelo tú", [], [], await carta_sola(),
+                                      captchas or ["verificación"], "")
+                    return "bloqueada"
+        if re.search(r"getonbrd\.com", page.url) and not await page.evaluate(JS_CAMPOS):
+            escribir(v, page.url, "Get on Board: se postula con tu cuenta de Get on Board "
+                              "(inicia sesión y pulsa Postular)", [], [], await carta_sola(texto),
+                              captchas, "")
+            return "sin formulario"
+        if re.search(r"weworkremotely\.com", page.url) and not await page.evaluate(JS_CAMPOS):
+            escribir(v, page.url, "We Work Remotely: el enlace para postular solo se ve "
+                              "con una cuenta de WWR (inicia sesión y pulsa Apply)", [], [],
+                              await carta_sola(), captchas, "")
+            return "sin formulario"
+        if re.search(r"news\.ycombinator\.com", page.url):
+            escribir(v, v["url"], "post de Hacker News: el extracto dice cómo postular "
+                     "(un correo o un link a su formulario)", [], [], await carta_sola(), captchas, "")
+            return "sin formulario"
+        if not await page.evaluate(JS_CAMPOS):
+            escribir(v, page.url, "no encontré el formulario en esta página: pulsa "
+                              "Apply en el link y llénalo con `python tools/aplicar.py URL`",
+                              [], [], await carta_sola(texto), captchas, "")
+            return "sin formulario"
+        ultima_carta.clear()
+        llenos, pendientes = await procesar(page, v, perfil, con_carta, client)
+        carta = ultima_carta.get("texto", "")
+        campos = await page.evaluate(JS_CAMPOS)   # misma numeración que al llenar
+        valores = await page.evaluate(JS_VALORES)
+        captchas = sorted(set(captchas) | set(await page.evaluate(JS_CAPTCHA)))
+        perfil_vals = set()
+        try:
+            perfil_vals = {str(x).strip() for x in respuestas(perfil).values() if str(x).strip()}
+        except Exception:
+            pass
+        filas, grupos = [], set()
+        for c in campos:
+            val = valores.get(str(c["n"]), "")
+            etiqueta = (c["grupo"] if c["tipo"] in ("radio", "checkbox", "boton") else c["etiqueta"]) or c["nombre"]
+            if c["tipo"] in ("radio", "checkbox", "boton"):
+                if not val:
+                    continue
+                if etiqueta in grupos:
+                    continue
+                grupos.add(etiqueta)
+                val = c["etiqueta"] or val
+            if not val:
+                continue
+            if c["tipo"] == "file":
+                origen = "CV en inglés" if val.endswith(".pdf") else "archivo"
+            elif carta and val.strip() == carta.strip():
+                origen = "carta (Morthy)"
+            elif val in perfil_vals or c["tipo"] in ("radio", "boton", "select-one"):
+                origen = "tu perfil"
+            else:
+                origen = "redactado por Morthy: revísalo"
+            filas.append((etiqueta, val, origen))
+        destino = CAPTURAS / f"preparada-{datetime.now():%Y%m%d-%H%M%S}-{i}.png"
+        try:
+            await page.screenshot(path=str(destino), full_page=True)
+        except Exception:
+            destino = ""
+        if not filas and not pendientes:
+            escribir(v, page.url, "la página tiene campos, pero ninguno de postulación: "
+                     "ábrela tú", [], [], carta or await carta_sola(texto), captchas, "")
+            return "sin formulario"
+        estado = (f"llené {len(filas)} campo(s); te toca(n) {len(pendientes)}" if pendientes
+                  else f"llené {len(filas)} campo(s); no veo nada pendiente: revisa y envía")
+        escribir(v, page.url, estado, filas, pendientes, carta, captchas, str(destino))
+        return "preparada"
+    finally:
+        await nav.soltar(page)
+
+
+async def preparar(cola: list[dict], perfil: dict, con_carta: bool):
+    """Sin ventana y sin preguntarte nada: llena cada formulario y lo deja en
+    postulaciones_preparadas.md. NUNCA envía ni registra en aplicaciones.csv."""
+    from playwright.async_api import async_playwright
+
+    CAPTURAS.mkdir(parents=True, exist_ok=True)
+    hechas = _ya_preparadas()
+    cola = [v for v in cola if v["url"] not in hechas]
+    print(f"Preparando {len(cola)} vacante(s) -> {PREPARADAS_MD}")
+    cuenta = {}
+    async with httpx.AsyncClient(timeout=20, headers={"User-Agent": "Mozilla/5.0"}) as client, \
+            async_playwright() as pw:
+        nav = Navegador(pw, True)
+        for i, v in enumerate(cola, 1):
+            print(f"\n[{i}/{len(cola)}] {v['titulo']} · {v['empresa']}\n  {v['url']}", flush=True)
+            try:
+                r = await asyncio.wait_for(preparar_una(nav, v, perfil, con_carta, client, i), 300)
+            except Exception as e:
+                r = "error"
+                print(f"  No pude prepararla: {type(e).__name__}: {str(e)[:120]}")
+                _escribir_entrada(v, v["url"], f"error al prepararla ({type(e).__name__}): "
+                                  "ábrela tú", [], [], "", [], "")
+            cuenta[r] = cuenta.get(r, 0) + 1
+            _anotar_preparada(v["url"])
+        await nav.cerrar()
+    print("\nResumen:", ", ".join(f"{k}: {n}" for k, n in cuenta.items()) or "nada nuevo")
+
+
 def main():
     ap = argparse.ArgumentParser(description=__doc__.split("\n")[0])
     ap.add_argument("urls", nargs="*")
@@ -910,6 +1194,9 @@ def main():
     ap.add_argument("--lista", action="store_true", help="solo mostrar la cola")
     ap.add_argument("--prueba", action="store_true", help="sin ventana, con captura, sin registrar")
     ap.add_argument("--sin-carta", action="store_true")
+    ap.add_argument("--preparar", action="store_true",
+                    help="sin ventana ni preguntas: llena y deja todo en postulaciones_preparadas.md")
+    ap.add_argument("--maximo", type=int, default=0, help="con --preparar: cuántas como máximo")
     args = ap.parse_args()
 
     perfil = cargar_perfil()
@@ -920,7 +1207,23 @@ def main():
         cola += cola_csv()
     if not cola:
         sys.exit("Nada que aplicar: usa --harvey, --csv o pasa enlaces.")
+    if args.preparar and not args.urls:
+        # Sin el tope por sesión: esto corre solo; --maximo lo pone.
+        perfil = {**perfil, "filtros": {**perfil["filtros"], "maximo_por_sesion": args.maximo or 10_000}}
+        cola = [v for v in cola if v["url"] not in _ya_preparadas()]
+        # El histórico guarda lo que coincidía con filtros viejos: solo las que
+        # hoy calzan con tus términos (job_search.vacancy_search o tu perfil).
+        from harvey.vacancy_terms import title_regex, vacancy_terms
+        t = vacancy_terms()
+        si, no = title_regex(t["title_terms"]), title_regex(t["exclude_title_terms"])
+        cola = [v for v in cola if not v["titulo"] or
+                ((not si or si.search(v["titulo"])) and not (no and no.search(v["titulo"])))]
     cola = filtrar(cola, perfil, args.todas) if not args.urls else cola
+    if args.preparar and args.maximo:
+        cola = cola[:args.maximo]
+    if args.preparar and not args.lista:
+        asyncio.run(preparar(cola, perfil, not args.sin_carta))
+        return
 
     print(f"Cola: {len(cola)} vacante(s)")
     for v in cola:

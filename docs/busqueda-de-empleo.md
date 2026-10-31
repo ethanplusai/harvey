@@ -149,6 +149,21 @@ Abre cada formulario, lo llena, te muestra la carta y las respuestas que
 redactó, y **tú revisas y envías**. Al marcarla como enviada, te pregunta el
 **peso**: pesado (calza con tu CV), aprender o interesante.
 
+**Dejarlo preparando mientras no estás:**
+```bash
+python tools/aplicar.py --csv --preparar            # todas las de la cola
+python tools/aplicar.py --csv --preparar --maximo 10
+```
+Sin ventana y sin preguntarte nada: por cada vacante abre el formulario, lo
+llena, redacta la carta y las respuestas abiertas, y lo deja en
+`postulaciones_preparadas.md` (junto a `vacantes.csv`): el link, cada campo con
+su valor y de dónde salió, lo que te toca, si hay captcha, una captura, y un
+extracto de la vacante. Donde no llega al formulario (Get on Board y We Work
+Remotely piden tu cuenta; Himalayas y RemoteOK tienen verificación anti-bots)
+deja el link, el extracto y la carta lista para pegar. **Nunca envía** y no
+anota nada en tu registro: cuando vuelvas, abre cada link, pega, revisa y envía.
+Las ya preparadas no se repiten.
+
 **LinkedIn, después de postular:**
 ```bash
 python tools/linkedin_mensajes.py preparar     # redacta para tus postulaciones recientes
