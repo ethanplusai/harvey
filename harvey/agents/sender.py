@@ -28,7 +28,7 @@ from harvey.integrations.instantly import InstantlyClient
 from harvey.integrations.mail_provider import NATIVE_PROVIDERS, get_mail_provider
 from harvey.integrations.precleared import PreclearedClient, clear_hold, record_hold
 from harvey.integrations.signature import signature_problem
-from harvey.sending_mode import sync_sending_mode
+from harvey.sending_mode import SIGNATURE_HOLD_PREFIX, sync_sending_mode
 from harvey.state import (
     AUTOPILOT_OFF_REASON, COLLEAGUE_REPLIED, HAND_SENT_REASON, HELD_FOR_REVIEW,
     MANUAL_SEND_KEY, MAYBE_SENT_PREFIX, RECHECK_PREFIX, StateManager,
@@ -818,6 +818,7 @@ class Sender:
         problem = signature_problem(self.config)
         if problem:
             logger.warning(f"Sender: email signature can't be used ({problem}) — outbox is holding.")
+            await self.state.note_sends_held(f"{SIGNATURE_HOLD_PREFIX}{problem}")
             return
 
         max_daily = self.config.channels.email.max_daily_sends

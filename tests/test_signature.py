@@ -261,7 +261,16 @@ async def test_outbox_holds_while_the_logo_is_unusable(tmp_path, logo, monkeypat
     assert provider.sent == []
     [held] = await state.get_outbox(status="approved")  # still approved, not failed
     assert held["id"] == item
+    assert "missing.png" in (await state.current_sends_held())["reason"]  # Today says why
 
     monkeypatch.setattr(Cfg.channels.email, "signature", SignatureConfig(logo=str(logo)))
     await sender._drain_due()
     assert [s["to"] for s in provider.sent] == ["jane@acme.com"]
+
+
+def test_an_unusable_logo_is_explained_on_today():
+    from harvey.sending_mode import held_message
+    title, detail = held_message(
+        {"reason": "email signature: logo file not found: logo.png", "since": "2026-10-31T10:00:00"}, 2)
+    assert "logo" in title and "inbox" not in title
+    assert "logo file not found" in detail and "2 emails" in detail

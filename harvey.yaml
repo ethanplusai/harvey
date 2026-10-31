@@ -84,6 +84,8 @@ channels:
     # with the image embedded. Blank logo = plain text, as before. If the
     # file can't be used, approved email waits instead of going out without
     # it. Gmail/Microsoft/SMTP only.
+    # Plain text usually lands better for cold email: images and HTML can push
+    # a new mailbox toward spam. Warm up first, and test placement after adding it.
     signature:
       logo: ""                  # PNG/JPEG/GIF up to 100 KB, e.g. "data/assets/logo.png"
       width: 120                # display width in pixels
