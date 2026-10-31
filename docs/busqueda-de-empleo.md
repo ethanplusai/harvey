@@ -9,6 +9,7 @@ Tu CV hace de "producto", y Morthy trabaja por ti en cinco frentes:
 | **Llena formularios de postulación** con tu perfil, y tú los envías | `tools/aplicar.py` |
 | **Escribe a quien decide** (CTO, founder) en empresas que te interesan, en frío | el ciclo de Morthy (`morthy run`) |
 | **Manda una nota corta** a una persona de la empresa 2-21 días después de que postulas | el ciclo de Morthy |
+| **Prepara mensajes de LinkedIn** para quien decide en las empresas donde postulaste, y tú los envías | `tools/linkedin_mensajes.py` |
 | **Lee tus respuestas** (sistemas de postulación, reclutadores) y te dice qué dicen | pestaña **Otros correos** del dashboard |
 
 **Nada sale sin tu aprobación.** Cada correo espera en el **Outbox** del
@@ -135,6 +136,23 @@ python tools/aplicar.py URL [URL...]   # links que encontraste tú
 Abre cada formulario, lo llena, te muestra la carta y las respuestas que
 redactó, y **tú revisas y envías**. Al marcarla como enviada, te pregunta el
 **peso**: pesado (calza con tu CV), aprender o interesante.
+
+**LinkedIn, después de postular:**
+```bash
+python tools/linkedin_mensajes.py preparar     # redacta para tus postulaciones recientes
+python tools/linkedin_mensajes.py              # los borradores, numerados
+python tools/linkedin_mensajes.py abrir 2      # abre el perfil y copia la nota de conexión
+python tools/linkedin_mensajes.py marcar 2 nota
+python tools/linkedin_mensajes.py mensaje 2    # cuando acepte: copia el mensaje
+python tools/linkedin_mensajes.py marcar 2 mensaje
+```
+Por empresa, busca a quien decide (CTO, founder, jefe técnico; con un nombre
+basta) y redacta una **nota de conexión** de máximo 300 caracteres y un
+**mensaje** para cuando acepte. Si no encuentra a nadie, el link es una
+búsqueda de personas en LinkedIn para que elijas tú. **Morthy nunca entra a
+tu cuenta de LinkedIn:** automatizarla va contra sus términos y te la pueden
+cerrar. En cuentas gratuitas LinkedIn limita las notas personalizadas al
+mes; si se te acaban, conecta sin nota y manda el mensaje cuando acepte.
 
 **En el dashboard:**
 - **Outbox:** aprueba, edita o rechaza los correos que Morthy preparó: correos

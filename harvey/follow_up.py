@@ -57,6 +57,37 @@ def _norm(name: str) -> str:
     return re.sub(r"[^a-z0-9]", "", name)
 
 
+# Words a decision-maker's title is made of; anything else capitalised in
+# it ("PagerDuty Cofounder") names another organisation.
+_TITLE_WORDS = {"co", "founder", "cofounder", "co-founder", "founding", "ceo", "cto", "coo", "chief",
+                "technology", "technical", "executive", "operating", "officer", "head", "of", "engineering",
+                "engineer", "manager", "lead", "tech", "vp", "vice", "president", "director", "and", "at",
+                "the", "owner", "partner", "general", "senior", "principal", "staff", "software",
+                "product", "platform", "data", "ai", "r&d", "development", "team", "&", "/", "-"}
+
+
+def title_names_other_org(title: str, company: str) -> bool:
+    """True for "PagerDuty Cofounder" at Supabase: the title is about somewhere else."""
+    own = set(re.findall(r"[a-z0-9]+", (company or "").lower()))
+    for word in re.findall(r"[A-Za-z][\w&.-]*", title or ""):
+        w = word.lower().strip(".-")
+        if w in _TITLE_WORDS or w in own or w.replace("-", "") in _TITLE_WORDS:
+            continue
+        if word[0].isupper():
+            return True
+    return False
+
+
+def title_at_company(snippet: str, titles: list[str], company: str) -> str:
+    """The first ICP title the snippet ties to the company, or ''."""
+    for t in titles:
+        pattern = (re.escape(t).replace(r"\-", "[- ]?") + r"\W{0,4}(?:(?:at|of|@|en|de)\W{1,3})?"
+                   + re.escape(company))
+        if re.search(pattern, snippet, re.I):
+            return t
+    return ""
+
+
 def _applied_at(app: dict) -> datetime | None:
     try:
         return datetime.strptime(app["fecha"][:16], "%Y-%m-%d %H:%M")
@@ -138,21 +169,27 @@ class PostApplyFollowUp:
                 return domain
         return await self.scout._guess_domain(company)
 
-    async def _person_via_search(self, company: str, domain: str, company_id: str) -> Prospect | None:
+    async def _person_via_search(self, company: str, domain: str, company_id: str,
+                                 need_email: bool = True) -> Prospect | None:
         """No team page: a founder or engineering lead named in search results.
-        Reads the search engine's result snippets only, never the profile itself."""
+        Reads the search engine's result snippets only, never the profile itself.
+        need_email=False (a LinkedIn draft) keeps a person with no address."""
         titles = list(self.config.icp.titles) or ["CTO", "Co-founder"]
         query = f'site:linkedin.com/in "{company}" (' + " OR ".join(f'"{t}"' for t in titles[:4]) + ")"
         key = _norm(company)
         for url, snippet in await self.scout._web_search(query):
             if "/in/" not in url or key not in _norm(snippet):
                 continue
-            title = next((t for t in titles if t.lower() in snippet.lower()), "")
+            # The title has to be about this company: "Co-Founder & CTO. NetBird",
+            # "co-founder of NetBird"; not "Founder and CTO" of some other firm
+            # further along a snippet that names the company elsewhere.
+            title = title_at_company(snippet, titles, company)
             name = self.scout._parse_linkedin_url(url, snippet) if title else None
             if not name:
                 continue
-            email, status = await self.scout._resolve_email(name["first_name"], name["last_name"], domain)
-            if status not in ("verified", "risky"):
+            email, status = ("", "") if not need_email or not domain else \
+                await self.scout._resolve_email(name["first_name"], name["last_name"], domain)
+            if need_email and status not in ("verified", "risky"):
                 continue
             return Prospect(
                 first_name=name["first_name"], last_name=name["last_name"], email=email,
@@ -219,6 +256,9 @@ Return ONLY JSON: {{"subject": "...", "body": "..."}}"""
     async def handle(self, app: dict) -> str:
         """Try one application. Returns the outcome recorded for it."""
         url, company = app["url"], app["empresa"].strip()
+        # The Scout allows a few web searches per cycle and resets in its own
+        # run(); this one never runs, so each application gets a fresh allowance.
+        self.scout._queries_this_cycle = 0
         domain = await self.find_domain(company, url)
         if not domain:
             await self._record(url, "skipped", "couldn't find the company's website")
@@ -239,7 +279,8 @@ Return ONLY JSON: {{"subject": "...", "body": "..."}}"""
         # Only a deliverable address: a pattern guess is never sent anyway.
         # A person, never the info@ inbox: the point is that someone reads it.
         people = sorted((c for c in people if c.email_status in ("verified", "risky")
-                         and not c.is_company_inbox), key=lambda c: c.email_status != "verified")
+                         and not c.is_company_inbox and not title_names_other_org(c.title, company)),
+                        key=lambda c: c.email_status != "verified")
         if not people:
             found = await self._person_via_search(company, domain, company_id)
             people = [found] if found else []
