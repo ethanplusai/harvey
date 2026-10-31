@@ -10,7 +10,7 @@ it), matched to an application in data/aplicaciones.csv when the sender or
 the text names its company, and given a suggested outcome from keywords.
 
 Nothing is written to the applications log until the user confirms it on
-the dashboard's "Otros correos" tab.
+the dashboard's "Other mail" tab.
 """
 
 from __future__ import annotations

@@ -45,7 +45,7 @@ PERFIL = Path(os.environ.get("APLICAR_PERFIL") or _AJUSTES["profile"]).expanduse
 VACANTES_CSV = _AJUSTES["vacancies_dir"] / "vacantes.csv"
 NAVEGADOR = ROOT / "data" / "aplicar_navegador"   # sesiones guardadas (p. ej. Workable)
 CAPTURAS = ROOT / "data" / "aplicar_capturas"
-# El registro lo comparten esta herramienta, seguimiento.py y el dashboard ("Otros correos").
+# El registro lo comparten esta herramienta, seguimiento.py y el dashboard ("Other mail").
 from harvey.job_search import CAMPOS_REGISTRO, REGISTRO, guardar_registro, leer_registro  # noqa: E402
 # Cuánto calza la vacante, según tú: separa en el seguimiento qué tipo de vacante responde.
 PESOS = {"p": "pesado", "a": "aprender", "i": "interesante"}

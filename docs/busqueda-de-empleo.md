@@ -10,7 +10,7 @@ Tu CV hace de "producto", y Morthy trabaja por ti en cinco frentes:
 | **Escribe a quien decide** (CTO, founder) en empresas que te interesan, en frío | el ciclo de Morthy (`morthy run`) |
 | **Manda una nota corta** a una persona de la empresa 2-21 días después de que postulas | el ciclo de Morthy |
 | **Prepara mensajes de LinkedIn** para quien decide en las empresas donde postulaste, y tú los envías | `tools/linkedin_mensajes.py` |
-| **Lee tus respuestas** (sistemas de postulación, reclutadores) y te dice qué dicen | pestaña **Otros correos** del dashboard |
+| **Lee tus respuestas** (sistemas de postulación, reclutadores) y te dice qué dicen | pestaña **Other mail** del dashboard |
 
 **Nada sale sin tu aprobación.** Cada correo espera en el **Outbox** del
 dashboard hasta que lo apruebes, y `aplicar.py` nunca pulsa "enviar".
@@ -157,9 +157,9 @@ mes; si se te acaban, conecta sin nota y manda el mensaje cuando acepte.
 **En el dashboard:**
 - **Outbox:** aprueba, edita o rechaza los correos que Morthy preparó: correos
   en frío y notas de seguimiento después de postular.
-- **Otros correos:** las respuestas de empresas. Morthy sugiere de qué postulación
-  son y si es rechazo, prueba técnica, entrevista o acuse. Con **Anotar** queda
-  registrado. El botón "Importar últimos 30 días" trae lo que llegó antes.
+- **Other mail:** las respuestas de empresas. Morthy sugiere de qué postulación
+  son y si es rechazo, prueba técnica, entrevista o acuse. Con **Record** queda
+  registrado. El botón "Import last 30 days" trae lo que llegó antes.
 - **Conversations:** cuando alguien responde a un correo de Morthy, aquí está
   el hilo y el borrador de respuesta, que también espera tu aprobación.
 

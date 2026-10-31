@@ -36,7 +36,7 @@ cual y le agrega lo que una búsqueda de empleo necesita, con tres principios:
 | **Modo búsqueda de empleo** | Los prompts del writer y del handler se llenan desde `job_search` en tu config: tus proyectos, tu firma, tu país. Nada tuyo vive en el código. |
 | **Buscador de vacantes** | `tools/vacantes_remotas.py`: vacantes remotas junior en 8 fuentes públicas (Remotive, RemoteOK, Himalayas, Jobicy, Arbeitnow, Get on Board, We Work Remotely, Hacker News), en dos grupos: para tu nivel y para estirarte. |
 | **Asistente de postulación** | `tools/aplicar.py`: abre el formulario oficial, lo llena con tu perfil y redacta la carta solo con hechos reales. Nunca pulsa enviar. |
-| **Otros correos** | Una pestaña del dashboard con las respuestas de sistemas de postulación y reclutadores, unidas a tu postulación, con una sugerencia (rechazo, prueba técnica, entrevista, acuse). |
+| **Other mail** | Una pestaña del dashboard con las respuestas de sistemas de postulación y reclutadores, unidas a tu postulación, con una sugerencia (rechazo, prueba técnica, entrevista, acuse). |
 | **Mensajes de LinkedIn** | `tools/linkedin_mensajes.py`: encuentra a quien decide en cada empresa donde postulaste y redacta la nota de conexión y el mensaje. Tú los envías: Morthy nunca entra a tu cuenta. |
 | **Nota después de postular** | 2-21 días después de postular, un correo corto a una persona de la empresa, que espera tu aprobación en el Outbox. |
 | **Seguimiento** | `tools/seguimiento.py`: respuestas y entrevistas por canal y por el "peso" que le diste a cada vacante. |

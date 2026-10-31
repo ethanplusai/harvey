@@ -129,7 +129,7 @@ class PostApplyFollowUp:
 
     async def pending(self) -> list[dict]:
         done = {r[0] for r in await self._db("SELECT app_url FROM post_apply", fetch=True)}
-        # A rejection still waiting for "Anotar" on Otros correos counts already.
+        # A rejection still waiting for "Record" on Other mail counts already.
         rejected = {r[0] for r in await self._db(
             "SELECT application_url FROM other_mail WHERE suggestion = 'rechazo' "
             "AND application_url != '' AND status != 'ignored'", fetch=True)}

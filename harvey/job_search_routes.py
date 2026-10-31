@@ -1,4 +1,4 @@
-"""Dashboard API for the "Otros correos" tab (job-search mode, local fork).
+"""Dashboard API for the "Other mail" tab (job-search mode, local fork).
 
 Mounted by dashboard.py, so the same token guard covers it."""
 

@@ -54,7 +54,7 @@ app = FastAPI(title="Morthy Dashboard", docs_url=None, redoc_url=None, openapi_u
 token_store = auth.TokenStore(TOKEN_FILE)
 app.add_middleware(auth.DashboardGuard, store=token_store)
 
-# Job-search mode (local fork): the "Otros correos" tab.
+# Job-search mode (local fork): the "Other mail" tab.
 from harvey.job_search_routes import router as job_search_router  # noqa: E402
 app.include_router(job_search_router)
 
