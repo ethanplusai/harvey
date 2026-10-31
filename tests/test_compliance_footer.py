@@ -703,3 +703,29 @@ def test_hebrew_that_only_looks_like_an_opt_out_is_left_to_the_model(reply):
 ])
 def test_hebrew_opt_outs_still_caught_after_tightening(reply):
     assert _opt_out_reason(reply, reply) is not None
+
+
+# ── Spanish opt-outs ──
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("body", ["No, gracias.", "BAJA", "no gracias",
+                                  "Por favor no me escriba más.",
+                                  "Denme de baja de su lista.",
+                                  "No estamos interesados, saludos."],
+                         ids=["no-gracias", "baja", "bare-no-gracias", "no-me-escriba",
+                              "denme-de-baja", "no-interesados"])
+async def test_spanish_opt_outs_are_honoured(state, body):
+    status, _ = await _reply(state, body)
+    assert status == "opted_out"
+
+
+@pytest.mark.asyncio
+async def test_a_spanish_question_is_not_an_opt_out(state):
+    status, _ = await _reply(state, "Me interesa, ¿cuánto cuesta el plan anual?")
+    assert status != "opted_out"
+
+
+def test_a_spanish_opt_out_line_is_accepted():
+    line = '¿No le interesa? Responda "no, gracias" y no volveré a escribirle.'
+    assert ComplianceConfig(opt_out_line=line).opt_out_line == line
+    assert ComplianceConfig(opt_out_line="Para no recibir más correos, responda BAJA.")

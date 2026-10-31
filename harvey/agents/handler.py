@@ -58,6 +58,34 @@ NO_COMPANY_STOP_INTENTS = {"ooo", "wrong_person"}
 OPT_OUT_PATTERNS = (
     "unsubscribe",
     "opt out",
+    # Spanish
+    "no, gracias",
+    "no gracias",
+    "dar de baja",
+    "darme de baja",
+    "darnos de baja",
+    "deme de baja",
+    "denme de baja",
+    "no me escriba",
+    "no nos escriba",
+    "no me contacte",
+    "no nos contacte",
+    "dejen de escribir",
+    "deje de escribir",
+    "dejen de enviar",
+    "deje de enviar",
+    "no me envíe",
+    "no me envien",
+    "no me envíen",
+    "sáquenme de",
+    "saquenme de",
+    "elimínenme",
+    "eliminenme",
+    "no me interesa",
+    "no nos interesa",
+    "no estoy interesado",
+    "no estoy interesada",
+    "no estamos interesados",
     "opt-out",
     "remove me",
     "take me off",
@@ -80,7 +108,7 @@ NO_THANKS_RE = re.compile(
 # A reply that says only this (signature aside) is an opt-out ("Reply STOP").
 # "הסר" is the Hebrew one, the word Israeli marketing asks for ("להסרה השיבו הסר").
 BARE_OPT_OUTS = {"stop", "unsubscribe", "remove", "remove me", "opt out",
-                 "no thanks", "no thank you",
+                 "no thanks", "no thank you", "baja", "no gracias",
                  "הסר", "הסירו", "הסירי", "תסיר", "תסירו", "להסיר", "הסרה", "להסרה"}
 # Said around a bare opt-out without changing it ("הסר בבקשה", "הסר, תודה").
 _BARE_COURTESIES = {"בבקשה", "נא", "תודה", "רבה"}
