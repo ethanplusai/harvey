@@ -46,8 +46,8 @@
   <div class="card" style="max-width:500px;width:100%">
     <h2>Dashboard locked</h2>
     <p class="lede" id="lock-reason" role="alert"></p>
-    <p class="lede">Open the link that <code>harvey dashboard</code> printed in your terminal,
-      or run <code>harvey dashboard --url</code> to print it again. You can also paste the
+    <p class="lede">Open the link that <code>morthy dashboard</code> printed in your terminal,
+      or run <code>morthy dashboard --url</code> to print it again. You can also paste the
       token from <code>data/dashboard-token</code>:</p>
     <form onsubmit="unlockWithToken(event)" class="form-row">
       <div class="form-group" style="margin-bottom:0">
@@ -152,7 +152,7 @@
   <div class="section-head">
     <div>
       <h2>Signals</h2>
-      <p>Harvey proposes what it knows how to look for. You decide what actually
+      <p>Morthy proposes what it knows how to look for. You decide what actually
          defines a good prospect &mdash; nothing is collected until you confirm it.</p>
     </div>
   </div>
@@ -227,14 +227,14 @@
 
 <!-- Companies -->
 <div id="companies" class="section">
-  <div class="section-head"><div><h2>Companies</h2><p>Organizations Harvey has researched. Click a row to see its contacts.</p></div></div>
+  <div class="section-head"><div><h2>Companies</h2><p>Organizations Morthy has researched. Click a row to see its contacts.</p></div></div>
   <div id="companies-list"></div>
 </div>
 
 <!-- Contacts -->
 <div id="prospects" class="section">
   <div class="section-head">
-    <div><h2>Contacts</h2><p>People Harvey has found, how sure it is of their address, and where each one stands.</p></div>
+    <div><h2>Contacts</h2><p>People Morthy has found, how sure it is of their address, and where each one stands.</p></div>
     <div class="page-actions">
       <button class="btn btn-secondary btn-sm" onclick="downloadCsv('/api/export/prospects.csv', 'prospects.csv', this)"><svg class="icon" aria-hidden="true"><use href="#i-download"/></svg>Export deliverable</button>
       <button class="btn btn-ghost btn-sm" onclick="downloadCsv('/api/export/prospects.csv?all=true', 'prospects-all.csv', this)">Export all</button>
@@ -245,7 +245,7 @@
 
 <!-- Campaigns -->
 <div id="campaigns" class="section">
-  <div class="section-head"><div><h2>Campaigns</h2><p>Email sequences Harvey has written, and how far each one has got.</p></div></div>
+  <div class="section-head"><div><h2>Campaigns</h2><p>Email sequences Morthy has written, and how far each one has got.</p></div></div>
   <div id="campaigns-list"></div>
 </div>
 
@@ -266,19 +266,19 @@
 
 <!-- Conversations -->
 <div id="conversations" class="section">
-  <div class="section-head"><div><h2>Conversations</h2><p>Every reply, and how Harvey handled it.</p></div></div>
+  <div class="section-head"><div><h2>Conversations</h2><p>Every reply, and how Morthy handled it.</p></div></div>
   <div id="conversations-list"></div>
 </div>
 
 <!-- Otros correos (job-search mode, local) -->
 <div id="otros" class="section">
-  <div class="section-head"><div><h2>Otros correos</h2><p>Correos que no son de prospectos: sistemas de postulación, reclutadores, alertas de vacantes. Harvey sugiere de qué postulación son y qué dicen; solo se anota en <code>aplicaciones.csv</code> cuando pulsas "Anotar".</p></div></div>
+  <div class="section-head"><div><h2>Otros correos</h2><p>Correos que no son de prospectos: sistemas de postulación, reclutadores, alertas de vacantes. Morthy sugiere de qué postulación son y qué dicen; solo se anota en <code>aplicaciones.csv</code> cuando pulsas "Anotar".</p></div></div>
   <div id="otros-list"></div>
 </div>
 
 <!-- Activity -->
 <div id="activity" class="section">
-  <div class="section-head"><div><h2>Activity</h2><p>A running log of every action Harvey's agents have taken.</p></div></div>
+  <div class="section-head"><div><h2>Activity</h2><p>A running log of every action Morthy's agents have taken.</p></div></div>
   <div id="activity-list"></div>
 </div>
 
@@ -303,7 +303,7 @@
     <div class="settings-row">
       <div>
         <h3>Gmail / Google Workspace <span class="tag accent">Recommended</span> <span id="gmail-status" class="email-tag"></span></h3>
-        <p class="desc">Use a mailbox on a dedicated secondary domain. Create an OAuth client (type "Desktop app") in Google Cloud Console → Gmail API, paste the id and secret, save, then run <code>harvey gmail auth</code>.</p>
+        <p class="desc">Use a mailbox on a dedicated secondary domain. Create an OAuth client (type "Desktop app") in Google Cloud Console → Gmail API, paste the id and secret, save, then run <code>morthy gmail auth</code>.</p>
       </div>
       <div class="fields">
         <div class="form-group"><label class="form-label" for="gmail-id">Client ID</label>
@@ -354,7 +354,7 @@
     <div class="settings-row">
       <div>
         <h3>Microsoft 365 / Outlook <span id="m365-status" class="email-tag"></span></h3>
-        <p class="desc">Microsoft turned off password sign-in for IMAP, so Outlook mailboxes connect with OAuth. In <a href="https://entra.microsoft.com" target="_blank" rel="noopener noreferrer">Entra</a> → App registrations, register an app for your organization only and add the redirect URI <code>http://localhost:8766</code> as "Public client/native". Paste both IDs here, save, then run <code>harvey microsoft auth</code>. No client secret is needed.</p>
+        <p class="desc">Microsoft turned off password sign-in for IMAP, so Outlook mailboxes connect with OAuth. In <a href="https://entra.microsoft.com" target="_blank" rel="noopener noreferrer">Entra</a> → App registrations, register an app for your organization only and add the redirect URI <code>http://localhost:8766</code> as "Public client/native". Paste both IDs here, save, then run <code>morthy microsoft auth</code>. No client secret is needed.</p>
       </div>
       <div class="fields">
         <div class="form-group"><label class="form-label" for="m365-client">Application (client) ID</label>
@@ -406,7 +406,7 @@
     <div class="settings-row">
       <div>
         <h3>LinkedIn</h3>
-        <p class="desc">For automated LinkedIn prospecting. Harvey logs in and searches like a human.</p>
+        <p class="desc">For automated LinkedIn prospecting. Morthy logs in and searches like a human.</p>
       </div>
       <div class="fields">
         <div class="form-group">
@@ -442,7 +442,7 @@
 
 <!-- Controls -->
 <div id="controls" class="section">
-  <div class="section-head"><div><h2>Controls</h2><p>Start and stop Harvey's heartbeat loop, and watch what it's doing.</p></div></div>
+  <div class="section-head"><div><h2>Controls</h2><p>Start and stop Morthy's heartbeat loop, and watch what it's doing.</p></div></div>
   <div class="control-panel">
     <div class="card">
       <h2>Agent</h2>
@@ -452,48 +452,48 @@
       </div>
       <div class="status-meta" id="control-meta"></div>
       <div class="btn-group">
-        <button class="btn btn-primary" id="btn-start" onclick="startHarvey()">Start Harvey</button>
-        <button class="btn btn-danger" id="btn-stop" onclick="stopHarvey()" style="display:none">Stop Harvey</button>
+        <button class="btn btn-primary" id="btn-start" onclick="startHarvey()">Start Morthy</button>
+        <button class="btn btn-danger" id="btn-stop" onclick="stopHarvey()" style="display:none">Stop Morthy</button>
       </div>
     </div>
     <div class="card">
       <h2>Recent logs <button class="btn btn-ghost btn-sm" onclick="loadLogs()" style="margin-left:auto"><svg class="icon" aria-hidden="true"><use href="#i-refresh"/></svg>Refresh</button></h2>
-      <div class="log-viewer" id="log-viewer">No logs yet. Start Harvey to see activity.</div>
+      <div class="log-viewer" id="log-viewer">No logs yet. Start Morthy to see activity.</div>
     </div>
   </div>
 </div>
 
 <!-- Help -->
 <div id="help" class="section">
-  <div class="section-head"><div><h2>Help</h2><p>What Harvey is, how it works, and how to fix the usual problems.</p></div></div>
+  <div class="section-head"><div><h2>Help</h2><p>What Morthy is, how it works, and how to fix the usual problems.</p></div></div>
 
   <div class="help-section">
-    <h2>What is Harvey?</h2>
-    <p>Harvey is an autonomous AI sales agent. Once set up, Harvey runs on its own: finds people who match your ideal customer, writes personalized cold emails, sends them through your email platform, reads every reply, handles objections, and works toward booking a meeting. You review everything through this dashboard.</p>
-    <p>Harvey runs on your Claude Max subscription (or, if you opt in, your ChatGPT plan through Codex), so there are no extra AI costs. Everything stays on your machine in one folder.</p>
+    <h2>What is Morthy?</h2>
+    <p>Morthy is an autonomous AI sales agent. Once set up, Morthy runs on its own: finds people who match your ideal customer, writes personalized cold emails, sends them through your email platform, reads every reply, handles objections, and works toward booking a meeting. You review everything through this dashboard.</p>
+    <p>Morthy runs on your Claude Max subscription (or, if you opt in, your ChatGPT plan through Codex), so there are no extra AI costs. Everything stays on your machine in one folder.</p>
   </div>
 
   <div class="help-section">
     <h2>Getting started</h2>
     <p>There are three things to do:</p>
     <pre>1. Go to the Settings tab and connect an email provider (Gmail recommended)
-2. Train Harvey on your product (through Claude or the command line)
+2. Train Morthy on your product (through Claude or the command line)
 3. Go to the Controls tab and click Start</pre>
     <p>Today shows exactly what's done and what still needs to happen.</p>
   </div>
 
   <div class="help-section">
     <h2>Where everything lives</h2>
-    <p>Everything Harvey needs is inside this one project folder. Nothing is stored elsewhere.</p>
+    <p>Everything Morthy needs is inside this one project folder. Nothing is stored elsewhere.</p>
     <div class="table-card">
     <table class="file-table">
       <tr><td>.env</td><td>Your API keys and credentials (never shared or committed)</td></tr>
       <tr><td>harvey.yaml</td><td>Your product info, target customers, and behavior settings</td></tr>
-      <tr><td>skills/</td><td>Sales knowledge files. Edit these to change how Harvey writes and sells.</td></tr>
-      <tr><td>skills/product_knowledge.md</td><td>Everything Harvey knows about your product (auto-generated from training)</td></tr>
+      <tr><td>skills/</td><td>Sales knowledge files. Edit these to change how Morthy writes and sells.</td></tr>
+      <tr><td>skills/product_knowledge.md</td><td>Everything Morthy knows about your product (auto-generated from training)</td></tr>
       <tr><td>prompts/</td><td>Prompt templates for each agent. Advanced customization.</td></tr>
       <tr><td>data/harvey.db</td><td>Database with all prospects, campaigns, and conversations</td></tr>
-      <tr><td>data/harvey.log</td><td>Log file showing what Harvey is doing</td></tr>
+      <tr><td>data/harvey.log</td><td>Log file showing what Morthy is doing</td></tr>
     </table>
     </div>
   </div>
@@ -515,20 +515,20 @@
     <details>
       <summary>LinkedIn credentials (optional)</summary>
       <div class="faq-body">
-        <p>If you want Harvey to find prospects on LinkedIn, enter your LinkedIn email and password. Harvey uses a real browser to search LinkedIn like a human would, with random delays and rate limits to avoid detection.</p>
-        <p>If you skip this, Harvey will find prospects through Google searches and company website scraping instead.</p>
+        <p>If you want Morthy to find prospects on LinkedIn, enter your LinkedIn email and password. Morthy uses a real browser to search LinkedIn like a human would, with random delays and rate limits to avoid detection.</p>
+        <p>If you skip this, Morthy will find prospects through Google searches and company website scraping instead.</p>
       </div>
     </details>
 
     <details>
       <summary>Cloudflare Browser Rendering (optional)</summary>
       <div class="faq-body">
-        <p>This is only used during product training (when Harvey crawls your website to learn about your product). It handles JavaScript-heavy websites that a basic crawler can't read.</p>
+        <p>This is only used during product training (when Morthy crawls your website to learn about your product). It handles JavaScript-heavy websites that a basic crawler can't read.</p>
         <p>1. Sign up at <a href="https://dash.cloudflare.com" target="_blank" rel="noopener">Cloudflare</a> (paid Workers plan, ~$5/month)</p>
         <p>2. Go to Workers &amp; Pages &gt; Browser Rendering</p>
         <p>3. Create an API token with Browser Rendering Edit permissions</p>
         <p>4. Enter your Account ID and API Token in the Settings tab</p>
-        <p>Without this, Harvey uses a built-in crawler that works fine for most websites but can't render JavaScript.</p>
+        <p>Without this, Morthy uses a built-in crawler that works fine for most websites but can't render JavaScript.</p>
       </div>
     </details>
   </div>
@@ -548,17 +548,17 @@
 
     <details>
       <summary>Claude headless mode fails</summary>
-      <div class="faq-body">Make sure you've run <code>claude login</code> in your terminal and have an active Claude Max subscription. Harvey uses your existing subscription, not a separate API key.</div>
+      <div class="faq-body">Make sure you've run <code>claude login</code> in your terminal and have an active Claude Max subscription. Morthy uses your existing subscription, not a separate API key.</div>
     </details>
 
     <details>
       <summary>Codex calls fail</summary>
-      <div class="faq-body">With <code>brain.provider: codex</code>, set <code>brain.model</code> to an available model ID, including Luna, Sol, or Terra (for example <code>gpt-6.1-sol</code>), or leave it blank to select a listed model. Harvey runs these models without tools; <code>gpt-5.5</code> also remains supported when present in your account's catalog. Run <code>codex login</code> and choose "Sign in with ChatGPT" (API-key logins are refused). Harvey never renews your Codex login: if the log says it has expired or is due for renewal, use Codex once or run <code>codex login</code>. Harvey needs Codex CLI 0.159.3 on macOS or Linux (Codex isn't supported on Windows; use Claude there) and refuses other versions. While Codex can't be used, Harvey pauses (Today shows "Codex is paused" and why), leaves replies and queued emails untouched, and resumes once it's fixed; <code>harvey status --check</code> checks on demand. If the log says isolation could not be verified, a Codex config layer is forcing a tool, hook, MCP server or custom endpoint back on — Harvey refuses to send prompts until it is removed. Harvey never falls back to Claude on its own.</div>
+      <div class="faq-body">With <code>brain.provider: codex</code>, set <code>brain.model</code> to an available model ID, including Luna, Sol, or Terra (for example <code>gpt-6.1-sol</code>), or leave it blank to select a listed model. Morthy runs these models without tools; <code>gpt-5.5</code> also remains supported when present in your account's catalog. Run <code>codex login</code> and choose "Sign in with ChatGPT" (API-key logins are refused). Morthy never renews your Codex login: if the log says it has expired or is due for renewal, use Codex once or run <code>codex login</code>. Morthy needs Codex CLI 0.159.3 on macOS or Linux (Codex isn't supported on Windows; use Claude there) and refuses other versions. While Codex can't be used, Morthy pauses (Today shows "Codex is paused" and why), leaves replies and queued emails untouched, and resumes once it's fixed; <code>morthy status --check</code> checks on demand. If the log says isolation could not be verified, a Codex config layer is forcing a tool, hook, MCP server or custom endpoint back on — Morthy refuses to send prompts until it is removed. Morthy never falls back to Claude on its own.</div>
     </details>
 
     <details>
-      <summary>Harvey isn't finding prospects</summary>
-      <div class="faq-body">Check that your ICP (ideal customer profile) in harvey.yaml has realistic titles, industries, and geography. If LinkedIn is set up, check that the credentials are correct. Check the Activity tab to see what Harvey has been trying to do.</div>
+      <summary>Morthy isn't finding prospects</summary>
+      <div class="faq-body">Check that your ICP (ideal customer profile) in harvey.yaml has realistic titles, industries, and geography. If LinkedIn is set up, check that the credentials are correct. Check the Activity tab to see what Morthy has been trying to do.</div>
     </details>
   </div>
 </div>

@@ -1,7 +1,7 @@
 // ── Otros correos (job-search mode, local fork) ──
 //
 // Mail from outside the prospect list: ATS answers, recruiters, job alerts.
-// Harvey suggests which application an email is about and what it says;
+// Morthy suggests which application an email is about and what it says;
 // nothing reaches data/aplicaciones.csv until a button here confirms it.
 
 let _otros = {mail: [], applications: [], noise_hidden: 0};

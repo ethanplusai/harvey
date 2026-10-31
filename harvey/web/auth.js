@@ -1,6 +1,6 @@
 // ── Dashboard authorisation ──
 //
-// Every API call needs the token `harvey dashboard` prints. It arrives once,
+// Every API call needs the token `morthy dashboard` prints. It arrives once,
 // in the link's #fragment (browsers never put fragments in HTTP requests or
 // Referer, so it stays out of server and proxy logs), is moved to
 // sessionStorage (this tab only, gone when it closes) and replaced in the
