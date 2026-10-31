@@ -105,9 +105,11 @@ notice, and so does switching the check off.
 | Any new key, first 14 days | 100 |
 
 Beyond that a key draws on a prepaid pack, and Harvey shows the checkout
-link when one runs out. Get a free key at
-[precleared.dev/get-key](https://precleared.dev/get-key) and put it in `.env`
-as `PRECLEARED_API_KEY`.
+link when one runs out. `harvey precleared-key` gets a free key for your email
+address and saves it in `.env` as `PRECLEARED_API_KEY` without showing it;
+`harvey setup` offers the same. Precleared receives that address to make the
+key. You can also get one at
+[precleared.dev/get-key](https://precleared.dev/get-key) and add it yourself.
 
 ## Caching
 

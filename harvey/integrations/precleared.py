@@ -42,8 +42,10 @@ slow lookup, an odd answer), so one address can't keep every other one
 waiting.
 
 Without an API key Precleared allows 10 checks a day; a free key
-(https://precleared.dev/get-key, PRECLEARED_API_KEY) allows 25 a day.
-Beyond that, a key draws on a prepaid pack. When a key runs out, the held
+(PRECLEARED_API_KEY) allows 100 a day for its first 14 days, then 25 a day.
+``harvey setup`` and ``harvey precleared-key`` get one for the user's email
+address in one step (create_free_key); https://precleared.dev/get-key works
+too. Beyond that, a key draws on a prepaid pack. When a key runs out, the held
 reason gives the checkout link from Precleared's answer.
 
 A hold is also recorded under STATUS_KEY, so the dashboard's Today page and
@@ -70,6 +72,9 @@ from harvey.send_window import icp_country
 logger = logging.getLogger("harvey.precleared")
 
 API_URL = "https://precleared.dev/api/v1/check"
+# Where a free key is made for an email address (create_free_key).
+KEYS_URL = "https://precleared.dev/api/v1/keys"
+USER_AGENT = "harvey (+https://github.com/ethanplusai/harvey)"
 # Precleared answers within 25 seconds (with verdict "unknown" if a register
 # lookup is slow), so the read timeout sits just above that.
 TIMEOUT = httpx.Timeout(connect=10.0, read=30.0, write=10.0, pool=10.0)
@@ -92,6 +97,10 @@ MAX_RECIPIENT_NAME = 120
 # Where to buy more checks when a 402 answer carries no usable checkout link.
 BUY_URL = "https://precleared.dev/buy"
 GET_KEY_URL = "https://precleared.dev/get-key"
+# Sent as the key's use, so Precleared knows the key is for Harvey.
+KEY_USE_CASE = "Harvey: cold-email check before the first email"
+# A free-key request is one quick call; setup waits for it.
+KEY_TIMEOUT = httpx.Timeout(20.0)
 MAX_BUY_URL = 2048
 # What `harvey status` and the dashboard's Today page read about the check:
 # {"status": "held", "kind", "reason", "url", "waiting", "since", "at"}, or
@@ -341,7 +350,7 @@ class PreclearedClient:
             payload["recipient_name"] = name
         headers = {
             "Content-Type": "application/json",
-            "User-Agent": "harvey (+https://github.com/ethanplusai/harvey)",
+            "User-Agent": USER_AGENT,
         }
         if self.api_key:
             if not re.fullmatch(r"[!-~]+", self.api_key):
@@ -383,7 +392,8 @@ class PreclearedClient:
                 allowed=False, held=True, pause_checks=True,
                 hold_kind="keyless_limit", fix_url=GET_KEY_URL,
                 reason="Precleared daily allowance used up; add PRECLEARED_API_KEY "
-                       "(free key: https://precleared.dev/get-key) or wait until tomorrow",
+                       "(`harvey precleared-key` gets a free one, or "
+                       "https://precleared.dev/get-key) or wait until tomorrow",
             )
         if resp.status_code == 402:
             # The key's free checks for today are used and it has no credits left,
@@ -605,6 +615,64 @@ def _from_cache(raw: str, inputs: str) -> Clearance | None:
     )
 
 
+# ── Free keys ──────────────────────────────────────────────────────────
+
+_EMAIL_RE = re.compile(r"[^@\s]+@[^@\s]+\.[^@\s]+")
+
+
+@dataclass
+class NewKey:
+    """The answer to a free-key request: ``key`` when Precleared made one,
+    otherwise ``error`` in plain words. The key is a secret: never print or
+    log it."""
+
+    key: str = ""
+    error: str = ""
+    # The address itself was the problem, so asking again may help.
+    bad_email: bool = False
+
+
+def create_free_key(email: str, country: str = "",
+                    transport: httpx.BaseTransport | None = None) -> NewKey:
+    """Ask Precleared for a free key for ``email`` (POST /api/v1/keys).
+
+    New keys get 100 checks a day for their first 14 days, then 25 a day.
+    Only the email address, the sender country (GB or US, when known) and
+    KEY_USE_CASE are sent. Precleared shows a key only once and limits how
+    many each email address and network can have; when it can't make one,
+    ``error`` carries its reason.
+    """
+    email = (email or "").strip()
+    if len(email) > 254 or not _EMAIL_RE.fullmatch(email):
+        return NewKey(error="that doesn't look like an email address", bad_email=True)
+    payload = {"email": email, "use_case": KEY_USE_CASE}
+    country = _text(country).upper()
+    if country in SENDER_COUNTRIES:
+        payload["country"] = country
+    headers = {"Content-Type": "application/json", "User-Agent": USER_AGENT}
+    try:
+        with httpx.Client(timeout=KEY_TIMEOUT, transport=transport) as client:
+            resp = client.post(KEYS_URL, json=payload, headers=headers)
+    except httpx.HTTPError:
+        return NewKey(error="Precleared couldn't be reached")
+    try:
+        data = resp.json()
+    except ValueError:
+        data = None
+    if not isinstance(data, dict):
+        data = {}
+    logger.debug("Precleared free key request: HTTP %s", resp.status_code)
+    if resp.status_code in (200, 201):
+        key = data.get("key")
+        # Plain printable ASCII, as the check sends it in a header.
+        if isinstance(key, str) and re.fullmatch(r"[!-~]{16,200}", key):
+            return NewKey(key=key)
+        return NewKey(error="Precleared's answer had no key in it")
+    message = " ".join(_clean(_text(data.get("message"))).split())[:200].rstrip(". ")
+    return NewKey(error=message or f"Precleared answered HTTP {resp.status_code}",
+                  bad_email=resp.status_code == 400 and data.get("error") == "invalid_request")
+
+
 def _utcnow() -> datetime:
     return datetime.now(timezone.utc)
 
@@ -707,9 +775,11 @@ def hold_message(hold: dict) -> dict:
             "tone": "warn", "url": url or GET_KEY_URL, "url_label": "Get a free key",
             "title": "Precleared's free checks for today are used up",
             "detail": (f"{emails}. Without a key, Precleared allows 10 checks a day. "
-                       f"A free key gives Harvey its own 25 a day: get one at {url or GET_KEY_URL} "
-                       "and put it in .env as PRECLEARED_API_KEY. Otherwise the waiting "
-                       f"emails go out after the checks reset at midnight UK time. {replies}"),
+                       "A free key gives Harvey its own allowance: 100 a day for the first 14 days, "
+                       "then 25. Run `harvey precleared-key` to get one with just your email "
+                       f"address, or get one at {url or GET_KEY_URL} and put it in .env as "
+                       "PRECLEARED_API_KEY. Otherwise the waiting emails go out after the "
+                       f"checks reset at midnight UK time. {replies}"),
         }
     if kind == "out_of_checks":
         return {

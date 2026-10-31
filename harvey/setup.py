@@ -13,6 +13,7 @@ from pydantic import ValidationError
 
 from harvey.brain import Brain
 from harvey.config import BrainConfig, normalize_prospect_country
+from harvey.integrations.precleared import GET_KEY_URL, create_free_key
 from harvey.state import StateManager
 
 logger = logging.getLogger("harvey.setup")
@@ -725,12 +726,21 @@ class SetupWizard:
         self._ask_precleared_key()
 
     def _ask_precleared_key(self):
-        """Offer a free Precleared key. Enter keeps the current one, or skips."""
+        """Offer a free Precleared key. Enter keeps the current one, or skips.
+
+        Without a key, Harvey can get a free one for the user's email address
+        right here, so nobody has to leave setup for a browser.
+        """
         saved_key = _read_env_file().get("PRECLEARED_API_KEY", "").strip("'\" ")
         has_key = bool(saved_key or os.getenv("PRECLEARED_API_KEY", "").strip())
         if not has_key:
             _print_harvey("Without a key Precleared allows 10 checks a day. A free key")
-            _print_harvey("from https://precleared.dev/get-key allows 25.")
+            _print_harvey("gives Harvey 100 a day for its first 14 days, then 25 a day.")
+            key = self._get_free_precleared_key()
+            if key:
+                self.env_vars["PRECLEARED_API_KEY"] = key
+                _print_harvey("Got your free key and saved it to .env.")
+                return
         key = _ask(
             "Precleared API key (input hidden; Enter keeps your current key)" if has_key
             else "Precleared API key (input hidden; Enter to skip)",
@@ -744,8 +754,28 @@ class SetupWizard:
             _print_harvey("Keeping the key you already have.")
         else:
             self.env_vars["PRECLEARED_API_KEY"] = ""
-            _print_harvey("No problem: 10 checks a day without one. Add")
-            _print_harvey("PRECLEARED_API_KEY to .env whenever you like.")
+            _print_harvey("No problem: 10 checks a day without one. Run")
+            _print_harvey("`harvey precleared-key` whenever you'd like a free key.")
+
+    def _get_free_precleared_key(self) -> str:
+        """Offer to get a free key for an email address. Returns the key, or
+        "" to fall back to pasting one. The key is never printed."""
+        if not _ask_yes_no("Get a free Precleared key now? It only needs your email address"):
+            return ""
+        print("\n  Precleared receives the address to make the key")
+        print("  (privacy: https://precleared.dev/privacy).")
+        country = (self.precleared or {}).get("sender_country", "")
+        while True:
+            email = _ask("Email address for the key (Enter to skip)", required=False)
+            if not email:
+                return ""
+            result = create_free_key(email, country=country)
+            if result.key:
+                return result.key
+            _print_harvey(f"Couldn't get a key: {result.error}.")
+            if not result.bad_email:
+                _print_harvey(f"You can paste one from {GET_KEY_URL} instead.")
+                return ""
 
     def _write_env(self):
         """Write the .env file, preserving any existing variables we didn't touch."""

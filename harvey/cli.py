@@ -921,6 +921,72 @@ def cmd_trulyinbox(args):
     raise SystemExit(asyncio.run(_run()))
 
 
+def cmd_precleared_key(args):
+    """Get a free Precleared key for an email address and save it to .env.
+
+    The same one-step key as `harvey setup` offers, for after setup: when the
+    keyless allowance runs out, or for a coding agent setting Harvey up
+    (`--email` asks nothing). The key is saved, never printed.
+    """
+    import os
+
+    from dotenv import load_dotenv
+
+    from harvey.dashboard import _write_env_file
+    from harvey.integrations.precleared import GET_KEY_URL, create_free_key
+    from harvey.paths import PROJECT_ROOT
+    from harvey.setup import _read_env_file
+
+    load_dotenv(PROJECT_ROOT / ".env")
+    if (_read_env_file().get("PRECLEARED_API_KEY", "").strip("'\" ")
+            or os.getenv("PRECLEARED_API_KEY", "").strip()):
+        print("\n  You already have a Precleared key (PRECLEARED_API_KEY), so Harvey kept it.")
+        print("  To get a new one, delete that line from .env and run this again.\n")
+        raise SystemExit(0)
+
+    enabled, country = None, ""
+    try:
+        from harvey.config import load_config
+        settings = load_config().compliance.precleared
+        enabled = settings.enabled is True
+        country = settings.sender_country if enabled else ""
+    except Exception:
+        pass  # only used for a hint and the key's country
+
+    email = (args.email or "").strip()
+    if not email:
+        print("\n  Harvey can get you a free Precleared key: 100 checks a day for the")
+        print("  first 14 days, then 25 a day. Precleared receives your email address")
+        print("  to make the key (privacy: https://precleared.dev/privacy).")
+        try:
+            email = input("\n  → Email address for the key: ").strip()
+        except (EOFError, KeyboardInterrupt):
+            print()
+            raise SystemExit(1)
+        if not email:
+            print("\n  No email address entered.\n")
+            raise SystemExit(1)
+
+    result = create_free_key(email, country=country)
+    if not result.key:
+        print(f"\n  Couldn't get a key: {result.error}.")
+        print(f"  You can get one at {GET_KEY_URL} and put it in .env as PRECLEARED_API_KEY.\n")
+        raise SystemExit(1)
+    try:
+        _write_env_file({"PRECLEARED_API_KEY": result.key})
+    except OSError as e:
+        print(f"\n  Precleared made the key, but Harvey couldn't save it to .env ({e}).")
+        print(f"  Fix that and run this again, or get a key at {GET_KEY_URL}.\n")
+        raise SystemExit(1)
+    print("\n  Done: your free Precleared key is saved in .env as PRECLEARED_API_KEY.")
+    print("  It gives Harvey 100 checks a day for 14 days, then 25 a day.")
+    if enabled is False:
+        print("  The check itself is off: turn it on with `harvey setup` or set")
+        print("  compliance.precleared.enabled: true in your config.")
+    print("  If Harvey is running, restart it so it uses the key.\n")
+    raise SystemExit(0)
+
+
 def cmd_sending(args):
     """Pause/resume the sending kill switch."""
     from harvey.state import StateManager
@@ -1107,6 +1173,13 @@ def main():
                      help="connect a key, 'other' if you use another warmup service, "
                           "or show the status (default)")
     sub.set_defaults(func=cmd_trulyinbox)
+
+    sub = subparsers.add_parser(
+        "precleared-key",
+        help="Get a free Precleared key for the cold-email check and save it to .env")
+    sub.add_argument("--email", default="",
+                     help="Email address for the key (asked if not given)")
+    sub.set_defaults(func=cmd_precleared_key)
 
     # harvey usage
     sub = subparsers.add_parser("usage", help="Show brain usage and quota (Claude or Codex)")
