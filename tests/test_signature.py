@@ -274,3 +274,49 @@ def test_an_unusable_logo_is_explained_on_today():
         {"reason": "email signature: logo file not found: logo.png", "since": "2026-10-31T10:00:00"}, 2)
     assert "logo" in title and "inbox" not in title
     assert "logo file not found" in detail and "2 emails" in detail
+
+
+# ── Review follow-ups ──
+
+@pytest.mark.parametrize("data", [
+    b"\x89PNG\r\n\x1a\n",                                   # the signature and nothing else
+    b"\x89PNG\r\n\x1a\n" + b"\0\0\0\rIHDR" + struct.pack(">II", 0, 50),   # zero width
+    b"\x89PNG\r\n\x1a\n" + b"\0\0\0\rIHDR" + struct.pack(">II", 2, 2**32 - 1),  # absurd height
+    b"GIF89a",                                              # truncated
+    b"\xff\xd8\xff",                                        # truncated
+])
+def test_a_corrupt_image_is_refused_not_sent_broken(tmp_path, data):
+    path = tmp_path / "bad.img"
+    path.write_bytes(data)
+    assert signature.signature_problem(config(logo=str(path)))
+
+
+@pytest.mark.parametrize("logo", ["~nobody-here-at-all/x.png", "bad\0name.png"])
+def test_a_path_that_cant_even_be_resolved_is_a_problem_not_a_crash(logo):
+    assert signature.signature_problem(config(logo=logo))
+
+
+@pytest.mark.asyncio
+async def test_a_logo_that_breaks_mid_drain_leaves_email_waiting_not_failed(tmp_path, monkeypatch):
+    from harvey.integrations.mail_provider import SendResult
+    from harvey.state import StateManager
+    from tests.test_outbox_native import FakeProvider, _now_iso, make_sender, seed_prospect
+    state = StateManager(str(tmp_path / "state.db"))
+    await state.init_db()
+    pid = await seed_prospect(state)
+    await state.add_outbox_item(
+        prospect_id=pid, to_email="jane@acme.com", subject="hello", body="Hi Jane.",
+        send_at=_now_iso(), status="approved", campaign_id="c1", step=1,
+    )
+    provider = FakeProvider()
+
+    async def broke(*a, **k):
+        return SendResult(ok=False, error="signature: logo file not found: logo.png")
+    provider.send_email = broke
+    sender = make_sender(state, provider)
+
+    await sender._drain_due()
+
+    assert await state.get_outbox(status="failed") == []
+    assert len(await state.get_outbox(status="approved")) == 1
+    assert "logo file not found" in (await state.current_sends_held())["reason"]

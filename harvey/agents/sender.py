@@ -1038,6 +1038,13 @@ class Sender:
                 )
                 logger.warning(f"Sender: send to {item['to_email']} raised: {e}")
                 continue
+            if not result.ok and result.error.startswith("signature:"):
+                # The logo broke after this drain checked it, and the provider
+                # refused before sending: this email waits, like the others.
+                await self.state.update_outbox_item(item["id"], status="approved")
+                await self.state.note_sends_held(SIGNATURE_HOLD_PREFIX + result.error[10:].strip())
+                logger.warning(f"Sender: {result.error} — outbox is holding.")
+                break
             if not result.ok:
                 await self.state.update_outbox_item(
                     item["id"], status="failed", error=result.error[:300]

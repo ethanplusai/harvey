@@ -27,6 +27,7 @@ from harvey.paths import PROJECT_ROOT
 
 # Bigger images hurt deliverability, and a logo never needs more.
 MAX_LOGO_BYTES = 100_000
+MAX_LOGO_PIXELS = 20_000
 
 _URL = re.compile(r"https?://[!#-;=?-~]+")   # printable ASCII except space, " < >
 _URL_TRAILING = ".,;:!?)]}'"
@@ -43,7 +44,7 @@ class Signature:
     filename: str
     content_id: str       # the src="cid:..." the HTML points at
     width: int
-    height: int | None    # None when the image's size can't be read
+    height: int
     alt: str
     link: str
     direction: str        # rtl, ltr or auto
@@ -61,10 +62,10 @@ def load_signature(config) -> Signature | None:
     logo = (getattr(settings, "logo", "") or "").strip()
     if not logo:
         return None
-    path = Path(logo).expanduser()
-    if not path.is_absolute():
-        path = PROJECT_ROOT / path
     try:
+        path = Path(logo).expanduser()
+        if not path.is_absolute():
+            path = PROJECT_ROOT / path
         size = path.stat().st_size
         if size > MAX_LOGO_BYTES:
             raise SignatureError(
@@ -73,14 +74,18 @@ def load_signature(config) -> Signature | None:
         data = path.read_bytes()
     except FileNotFoundError:
         raise SignatureError(f"logo file not found: {path}") from None
-    except OSError as e:
-        raise SignatureError(f"logo file can't be read: {path} ({e})") from None
+    except (OSError, RuntimeError, ValueError) as e:   # ~nouser, a NUL in the path
+        raise SignatureError(f"logo file can't be read: {logo} ({e})") from None
     mime = _image_type(data)
     if not mime:
         raise SignatureError(f"logo {path.name} isn't a PNG, JPEG or GIF image")
     width = int(getattr(settings, "width", 120) or 120)
     size_px = _image_size(data, mime)
-    height = round(width * size_px[1] / size_px[0]) if size_px and size_px[0] else None
+    # A header with no usable size is a corrupt file, which would show as a
+    # broken image in every email.
+    if not size_px or not all(0 < n <= MAX_LOGO_PIXELS for n in size_px):
+        raise SignatureError(f"logo {path.name} is a damaged image")
+    height = round(width * size_px[1] / size_px[0])
     company = getattr(getattr(config, "persona", None), "company", "") or ""
     return Signature(
         data=data,
@@ -111,7 +116,7 @@ def render_html(body: str, sig: Signature) -> str:
     text = "\n".join(
         f'<p style="margin:0 0 1em 0">{_paragraph(p)}</p>' for p in paragraphs
     )
-    height = f' height="{sig.height}"' if sig.height else ""
+    height = f' height="{sig.height}"'
     img = (
         f'<img src="cid:{sig.content_id}" width="{sig.width}"{height} '
         f'alt="{html.escape(sig.alt)}" '

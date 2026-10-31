@@ -239,8 +239,8 @@ def cmd_status(args):
         if hold:
             from harvey.sending_mode import held_message
             waiting = len(await state.get_outbox(status="approved", limit=500))
-            _, detail = held_message(hold, waiting=waiting)
-            print("  Sending:              NOT SENDING (couldn't read your inbox)")
+            title, detail = held_message(hold, waiting=waiting)
+            print(f"  Sending:              NOT SENDING ({title.split(': ', 1)[-1]})")
             print(textwrap.fill(detail, width=72, initial_indent="                        ",
                                 subsequent_indent="                        "))
         from harvey.integrations.precleared import current_hold, hold_message
