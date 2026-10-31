@@ -275,6 +275,9 @@ minor versions can still change behaviour.
 
 ### Fixed
 
+- **Hebrew legal threats and complaints go to you without the model** (from
+  #135), and an opt-out that also threatens, in any language, is honored and
+  shows on **Needs you** instead of being closed unseen.
 - **Hebrew opt-outs are honored without the model** (from #134). A reply like
   "הסר", "תורידו אותי מהרשימה" or "לא תודה" now opts out as its English
   equivalent does, and `compliance.opt_out_line` can ask for a Hebrew reply.
