@@ -35,6 +35,7 @@ class PersonaConfig(BaseModel):
     email: str
     linkedin: str
     tone: str
+    signature: str = ""  # appended to every reply the handler drafts
 
 
 class OfferConfig(BaseModel):
@@ -536,7 +537,7 @@ class UsageConfig(BaseModel):
         return v
 
 
-BRAIN_PROVIDERS = ("claude", "codex")
+BRAIN_PROVIDERS = ("claude", "codex", "deepseek")
 CODEX_REASONING_EFFORTS = ("minimal", "low", "medium", "high", "xhigh")
 
 # Model names are passed to a CLI, so they must look like a model name and
@@ -556,6 +557,8 @@ class BrainConfig(BaseModel):
     provider: str = "claude"
     model: str = ""  # empty = the provider's own default
     reasoning_effort: str = ""  # codex only; empty = model default
+    # deepseek only (local fork): stop for the day past this estimated spend.
+    max_daily_usd: float = 0.50
 
     @field_validator("provider", mode="before")
     @classmethod
@@ -596,6 +599,32 @@ class WriterConfig(BaseModel):
     humanizer: bool = False
 
 
+class JobProject(BaseModel):
+    """One project the candidate can point to (job-search fork)."""
+    name: str
+    sectors: list[str] = []   # empty = the default for any other sector
+    pitch: str                # the facts, exactly as they may be stated
+
+
+class JobSearchConfig(BaseModel):
+    """Job-search mode (local fork). Off: Harvey sells, as upstream.
+
+    On: the writer and handler prompts get prompts/job_search_*.md, filled in
+    from here, so nothing about the candidate lives in the prompt files."""
+    enabled: bool = False
+    intro: str = ""           # "a developer from Ecuador" → "My name is X, and I'm ..."
+    role_sought: str = "a remote junior developer or internship role"
+    projects: list[JobProject] = []
+    project_notes: str = ""   # extra rules on choosing among the projects
+    signature_es: str = ""    # signature for Spanish emails; empty = same as persona.signature
+    country: str = ""         # job boards: also keep roles open to this country
+    # job boards: a remote role naming one of these (or worldwide) is open to you
+    regions: list[str] = ["latam", "latin america", "south america", "americas",
+                          "américa latina", "america latina", "latinoamérica", "latinoamerica"]
+    profile_path: str = "perfil_aplicacion.yaml"   # tools/aplicar.py, relative to the repo
+    vacancies_dir: str = "data/vacantes"            # tools/vacantes_remotas.py output
+
+
 class HarveyConfig(BaseModel):
     persona: PersonaConfig
     product: ProductConfig
@@ -605,6 +634,7 @@ class HarveyConfig(BaseModel):
     brain: BrainConfig = BrainConfig()
     compliance: ComplianceConfig = ComplianceConfig()
     writer: WriterConfig = WriterConfig()
+    job_search: JobSearchConfig = JobSearchConfig()
     # The file it was loaded from, so a running Harvey can re-read the
     # sending mode from that same file (refresh_sending_mode).
     _source_path: str | None = PrivateAttr(default=None)

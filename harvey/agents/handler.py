@@ -450,6 +450,15 @@ class Handler:
         # Find the prospect by email (indexed lookup)
         prospect = await self.state.get_prospect_by_email(lead_email)
         if not prospect:
+            if reply_meta is not None:
+                # Job-search mode (local): an ATS or recruiter writing about an
+                # application is no prospect, but it's the mail that matters.
+                try:
+                    from harvey.job_search import record_other_mail
+                    await record_other_mail(self.state, lead_email, reply_text, reply_meta)
+                    return
+                except Exception as e:
+                    logger.warning(f"Handler: couldn't keep mail from {lead_email}: {e}")
             logger.warning(f"Handler: No prospect found for {lead_email}")
             return
 
@@ -730,6 +739,8 @@ class Handler:
                             "thread_ref": msg.thread_ref,
                             "message_id": msg.message_id,
                             "subject": msg.subject,
+                            "provider_id": msg.provider_id,
+                            "date": msg.date,
                         },
                     )
                 handled += 1
@@ -956,6 +967,9 @@ Respond with ONLY the category label, nothing else."""
                     break
 
         prompt = self.brain.load_prompt("handler", stage=convo.stage)
+        if prompt:
+            from harvey.job_search import prompt_block as job_search_block
+            prompt = job_search_block(self.config, "handler") + prompt
         if not prompt:
             prompt = f"""You are {self.config.persona.name}, {self.config.persona.role} at {self.config.persona.company}.
 Your tone is: {self.config.persona.tone}
@@ -1038,4 +1052,8 @@ Write a reply that:"""
             self.brain, [{"subject": "", "body": response}], agent="handler",
             enabled=humanizer_enabled(self.config),
         )
-        return polished[0]["body"]
+        body = polished[0]["body"]
+        signature = (getattr(self.config.persona, "signature", "") or "").strip()
+        if body and signature:
+            body = f"{body.rstrip()}\n\n{signature}"
+        return body

@@ -73,6 +73,7 @@
       <button class="active" onclick="showTab('today', this)"><svg class="icon" aria-hidden="true"><use href="#i-today"/></svg><span class="label">Today</span><span class="nav-count" id="nav-today"></span></button>
       <button onclick="showTab('outbox', this)"><svg class="icon" aria-hidden="true"><use href="#i-outbox"/></svg><span class="label">Outbox</span><span class="nav-count" id="nav-outbox"></span></button>
       <button onclick="showTab('conversations', this)"><svg class="icon" aria-hidden="true"><use href="#i-conversations"/></svg><span class="label">Conversations</span><span class="nav-count" id="nav-conversations"></span></button>
+      <button onclick="showTab('otros', this)"><svg class="icon" aria-hidden="true"><use href="#i-conversations"/></svg><span class="label">Otros correos</span><span class="nav-count" id="nav-otros"></span></button>
     </div>
     <div class="nav-group">
       <div class="nav-label">Pipeline</div>
@@ -267,6 +268,12 @@
 <div id="conversations" class="section">
   <div class="section-head"><div><h2>Conversations</h2><p>Every reply, and how Harvey handled it.</p></div></div>
   <div id="conversations-list"></div>
+</div>
+
+<!-- Otros correos (job-search mode, local) -->
+<div id="otros" class="section">
+  <div class="section-head"><div><h2>Otros correos</h2><p>Correos que no son de prospectos: sistemas de postulación, reclutadores, alertas de vacantes. Harvey sugiere de qué postulación son y qué dicen; solo se anota en <code>aplicaciones.csv</code> cuando pulsas "Anotar".</p></div></div>
+  <div id="otros-list"></div>
 </div>
 
 <!-- Activity -->
@@ -561,5 +568,6 @@
 </div>
 
 <script src="/static/app.js"></script>
+<script src="/static/otros.js"></script>
 </body>
 </html>

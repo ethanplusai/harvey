@@ -39,7 +39,7 @@ _NON_RETRYABLE_PATTERNS = (
 )
 
 
-PROVIDER_LABELS = {"claude": "Claude", "codex": "Codex"}
+PROVIDER_LABELS = {"claude": "Claude", "codex": "Codex", "deepseek": "DeepSeek"}
 
 # Settings key holding the brain's last health transition, for `harvey
 # status` and the dashboard: {"provider", "status": "ok"|"paused", "reason",
@@ -79,6 +79,13 @@ class BrainUnavailable(Exception):
     a caller must leave its input untouched for a later retry."""
 
 
+class _NoQuota:
+    """A provider with no subscription gauge (DeepSeek bills per token)."""
+
+    async def get_utilization(self):
+        return None
+
+
 class Brain:
     def __init__(self, state: StateManager, brain_config=None):
         from harvey.config import BrainConfig
@@ -105,6 +112,12 @@ class Brain:
                 model=self.model, reasoning_effort=self.config.reasoning_effort
             )
             self.quota = CodexQuotaClient(self.codex)
+        elif self.provider == "deepseek":
+            # Local fork: a direct API call with no tools (see harvey/deepseek.py).
+            from harvey.deepseek import DeepSeekClient
+            self.deepseek = DeepSeekClient(model=self.model)
+            self.model = self.deepseek.model
+            self.quota = _NoQuota()
         else:
             # Lazy import avoids a cycle (quota -> usage -> state).
             from harvey.integrations.quota import QuotaClient
@@ -137,6 +150,14 @@ class Brain:
         PROVIDER_RECHECK_SECONDS, so a persistent problem doesn't start
         runtimes every heartbeat.
         """
+        if self.provider == "deepseek":
+            problem = self.deepseek.configured()
+            if problem:
+                await self._mark_unavailable(problem)
+                return self.unavailable
+            if self.unavailable:
+                await self._mark_available()
+            return ""
         if self.provider != "codex":
             return await self._claude_preflight()
         from harvey.codex import CodexError
@@ -196,6 +217,8 @@ class Brain:
     def _fingerprint(self):
         if self.provider == "codex":
             return self.codex.fingerprint()
+        if self.provider == "deepseek":
+            return None
         from harvey.claude_runtime import fingerprint
         return fingerprint()
 
@@ -264,6 +287,11 @@ class Brain:
         """
         if self.provider == "codex":
             return await self._think_codex(
+                prompt, session_id=session_id, timeout=timeout,
+                max_retries=max_retries, agent=agent, task=task,
+            )
+        if self.provider == "deepseek":
+            return await self._think_deepseek(
                 prompt, session_id=session_id, timeout=timeout,
                 max_retries=max_retries, agent=agent, task=task,
             )
@@ -482,6 +510,41 @@ class Brain:
         )
         return ""
 
+    async def _think_deepseek(
+        self, prompt: str, session_id: str | None, timeout: float,
+        max_retries: int, agent: str, task: str,
+    ) -> str:
+        """One tool-less chat completion. Auth and balance problems pause the
+        brain (like a Codex setup problem); network errors are retried."""
+        from harvey.deepseek import DeepSeekError
+
+        label = session_id or ""
+        for attempt in range(max_retries + 1):
+            if attempt > 0:
+                await asyncio.sleep(RETRY_BASE_DELAY * (2 ** (attempt - 1)))
+            try:
+                result = await self.deepseek.complete(prompt, timeout=timeout)
+            except DeepSeekError as e:
+                if e.kind in ("auth", "balance"):
+                    logger.error(f"DeepSeek call not sent: {e}")
+                    await self._mark_unavailable(e)
+                    return ""
+                logger.warning(f"DeepSeek call failed (attempt {attempt + 1}): {e}")
+                if e.kind == "bad_request":
+                    return ""
+                continue
+            if self.unavailable:
+                await self._mark_available()
+            if not agent and label.startswith("harvey-"):
+                agent = label[len("harvey-"):].split("-")[0]
+            await self.state.record_usage_event(
+                agent=agent, task=task or label, session_id=result.request_id,
+                model=result.model, duration_ms=result.duration_ms, num_turns=1,
+                source="deepseek_api", provider="deepseek", **result.usage,
+            )
+            return result.text
+        return ""
+
     async def _record_codex_usage(self, result, agent: str, task: str, label: str):
         """One usage row per Codex call. ChatGPT plans aren't billed per
         token, so cost is recorded as 0 rather than estimated."""
@@ -640,6 +703,15 @@ class Brain:
         user's own interactive work. Fallback when those are unavailable:
         Harvey's own call counter for this provider against max_daily_calls.
         """
+        if self.provider == "deepseek":
+            # Prepaid per-token billing: the cap is dollars a day, not a quota.
+            spent = await self.state.get_cost_today(provider="deepseek")
+            cap = float(getattr(self.config, "max_daily_usd", 0) or 0)
+            if cap and spent >= cap:
+                logger.info(f"DeepSeek daily cap reached: ~${spent:.3f} of ${cap:.2f} "
+                            "(brain.max_daily_usd).")
+                return False
+            return await self.check_usage() < max_daily_calls
         await self._expire_usage_pause()
         if time.monotonic() < self._usage_limited_until:
             # Codex said the plan is out of usage: an unreadable quota must

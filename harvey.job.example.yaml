@@ -1,0 +1,113 @@
+# Harvey, modo búsqueda de empleo: configuración de EJEMPLO (datos ficticios).
+#
+# Cópiala y edítala:   cp harvey.job.example.yaml harvey.local.yaml
+# harvey.local.yaml está en .gitignore: tus datos nunca se suben al repo.
+# Guía completa: docs/busqueda-de-empleo.md
+
+persona:
+  name: "Ana Ejemplo"
+  company: "independent developer"
+  role: "Junior backend developer (Python, Django)"
+  email: "ana.ejemplo@example.com"          # el Gmail desde el que Harvey envía
+  linkedin: "linkedin.com/in/ana-ejemplo"
+  # Va al final de cada correo y de cada respuesta.
+  signature: |-
+    Ana Ejemplo
+    Developer | Python, Django
+    GitHub: github.com/ana-ejemplo
+    CV: https://example.com/ana-ejemplo-cv.pdf
+    Availability: Immediate
+  tone: >-
+    highly professional, polite, formal and humble, never casual or pushy,
+    not a salesperson. This is a job application, not a sales pitch: never
+    invent facts, metrics or availability that are not in the description.
+    Write in English, except to companies based in Latin America or Spain,
+    where you write in Spanish.
+
+# En modo búsqueda de empleo, "el producto" eres tú: tu CV en pocas líneas.
+# Harvey solo dice de ti lo que está aquí y en job_search.projects.
+product:
+  name: "Ana Ejemplo, junior backend developer"
+  description: >-
+    Developer from Quito, Ecuador, looking for a remote junior role in backend
+    (Python/Django). Built an inventory API used by a family business, and a
+    personal finance app as a course final project. Available to start
+    immediately. CV: https://example.com/ana-ejemplo-cv.pdf
+  pricing: "Open to discussing; junior level"
+  key_benefits:
+    - "Built and deployed a Django REST API for a small business's inventory, in daily use"
+    - "Personal finance web app (Django, PostgreSQL), final project of an online course"
+    - "Spanish native, intermediate English; comfortable working remote"
+  objection_responses:
+    "not hiring": "Understood, thanks for telling me. Would it be OK if I check back in a few months?"
+    "need more experience": "Fair point. Happy to walk you through my code in a short technical call."
+    "not interested": "No problem at all, thanks for reading. I won't email again."
+  offer:
+    primary: "A remote junior developer role"
+    entry: "A 15-minute intro call"
+    goal: "get_reply"
+    booking_method: "ask_preference"
+    meeting_duration: "15 minutes"
+    meeting_owner: "Ana Ejemplo"
+
+# A quién escribe Harvey: empresas del tipo que te interesa y la persona que decide.
+icp:
+  industries: ["SaaS", "Software development", "FinTech", "EdTech"]
+  company_size: "5-200 employees"
+  titles: ["CTO", "Co-founder", "Head of Engineering", "Engineering Manager", "Tech Lead"]
+  geography: ["United States", "Europe", "Latin America"]
+  # Puestos que, si la empresa los tiene abiertos, la hacen buena candidata.
+  hiring_signals: ["Python Developer", "Backend Developer", "Django", "Junior Developer",
+                   "Desarrollador Python", "Desarrollador Junior"]
+
+channels:
+  email:
+    enabled: true
+    provider: "gmail"
+    max_daily_sends: 15
+    require_approval: true     # todo correo espera tu aprobación en el Outbox
+    link_domains: ["github.com", "linkedin.com", "example.com"]   # los de tu firma
+    send_to_risky: false
+  linkedin:
+    enabled: false
+
+usage:
+  max_daily_claude_percent: 80
+  heartbeat_interval_minutes: 15
+  quiet_hours:
+    start: "22:00"
+    end: "07:00"
+    timezone: "America/Guayaquil"
+
+# El "cerebro". Con DeepSeek: DEEPSEEK_API_KEY en .env. Ver la guía.
+brain:
+  provider: deepseek           # claude | codex | deepseek
+  model: deepseek-flash        # o deepseek-v4-pro (mejor redacción, ~4x más caro)
+  max_daily_usd: 0.50          # Harvey para el día al llegar a este gasto estimado
+
+job_search:
+  enabled: true
+  intro: "a developer from Ecuador"           # "My name is Ana Ejemplo, and I'm ..."
+  role_sought: "a remote junior developer role"
+  country: "Ecuador"                          # el buscador también acepta vacantes para tu país
+  profile_path: "perfil_aplicacion.yaml"      # respuestas de formularios (aplicar.py)
+  vacancies_dir: "data/vacantes"
+  # Tus proyectos. Harvey elige UNO según el sector de la empresa y lo cuenta
+  # con estos datos, sin inventar nada. sectors vacío = el de cualquier otro sector.
+  projects:
+    - name: "the inventory API"
+      sectors: ["retail", "logistics", "back-office SaaS", "general backend roles"]
+      pitch: '"I built and deployed a Django REST API that a small business uses every day to manage its inventory."'
+    - name: "the personal finance app"
+      sectors: ["FinTech", "personal finance", "consumer apps"]
+      pitch: "a Django and PostgreSQL web app to track expenses and budgets, built as the final project of an online course."
+    - name: "the inventory API"
+      sectors: []
+      pitch: '"I built and deployed a Django REST API that a small business uses every day to manage its inventory."'
+  project_notes: ""
+  signature_es: |-
+    Ana Ejemplo
+    Desarrolladora | Python, Django
+    GitHub: github.com/ana-ejemplo
+    CV: https://example.com/ana-ejemplo-cv.pdf
+    Disponibilidad: inmediata

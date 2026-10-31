@@ -290,6 +290,9 @@ async def heartbeat(stop_event: asyncio.Event | None = None):
     sender = Sender(brain, state, config, env)
     handler = Handler(brain, state, config, env)
     analyst = Analyst(state)
+    # Job-search mode (local fork): a note to a person after each application.
+    from harvey.follow_up import PostApplyFollowUp
+    post_apply = PostApplyFollowUp(brain, state, config, env)
 
     interval = config.usage.heartbeat_interval_minutes * 60
     max_calls = max(int(200 * (config.usage.max_daily_claude_percent / 100)), 1)
@@ -418,6 +421,15 @@ async def heartbeat(stop_event: asyncio.Event | None = None):
             # turns a name and a domain into something worth writing about.
             if summary.get("unprofiled", 0):
                 tasks.append(("profile", run_profile_stage(state, limit=25, config=config)))
+
+            # Job-search mode (local fork): post-application notes, staged
+            # for approval. Never in quiet hours, never able to stop a cycle.
+            if action != "quiet_hours_send":
+                try:
+                    if await post_apply.pending():
+                        tasks.append(("post_apply", post_apply.run()))
+                except Exception as e:
+                    logger.warning(f"Post-apply check failed: {e}")
 
             outcomes = await _run_agents(tasks)
 
