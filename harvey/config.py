@@ -536,7 +536,7 @@ class UsageConfig(BaseModel):
         return v
 
 
-BRAIN_PROVIDERS = ("claude", "codex")
+BRAIN_PROVIDERS = ("claude", "codex", "litellm")
 CODEX_REASONING_EFFORTS = ("minimal", "low", "medium", "high", "xhigh")
 
 # Model names are passed to a CLI, so they must look like a model name and
@@ -545,12 +545,14 @@ _MODEL_NAME_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._:/\[\]-]{0,127}$")
 
 
 class BrainConfig(BaseModel):
-    """Which subscription Harvey thinks with.
+    """Which provider Harvey thinks with.
 
     ``claude`` (default) runs Claude Code headless on your Claude plan.
     ``codex`` runs Codex on your ChatGPT plan. There is never an automatic
     fallback between them, and an explicit ``model`` only affects Harvey —
     your own Claude Code / Codex settings are never read or changed.
+    ``litellm`` sends text-only requests to your LiteLLM AI Gateway; its
+    URL and virtual key come from LITELLM_BASE_URL and LITELLM_API_KEY.
     """
 
     provider: str = "claude"
@@ -586,6 +588,12 @@ class BrainConfig(BaseModel):
                 f"Use one of: {', '.join(CODEX_REASONING_EFFORTS)}."
             )
         return v
+
+    @model_validator(mode="after")
+    def _litellm_requires_model(self):
+        if self.provider == "litellm" and not self.model:
+            raise ValueError("Set brain.model to a model alias configured on your LiteLLM AI Gateway.")
+        return self
 
 
 class WriterConfig(BaseModel):

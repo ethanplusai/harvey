@@ -1452,6 +1452,9 @@ function brainCallChips(data) {
       escHtml(st.provider === 'codex' ? 'Codex' : 'Brain') + ' <b>paused</b>: ' +
       escHtml((st.reason || '').slice(0, 120)) + '</span>'
     : '';
+  if (data.brain_provider === 'litellm') {
+    return paused + chip('LiteLLM AI Gateway', data.litellm_calls_today);
+  }
   if (data.brain_provider === 'codex') {
     return paused + chip('Codex', codex) + (data.claude_calls_today ? chip('Claude', data.claude_calls_today) : '');
   }
@@ -1483,6 +1486,10 @@ function emailTag(p) {
 function quotaCardHtml(data) {
   const provider = data && data.quota_provider;
   if (!provider) return '';
+  if (provider === 'litellm') {
+    return '<h2>LiteLLM AI Gateway</h2><p class="muted">Model calls route through your gateway. ' +
+      'Manage API spend and virtual-key budgets there; Harvey also enforces its daily call budget.</p>';
+  }
   const title = provider === 'codex' ? 'Codex (ChatGPT plan) Quota' : 'Claude Subscription Quota';
   let html = '<h2>' + escHtml(title) + '</h2>';
   if (!data.quota || !Object.keys(data.quota).length) {
@@ -1574,7 +1581,7 @@ async function loadUsage() {
   const anyRows = (data.by_agent || []).length || (data.by_task || []).length;
   if (!anyRows) {
     tablesEl.innerHTML = emptyState(icon('usage'), 'No usage recorded yet',
-      'Once Harvey starts making model calls (Claude or Codex), every one is logged here with exact calls and tokens by provider, agent and task.');
+      'Once Harvey starts making model calls (Claude, Codex or LiteLLM AI Gateway), every one is logged here with exact calls and tokens by provider, agent and task.');
   } else {
     const providers = data.by_provider || [];
     const showProviders = providers.length > 1 || (providers.length === 1 && providers[0].provider !== 'claude');

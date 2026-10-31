@@ -628,6 +628,46 @@ and should not be imported as an outreach list. The dashboard's prospect CSV
 download follows the same policy; `?all=true` selects its raw export.
 
 
+## Using LiteLLM AI Gateway
+
+Choose `litellm` in `harvey setup`, or add this to the config Harvey reads
+(`harvey.local.yaml` if trained, otherwise `harvey.yaml`):
+
+```yaml
+brain:
+  provider: litellm
+  model: sales-model  # an alias configured on your gateway
+```
+
+Put the gateway API root and virtual key in the ignored `.env` file:
+
+```dotenv
+LITELLM_BASE_URL=http://localhost:4000
+LITELLM_API_KEY=
+```
+
+Fill in `LITELLM_API_KEY` with your virtual key. Use HTTPS for a remote
+gateway; HTTP is allowed only on loopback. A base URL ending in `/v1` works
+too. Keys belong in `.env` or environment variables, never in YAML or URLs.
+Restrict the virtual key to Harvey's model aliases and set its spend budget
+on the gateway. See the [LiteLLM gateway docs](https://docs.litellm.ai/docs/proxy/quick_start).
+
+Run `harvey status --check` to verify access and model availability without
+sending a prompt. `harvey train https://your-company.example --provider litellm
+--model sales-model` uses the same provider for training. Once configured,
+Harvey's writer, reply handler and analyst all use the gateway through the
+same Brain interface. Requests contain text only, with no model tools or
+local CLI processes. Harvey never falls back to Claude or Codex.
+
+The dashboard and `harvey usage` label these calls **LiteLLM AI Gateway**
+and record their input/output tokens separately from subscription calls.
+Harvey enforces its daily call limit; your gateway enforces API spend and
+virtual-key budgets. API model calls are billed by the upstream provider,
+so a Claude or ChatGPT subscription does not cover them. The gateway is the
+source of truth for API cost; Harvey does not estimate it.
+
+---
+
 ## Using a ChatGPT plan instead (Codex)
 
 Claude is the default and needs no change. If you'd rather spend a ChatGPT plan (Plus, Pro, Business, …), Harvey can think through the [Codex CLI](https://developers.openai.com/codex) instead — still a subscription, never per-token API billing.

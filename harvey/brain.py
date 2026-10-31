@@ -4,7 +4,8 @@ Runs on the operator's Claude subscription (Claude Code headless, the
 default) or, when ``brain.provider: codex`` is configured, their ChatGPT
 subscription through an isolated Codex runtime (see harvey/codex.py). The
 provider is fixed per Brain; a failing provider never falls back to the
-other one.
+other one. LiteLLM AI Gateway is an opt-in API provider whose model
+calls use the same text-only Brain interface.
 """
 
 import asyncio
@@ -12,7 +13,6 @@ import json
 import logging
 import re
 import time
-from pathlib import Path
 
 from harvey.state import StateManager
 
@@ -39,7 +39,7 @@ _NON_RETRYABLE_PATTERNS = (
 )
 
 
-PROVIDER_LABELS = {"claude": "Claude", "codex": "Codex"}
+PROVIDER_LABELS = {"claude": "Claude", "codex": "Codex", "litellm": "LiteLLM AI Gateway"}
 
 # Settings key holding the brain's last health transition, for `harvey
 # status` and the dashboard: {"provider", "status": "ok"|"paused", "reason",
@@ -105,6 +105,10 @@ class Brain:
                 model=self.model, reasoning_effort=self.config.reasoning_effort
             )
             self.quota = CodexQuotaClient(self.codex)
+        elif self.provider == "litellm":
+            from harvey.litellm_gateway import LiteLLMClient
+            self.gateway = LiteLLMClient(self.model)
+            self.quota = None  # API budgets are enforced by the gateway.
         else:
             # Lazy import avoids a cycle (quota -> usage -> state).
             from harvey.integrations.quota import QuotaClient
@@ -137,6 +141,17 @@ class Brain:
         PROVIDER_RECHECK_SECONDS, so a persistent problem doesn't start
         runtimes every heartbeat.
         """
+        if self.provider == "litellm":
+            from harvey.litellm_gateway import LiteLLMError
+            try:
+                await self.gateway.preflight()
+            except LiteLLMError as e:
+                await self._mark_unavailable(e)
+                return self.unavailable
+            if self.unavailable or not self._status_synced:
+                await self._mark_available()
+                self._status_synced = True
+            return ""
         if self.provider != "codex":
             return await self._claude_preflight()
         from harvey.codex import CodexError
@@ -194,6 +209,8 @@ class Brain:
         return ""
 
     def _fingerprint(self):
+        if self.provider == "litellm":
+            return None
         if self.provider == "codex":
             return self.codex.fingerprint()
         from harvey.claude_runtime import fingerprint
@@ -262,6 +279,11 @@ class Brain:
         ``agent``/``task`` label the call in the usage_events ledger so the
         dashboard can attribute tokens and cost to specific work.
         """
+        if self.provider == "litellm":
+            return await self._think_litellm(
+                prompt, timeout=timeout, max_retries=max_retries,
+                agent=agent, task=task, label=session_id or "",
+            )
         if self.provider == "codex":
             return await self._think_codex(
                 prompt, session_id=session_id, timeout=timeout,
@@ -408,6 +430,42 @@ class Brain:
             f"Brain call failed after {max_retries + 1} attempts. "
             f"Last error: {str(last_error)[:200]}"
         )
+        return ""
+
+    async def _think_litellm(
+        self, prompt: str, timeout: float, max_retries: int,
+        agent: str, task: str, label: str,
+    ) -> str:
+        from harvey.litellm_gateway import LiteLLMError
+
+        for attempt in range(max_retries + 1):
+            if attempt:
+                await asyncio.sleep(RETRY_BASE_DELAY * (2 ** (attempt - 1)))
+            started = time.monotonic()
+            try:
+                result = await self.gateway.run(prompt, timeout=timeout)
+            except LiteLLMError as e:
+                logger.warning("LiteLLM AI Gateway call failed: %s", e)
+                if e.retryable:
+                    continue
+                await self._mark_unavailable(e)
+                return ""
+            if self.unavailable:
+                await self._mark_available()
+            try:
+                await self.state.increment_usage(provider="litellm")
+                if not agent and label.startswith("harvey-"):
+                    agent = label[len("harvey-"):].split("-")[0]
+                await self.state.record_usage_event(
+                    provider="litellm", source="litellm_chat_completions",
+                    agent=agent, task=task or label, session_id=result.id,
+                    model=result.model, input_tokens=result.usage.prompt_tokens,
+                    output_tokens=result.usage.completion_tokens,
+                    duration_ms=int((time.monotonic() - started) * 1000), num_turns=1,
+                )
+            except Exception as e:
+                logger.warning("Failed to record LiteLLM usage (%s).", type(e).__name__)
+            return result.choices[0].message.content
         return ""
 
     async def _think_codex(
@@ -646,7 +704,7 @@ class Brain:
             # not be mistaken for room to spend.
             logger.info(f"{self.paused_reason}; waiting for it to reset.")
             return False
-        if max_percent is not None:
+        if max_percent is not None and self.quota is not None:
             try:
                 windows = await self.quota.get_utilization()
             except Exception as e:
