@@ -9,6 +9,12 @@ minor versions can still change behaviour.
 
 ### Added
 
+- **The dashboard behind a reverse proxy.** `HARVEY_DASHBOARD_ORIGINS` lists
+  the addresses a proxy on the same machine serves the dashboard under, such
+  as `https://harvey.example` for Caddy with TLS on a private name. The
+  dashboard answers to exactly those names, and only to requests from exactly
+  that origin. The bind stays on loopback, the token is still required, and a
+  malformed entry stops the dashboard from starting. Unset, nothing changes.
 - **Scavio discovery providers** (`scavio_maps`, `scavio_search`). Google Maps
   listings around each city, with phone, website, category, rating and review
   count, and Google organic results with rank, both from one
