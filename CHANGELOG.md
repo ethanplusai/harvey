@@ -9,6 +9,19 @@ minor versions can still change behaviour.
 
 ### Added
 
+- **Your own email shape** (`writer.email_rules`). Point it at a markdown file
+  (`skills/email_rules.md` is gitignored) and its rules replace the Writer's
+  built-in shape, which ends every prompt and so beat anything in the skills:
+  email 1 under 75 words, an observation and a question, no pitch, no link.
+  It covers the per-person first email and the 3-email sequence. It never
+  lifts the FACTS rule, and the send gate (220 words, one link,
+  do-not-contact) still applies. The prompt now says what Harvey really adds
+  when it sends: with `compliance.opt_out_line` set, the draft gets no second
+  opt-out sentence; with it empty, an opt-out sentence the rules ask for is
+  written into the body. A file that's set but missing, empty or too long
+  stops the Writer, so it never drafts in the shape you replaced. Unset,
+  nothing changes.
+
 - **Scavio discovery providers** (`scavio_maps`, `scavio_search`). Google Maps
   listings around each city, with phone, website, category, rating and review
   count, and Google organic results with rank, both from one
@@ -278,6 +291,11 @@ minor versions can still change behaviour.
 - **Hebrew legal threats and complaints go to you without the model** (from
   #135), and an opt-out that also threatens, in any language, is honored and
   shows on **Needs you** instead of being closed unseen.
+- **OpenStreetMap discovery survives a bad afternoon** (from #125). A 500, 502 or
+  503 from one Overpass mirror now moves on to the next instead of ending the
+  search, Overpass gets enough time to get through its queue, and the mirror
+  list drops one that was the same machine as another. `scripts/diagnose_overpass.py`
+  re-checks the mirrors.
 - **Hebrew opt-outs are honored without the model** (from #134). A reply like
   "הסר", "תורידו אותי מהרשימה" or "לא תודה" now opts out as its English
   equivalent does, and `compliance.opt_out_line` can ask for a Hebrew reply.

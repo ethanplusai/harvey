@@ -359,6 +359,15 @@ Harvey's sales knowledge lives in `skills/` as **plain Markdown you can edit**. 
 
 This is the main way you shape Harvey. If its emails are too pushy, edit `email_frameworks.md`. If it mishandles a specific objection, edit `objection_handling.md` and add the response you'd actually give.
 
+**Your own email shape.** Whatever the skills say, the Writer ends every prompt with a built-in shape: email 1 under 75 words, one observation and one question, no pitch, no link. If your first email has to do more (say who you are, what it costs, link to a sign-up page), write your rules in a markdown file and point `writer.email_rules` at it:
+
+```yaml
+writer:
+  email_rules: "skills/email_rules.md"   # gitignored
+```
+
+The file replaces the built-in shape for the per-person first email and the 3-email sequence, and wins over `email_frameworks.md` and the prompt's style rules where they disagree. It can't lift the FACTS rule (nothing about a prospect is invented), and the send gate still applies: at most 220 words and one link per email, and the do-not-contact list. If `compliance.opt_out_line` is set, Harvey adds it under each cold email and tells the Writer not to write a second one; leave it empty and your rules can put an opt-out sentence in the body instead (Harvey still warns, since it can't check your sentence). Harvey's own opt-out phrase checks are in English; the model still reads every reply for a request to stop. A file that's set but missing, empty or over 20,000 characters stops the Writer until it's fixed, rather than drafting in the shape you replaced.
+
 ### What ships
 
 **`email_frameworks.md`** — 301 lines, the most important file in the repo. Opens with the only rule that matters: *write like a real person sending a real email.* Contains a hard ban list on AI tells (no "I hope this finds you well", no "I wanted to reach out", no "circling back"), compliance rules that override every style rule beneath them, 2026 reply-rate data on length and cadence and why link tracking hurts you, and five frameworks — **AIDA, PAS, BAB, QVC, 3Ps** — with selection rules for when each one fits.
@@ -593,6 +602,7 @@ channels:
 usage:        { max_daily_claude_percent, heartbeat_interval_minutes, quiet_hours }
 brain:        { provider: claude | codex, model, reasoning_effort }   # optional; claude by default
 writer:       { humanizer }   # optional; true adds one editing pass per batch using ~/.claude/skills/humanizer/SKILL.md
+              # email_rules: your own markdown rules for the emails' shape (see The skills library)
 ```
 
 `max_daily_claude_percent` caps whichever subscription `brain.provider` uses (the name predates Codex support).

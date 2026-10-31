@@ -2114,6 +2114,17 @@ async def get_today():
                 "action": "Open the log", "tab": "controls",
             })
 
+        from harvey.agents.writer import EMAIL_RULES_PROBLEM_KEY
+        rules_problem = await state.get_setting(EMAIL_RULES_PROBLEM_KEY)
+        if rules_problem:
+            items.append({
+                "key": "email-rules", "tone": "bad",
+                "title": "Harvey isn't writing emails: your email rules can't be used",
+                "detail": (f"{rules_problem}. Fix the file, or clear writer.email_rules "
+                           "to use Harvey's built-in rules."),
+                "action": "Open the log", "tab": "controls",
+            })
+
         hold = await state.current_sends_held()
         if hold:
             from harvey.sending_mode import held_message

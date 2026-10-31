@@ -235,6 +235,10 @@ def cmd_status(args):
             print("  Sending:              HELD")
             print(textwrap.fill(notice, width=72, initial_indent="                        ",
                                 subsequent_indent="                        "))
+        from harvey.agents.writer import EMAIL_RULES_PROBLEM_KEY
+        rules_problem = await state.get_setting(EMAIL_RULES_PROBLEM_KEY)
+        if rules_problem:
+            print(f"  Writing:              STOPPED (writer.email_rules: {rules_problem})")
         hold = await state.current_sends_held()
         if hold:
             from harvey.sending_mode import held_message
