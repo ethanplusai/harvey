@@ -15,6 +15,12 @@ Torre (API en beta privada) y Wellfound (sin API; su robots.txt cierra las
 vacantes) no se consultan: úsalos en su web, o con sus alertas por correo.
 
 Tu país y tus regiones salen de `job_search` en el config (country, regions).
+Qué se busca sale de `job_search.vacancy_search` (search_terms, title_terms,
+exclude_title_terms, remotive_categories, jobicy_industries). Lo que no pongas ahí
+lo deduce el cerebro de tu perfil (job_search y product del config) y lo guarda
+en data/vacancy_terms.json; si cambias el perfil, lo vuelve a deducir.
+    --terminos    muestra los términos que usaría y termina
+    --refrescar   vuelve a deducirlos aunque el perfil no haya cambiado
 Salida en job_search.vacancies_dir (por defecto data/vacantes/):
     vacantes_remotas.md   la lista de hoy, las nuevas primero
     vacantes.csv          histórico de todo lo encontrado
@@ -35,6 +41,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 from harvey.job_search import tool_settings  # noqa: E402
+from harvey.vacancy_terms import FIELDS, title_regex, vacancy_terms  # noqa: E402
 
 _AJUSTES = tool_settings()
 PAIS = _AJUSTES["country"]
@@ -43,11 +50,7 @@ SEEN_FILE = ROOT / "data" / "vacantes_vistas.json"
 # Tu país y tus regiones, como alternativas de una regex.
 _ZONAS = "|".join(re.escape(z) for z in ([PAIS.lower()] if PAIS else []) + _AJUSTES["regions"])
 UA = {"User-Agent": "Mozilla/5.0 (personal job search script)"}
-HIMALAYAS_TERMS = ("developer", "engineer", "python", "data", "automation")
 HIMALAYAS_PAGES = 8    # por término; 20 ofertas por página
-WWR_CATEGORIAS = ("remote-programming-jobs", "remote-back-end-programming-jobs",
-                  "remote-full-stack-programming-jobs", "remote-devops-sysadmin-jobs")
-GETONBRD_TERMS =("junior", "python", "desarrollador", "developer", "datos", "automatización")
 GETONBRD_PAGES = 4     # por término; 100 ofertas por página
 # Ids de https://www.getonbrd.com/api/v0/seniorities: su búsqueda no filtra por nivel.
 GETONBRD_NIVELES = {1: "Entry-level (sin experiencia)", 2: "Junior"}
@@ -56,13 +59,11 @@ JUNIOR_RE = re.compile(
     r"\b(junior|jr\.?|entry[- ]level|intern(ship)?|trainee|graduate|apprentice(ship)?|"
     r"becari[oa]|pasant[ei]a?|practicante|early[- ]career|new grad)\b", re.I)
 SENIOR_RE = re.compile(
-    r"\b(senior|sr\.?|lead|staff|principal|head|director|manager|architect|vp|"
-    r"annotators?|annotation)\b", re.I)   # el etiquetado de datos no es desarrollo
-TECH_RE = re.compile(
-    r"\b(developer|engineer|engineering|software|backend|back-end|frontend|front-end|"
-    r"full[- ]?stack|python|fastapi|django|react|javascript|typescript|node|web|"
-    r"data|analytics?|automation|ai|ml|machine learning|qa|devops|cloud|programador|"
-    r"desarrollador(a)?|ingenier[oa]|datos|integrations?)\b", re.I)
+    r"\b(senior|sr\.?|lead|staff|principal|head|director|manager|architect|vp)\b", re.I)
+# Qué buscar y qué títulos te sirven: del config, o deducido de tu perfil (cargar_terminos).
+TERMINOS: dict = {}
+TITULO_RE = None     # algún término de title_terms
+EXCLUIR_RE = None    # algún término de exclude_title_terms
 # Abierto desde tu país: sin restricción, mundial, o tu país/región.
 OPEN_RE = re.compile(r"\b(worldwide|anywhere|global|remote" + (f"|{_ZONAS}" if _ZONAS else "") + r")\b", re.I)
 # "Remote (US only)", "Remote - EU": remoto, pero cerrado a ti si no nombra también tu región.
@@ -89,10 +90,28 @@ def job(source, id_, title, company, location, url, date, level=""):
             "url": url, "fecha": (date or "")[:10], "nivel": level or ""}
 
 
+def categorias_portales():
+    """Las categorías que cada portal acepta hoy, para que el cerebro elija entre ellas."""
+    out = {}
+    try:
+        out["remotive_categories"] = [c["slug"] for c in
+                                      get_json("https://remotive.com/api/remote-jobs/categories")["jobs"]]
+    except Exception:
+        pass
+    try:
+        out["jobicy_industries"] = [i["industrySlug"] for i in
+                                    get_json("https://jobicy.com/api/v2/remote-jobs?get=industries")["industries"]]
+    except Exception:
+        pass
+    return out
+
+
 def remotive():
-    for j in get_json("https://remotive.com/api/remote-jobs?category=software-dev")["jobs"]:
-        yield job("Remotive", j["id"], j["title"], j["company_name"],
-                  j.get("candidate_required_location"), j["url"], j.get("publication_date"))
+    # Remotive pide no consultar más de 4 veces al día: una ejecución diaria, pocas categorías.
+    for cat in TERMINOS["remotive_categories"]:
+        for j in get_json("https://remotive.com/api/remote-jobs?category=" + urllib.parse.quote(cat))["jobs"]:
+            yield job("Remotive", j["id"], j["title"], j["company_name"],
+                      j.get("candidate_required_location"), j["url"], j.get("publication_date"))
 
 
 def remoteok():
@@ -103,10 +122,10 @@ def remoteok():
 
 def himalayas():
     # Su búsqueda filtra por nivel de entrada; la lista general solo trae lo más reciente de todo.
-    for term in HIMALAYAS_TERMS:
+    for term in TERMINOS["search_terms"]:
         for page in range(1, HIMALAYAS_PAGES + 1):
             data = get_json("https://himalayas.app/jobs/api/search?seniority=Entry-level"
-                            f"&q={term}&page={page}")
+                            f"&q={urllib.parse.quote(term)}&page={page}")
             jobs = data.get("jobs") or []
             for j in jobs:
                 where = ", ".join(j.get("locationRestrictions") or []) or "Worldwide"
@@ -120,9 +139,11 @@ def himalayas():
 
 
 def jobicy():
-    for j in get_json("https://jobicy.com/api/v2/remote-jobs?count=50&industry=dev")["jobs"]:
-        yield job("Jobicy", j["id"], j["jobTitle"], j["companyName"], j.get("jobGeo"),
-                  j["url"], j.get("pubDate"), j.get("jobLevel"))
+    for ind in TERMINOS["jobicy_industries"]:
+        for j in get_json("https://jobicy.com/api/v2/remote-jobs?count=50&industry="
+                          + urllib.parse.quote(ind)).get("jobs") or []:
+            yield job("Jobicy", j["id"], j["jobTitle"], j["companyName"], j.get("jobGeo"),
+                      j["url"], j.get("pubDate"), j.get("jobLevel"))
 
 
 def arbeitnow():
@@ -134,7 +155,7 @@ def arbeitnow():
 
 def getonbrd():
     # API pública sin cuenta: https://www.getonbrd.com/api-doc.html
-    for term in GETONBRD_TERMS:
+    for term in TERMINOS["search_terms"]:
         for page in range(1, GETONBRD_PAGES + 1):
             data = get_json("https://www.getonbrd.com/api/v0/search/jobs?per_page=100&lang=en"
                             f"&expand[]=company&query={urllib.parse.quote(term)}&page={page}")
@@ -161,21 +182,21 @@ def getonbrd():
 
 
 def weworkremotely():
-    # RSS públicos por categoría; el título viene como "Empresa: Puesto".
-    for cat in WWR_CATEGORIAS:
-        req = urllib.request.Request(f"https://weworkremotely.com/categories/{cat}.rss", headers=UA)
-        with urllib.request.urlopen(req, timeout=40) as r:
-            root = ET.fromstring(r.read())
-        for item in root.iter("item"):
-            empresa, _, puesto = (item.findtext("title") or "").partition(": ")
-            fecha = item.findtext("pubDate") or ""
-            try:
-                fecha = datetime.strptime(fecha, "%a, %d %b %Y %H:%M:%S %z").isoformat()
-            except ValueError:
-                pass
-            yield job("We Work Remotely", item.findtext("guid") or item.findtext("link"),
-                      puesto or empresa, empresa if puesto else "", item.findtext("region") or "",
-                      item.findtext("link"), fecha)
+    # El RSS general trae lo más reciente de todas las categorías; el filtro de
+    # títulos decide cuáles te sirven. El título viene como "Empresa: Puesto".
+    req = urllib.request.Request("https://weworkremotely.com/remote-jobs.rss", headers=UA)
+    with urllib.request.urlopen(req, timeout=40) as r:
+        root = ET.fromstring(r.read())
+    for item in root.iter("item"):
+        empresa, _, puesto = (item.findtext("title") or "").partition(": ")
+        fecha = item.findtext("pubDate") or ""
+        try:
+            fecha = datetime.strptime(fecha, "%a, %d %b %Y %H:%M:%S %z").isoformat()
+        except ValueError:
+            pass
+        yield job("We Work Remotely", item.findtext("guid") or item.findtext("link"),
+                  puesto or empresa, empresa if puesto else "", item.findtext("region") or "",
+                  item.findtext("link"), fecha)
 
 
 def hackernews():
@@ -206,7 +227,9 @@ def is_junior(j):
 
 def grupo(j):
     """'junior', 'estirarte' (no dice nivel ni es senior) o None si no es para ti."""
-    if not TECH_RE.search(j["titulo"]) or not is_open_to_you(j):
+    if not TITULO_RE or not TITULO_RE.search(j["titulo"]) or not is_open_to_you(j):
+        return None
+    if EXCLUIR_RE and EXCLUIR_RE.search(j["titulo"]):
         return None
     if is_junior(j):
         return "junior"
@@ -241,7 +264,26 @@ def anexar_csv(path, fields, filas):
         csv.DictWriter(f, fieldnames=fields, extrasaction="ignore").writerows(filas)
 
 
+def cargar_terminos(refrescar=False):
+    global TERMINOS, TITULO_RE, EXCLUIR_RE
+    TERMINOS = vacancy_terms(categorias_portales, refresh=refrescar)
+    TITULO_RE = title_regex(TERMINOS["title_terms"])
+    EXCLUIR_RE = title_regex(TERMINOS["exclude_title_terms"])
+    origen = {"config": "de tu config", "brain": "deducido de tu perfil ahora",
+              "cache": "deducido de tu perfil", "default": "por defecto, de desarrollo"}
+    print("Buscando con:")
+    for campo in FIELDS:
+        print(f"  {campo} ({origen[TERMINOS['sources'][campo]]}): "
+              + (", ".join(TERMINOS[campo]) or "(ninguno)"))
+    if TERMINOS["warning"]:
+        print(f"Aviso: {TERMINOS['warning']}; donde falta, uso los términos por defecto.",
+              file=sys.stderr)
+
+
 def main():
+    cargar_terminos(refrescar="--refrescar" in sys.argv)
+    if "--terminos" in sys.argv:
+        return
     found, errors = [], []
     for fetch in (remotive, remoteok, himalayas, jobicy, arbeitnow, getonbrd,
                   weworkremotely, hackernews):

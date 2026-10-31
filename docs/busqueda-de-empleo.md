@@ -128,6 +128,18 @@ Deja la lista en `data/vacantes/vacantes_remotas.md`, separada en dos grupos:
 **para tu nivel** (junior, intern, entry-level) y **para estirarte** (no dicen
 nivel: las que te parecen "puedo aprender" o "interesante").
 
+**Qué busca** sale de tu perfil, no de una lista fija: la primera vez, el
+cerebro lee tu `product` y tu `job_search` (con cualquier campo que les
+agregues) y elige los términos de búsqueda, las palabras que debe tener el
+título, las que lo descartan y las categorías de cada portal. Los guarda en
+`data/vacancy_terms.json` y los vuelve a elegir solo cuando cambias tu perfil.
+Para fijar alguno a mano, escríbelo en `job_search.vacancy_search` (ver
+`harvey.job.example.yaml`): lo que pongas ahí manda.
+```bash
+python tools/vacantes_remotas.py --terminos     # muestra qué usaría, sin buscar
+python tools/vacantes_remotas.py --refrescar    # los vuelve a elegir
+```
+
 **Postular:**
 ```bash
 python tools/aplicar.py --csv          # las vacantes del buscador

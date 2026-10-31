@@ -92,6 +92,16 @@ job_search:
   country: "Ecuador"                          # el buscador también acepta vacantes para tu país
   profile_path: "perfil_aplicacion.yaml"      # respuestas de formularios (aplicar.py)
   vacancies_dir: "data/vacantes"
+  # Qué busca tools/vacantes_remotas.py. Todo es opcional: lo que no pongas lo
+  # deduce el cerebro de este archivo (tu product y tu job_search, con cualquier
+  # campo que agregues) y lo vuelve a deducir cuando cambias tu perfil.
+  # Escríbelo solo para fijar algo a mano. Ver qué usa: vacantes_remotas.py --terminos
+  # vacancy_search:
+  #   search_terms: ["video editor", "motion graphics", "unreal"]   # lo que escribe en los buscadores
+  #   title_terms: ["video", "motion", "animator", "editor de video"]  # el título debe tener alguno
+  #   exclude_title_terms: ["wordpress"]                              # y ninguno de estos
+  #   remotive_categories: ["design"]          # remotive.com/api/remote-jobs/categories
+  #   jobicy_industries: ["design-multimedia"] # jobicy.com/api/v2/remote-jobs?get=industries
   # Tus proyectos. Harvey elige UNO según el sector de la empresa y lo cuenta
   # con estos datos, sin inventar nada. sectors vacío = el de cualquier otro sector.
   projects:
