@@ -114,14 +114,14 @@ PAGES = {
 }
 
 
-def make_scout(pages, verdict="verified"):
+def make_scout(pages, verdict="verified", site="acme.com"):
     scout = Scout.__new__(Scout)
     scout.env = None
     scout._seen_prospect_keys = set()
 
     async def resolve(domain, retries=1):
-        home = pages.get("https://acme.com")
-        return ("https://acme.com", SimpleNamespace(text=home)) if home is not None else ("", None)
+        home = pages.get(f"https://{site}")
+        return (f"https://{site}", SimpleNamespace(text=home)) if home is not None else ("", None)
 
     async def fetch(url, **kw):
         text = pages.get(url)
@@ -174,6 +174,98 @@ async def test_a_personal_address_is_not_a_company_inbox():
 @pytest.mark.asyncio
 async def test_published_address_is_cleaned(html):
     assert await make_scout({"https://acme.com": html})._find_inbox_address("acme.com") == "info@acme.com"
+
+
+# ── free-mail inbox under the brand's own name ──
+
+LOAF = "cornerloafbakery.example"
+
+
+def loaf_scout(html):
+    return make_scout({f"https://{LOAF}": html}, site=LOAF)
+
+
+@pytest.mark.asyncio
+async def test_brand_gmail_on_the_official_site_is_the_inbox():
+    # The shop has no mailbox on its own domain and prints its Gmail instead.
+    html = '<a href="mailto:cornerloaf@gmail.com">Email us</a>'
+    assert await loaf_scout(html)._find_inbox_address(LOAF) == "cornerloaf@gmail.com"
+
+
+@pytest.mark.asyncio
+async def test_a_personal_gmail_is_not_a_company_inbox():
+    html = "Jane Doe, manager: jane.doe@gmail.com"
+    assert await loaf_scout(html)._find_inbox_address(LOAF) == ""
+
+
+@pytest.mark.asyncio
+async def test_a_role_name_at_a_public_provider_is_nobodys_brand():
+    # info@gmail.com says nothing about who owns the mailbox.
+    html = '<a href="mailto:info@gmail.com">Email</a> hello@outlook.com'
+    assert await loaf_scout(html)._find_inbox_address(LOAF) == ""
+
+
+@pytest.mark.asyncio
+async def test_an_unrelated_brand_at_a_public_provider_is_rejected():
+    html = '<a href="mailto:cornerflorist@gmail.com">Our florist</a>'
+    assert await loaf_scout(html)._find_inbox_address(LOAF) == ""
+
+
+@pytest.mark.asyncio
+async def test_an_unrelated_domain_stays_rejected():
+    # contact@ is a preferred role name, but other.com isn't theirs: the
+    # own-domain check (one request, which lands nowhere) still decides.
+    html = '<a href="mailto:contact@other.com">Contact our agency</a>'
+    assert await loaf_scout(html)._find_inbox_address(LOAF) == ""
+
+
+@pytest.mark.asyncio
+async def test_an_on_domain_role_address_beats_the_brands_gmail():
+    html = ('<a href="mailto:cornerloaf@gmail.com">Gmail</a>'
+            f'<a href="mailto:info@{LOAF}">Email us</a>')
+    assert await loaf_scout(html)._find_inbox_address(LOAF) == f"info@{LOAF}"
+
+
+@pytest.mark.asyncio
+async def test_brand_gmail_is_never_verified_by_being_published(monkeypatch):
+    async def inconclusive(email, env=None):
+        return "guess"
+
+    monkeypatch.setattr(scout_mod, "verify_published_address", inconclusive)
+    scout = loaf_scout('<a href="mailto:cornerloaf@gmail.com">Email us</a>')
+    p = await scout._company_inbox_prospect("c1", LOAF, "Corner Loaf Bakery", "Food")
+    assert p.email == "cornerloaf@gmail.com"
+    assert p.email_status == "guess" and p.email_verified is False
+
+
+@pytest.mark.asyncio
+async def test_brand_gmail_respects_duplicate_protection(monkeypatch):
+    async def graded(email, env=None):
+        return "verified"
+
+    async def is_dup(prospect):
+        return True
+
+    monkeypatch.setattr(scout_mod, "verify_published_address", graded)
+    scout = loaf_scout('<a href="mailto:cornerloaf@gmail.com">Email us</a>')
+    scout._is_duplicate_prospect = is_dup
+    assert await scout._company_inbox_prospect("c1", LOAF, "Corner Loaf", "Food") is None
+
+
+@pytest.mark.parametrize("address, domain, allowed", [
+    ("cornerloaf@gmail.com", "cornerloafbakery.example", True),
+    ("cornerloafbakery@outlook.com", "cornerloafbakery.example", True),
+    ("cornerloaf2@yahoo.com", "cornerloafbakery.example", True),
+    ("thecornerloaf@hotmail.com", "cornerloaf.example", True),
+    ("bb@gmail.com", "cornerloafbakery.example", False),          # too short to mean anything
+    ("info@gmail.com", "infoworks.com", False),                 # role name first
+    ("jane.doe@gmail.com", "janedoe.com", False),               # a person, even as the brand
+    ("roofing@gmail.com", "acmeroofing.com", False),            # a trade, not a brand
+    ("cornerloaf@acmesupplies.com", "cornerloafbakery.example", False),   # not a public provider
+    ("cornerloaf@cornerloafbakery.example", "cornerloafbakery.example", False),  # own domain's own path
+])
+def test_free_mail_brand_alias_shape(address, domain, allowed):
+    assert scout_mod._is_free_mail_brand_alias(address, domain) is allowed
 
 
 # ── fallback only when the company has nobody ──

@@ -9,6 +9,7 @@ import yaml
 
 from harvey.config import HarveyConfig
 from harvey.paths import PROJECT_ROOT
+from harvey.textio import read_user_text
 from harvey.trainer import write_trained_config
 
 LEARNED = {
@@ -120,8 +121,11 @@ def test_first_training_keeps_the_template_settings(tmp_path):
     # Precleared block) carry over, and the untrained placeholder persona
     # is replaced with what training learned.
     template = tmp_path / "harvey.yaml"
-    shipped = (PROJECT_ROOT / "harvey.yaml").read_text()
-    template.write_text(shipped)
+    # Read and written the way Harvey itself does it: the shipped template
+    # may carry a BOM, which a default-encoding write on Windows cannot
+    # encode (cp1252).
+    shipped = read_user_text(PROJECT_ROOT / "harvey.yaml")
+    template.write_text(shipped, encoding="utf-8")
     path = tmp_path / "harvey.local.yaml"
     out = write_trained_config(LEARNED, path)
 
@@ -129,7 +133,7 @@ def test_first_training_keeps_the_template_settings(tmp_path):
     assert out["compliance"]["precleared"]["enabled"] is False
     assert out["persona"] == LEARNED["persona"]
     assert out["product"]["offer"]["goal"] == "book_call"
-    assert template.read_text() == shipped  # the template itself is untouched
+    assert read_user_text(template) == shipped  # the template itself is untouched
     HarveyConfig(**out)
 
 
