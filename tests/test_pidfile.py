@@ -273,7 +273,7 @@ def test_start_refuses_before_setup_is_done(status_client, monkeypatch, tmp_path
     monkeypatch.setattr(dash.subprocess, "Popen", _never)
     data = status_client.post("/api/harvey/start").json()
     assert data["success"] is False
-    assert "harvey setup" in data["message"]
+    assert "morthy setup" in data["message"]
 
 
 def test_harvey_run_without_a_terminal_does_not_start_the_wizard(monkeypatch, capsys):

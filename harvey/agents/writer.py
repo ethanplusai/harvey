@@ -17,6 +17,7 @@ from datetime import datetime, timezone
 from harvey.brain import Brain
 from harvey.config import EmailRulesError, HarveyConfig, compliance_of, load_email_rules
 from harvey.humanize import humanize, humanizer_enabled
+from harvey.job_search import prompt_block as job_search_block
 from harvey.integrations.mail_provider import NATIVE_PROVIDERS
 from harvey.models.campaign import Campaign, EmailStep
 from harvey.state import WRITABLE_EMAIL_STATUSES, StateManager
@@ -393,6 +394,7 @@ class Writer:
             persona_role=self.config.persona.role,
             persona_tone=self.config.persona.tone,
         ) or ""
+        prompt = job_search_block(self.config, "writer") + prompt
         if self.skills:
             prompt += "\n\n" + self.skills
         if startup is not None:
@@ -474,6 +476,8 @@ Return ONLY JSON: {{"subject": "...", "body": "..."}}"""
             persona_role=self.config.persona.role,
             persona_tone=self.config.persona.tone,
         )
+        if prompt:
+            prompt = job_search_block(self.config, "writer") + prompt
 
         if not prompt:
             prompt = f"""You are {self.config.persona.name}, {self.config.persona.role} at {self.config.persona.company}.

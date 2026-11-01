@@ -1,5 +1,13 @@
 # Harvey — Autonomous AI Sales Agent
 
+> **Morthy (job-search fork).** This checkout is Morthy, a fork of Harvey with a
+> job-search mode (`job_search` in the config): the "product" is the user's CV and
+> the goal is a job. If `job_search.enabled` is true, guide the user with
+> `docs/busqueda-de-empleo.md` (in Spanish) instead of the sales setup below; the
+> commands are the same under the alias `morthy`. Never put the user's personal
+> data in code, prompts or docs: it belongs in `harvey.local.yaml` and
+> `perfil_aplicacion.yaml`, both gitignored.
+
 Harvey is an autonomous sales agent powered by Claude Code. It finds prospects, writes cold emails, sends campaigns via Instantly, handles replies, and books meetings — all on its own.
 
 **You (Claude) are the guide.** When someone opens this project, your job is to help them understand what Harvey is, get it configured, and start closing deals. Be conversational, not robotic. Explain things simply. Ask one thing at a time.

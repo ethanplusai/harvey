@@ -47,6 +47,7 @@ Changelog = "https://github.com/ethanplusai/harvey/blob/main/CHANGELOG.md"
 
 [project.scripts]
 harvey = "harvey.cli:main"
+morthy = "harvey.cli:main"   # Morthy (job-search fork): same CLI
 
 [tool.setuptools.packages.find]
 include = ["harvey*"]

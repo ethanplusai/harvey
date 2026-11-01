@@ -1,0 +1,104 @@
+# Perfil de aplicación de EJEMPLO para tools/aplicar.py (datos ficticios).
+#
+# Cópialo y edítalo:   cp perfil_aplicacion.example.yaml perfil_aplicacion.yaml
+# perfil_aplicacion.yaml está en .gitignore: tus datos nunca se suben al repo.
+#
+# Todo lo que aplicar.py escribe en un formulario sale de AQUÍ. Lo que no está
+# aquí no se inventa: el campo queda vacío y resaltado para que lo llenes tú.
+#   1. Cambia cada "REVISAR" por tu respuesta real (o déjalo vacío: "").
+#   2. Al final pon  revisado: true
+# Mientras quede un "REVISAR" o revisado sea false, aplicar.py no abre nada.
+
+revisado: false
+
+datos:
+  nombre: "Ana"
+  apellido: "Ejemplo"
+  email: "ana.ejemplo@example.com"
+  telefono: "REVISAR"
+  direccion_1: ""
+  direccion_2: ""
+  ciudad: "Quito"
+  codigo_postal: ""
+  pais: "Ecuador"
+  preferencia_ubicacion: "Open location"
+  zona_horaria: "America/Guayaquil (UTC-5)"
+  linkedin: "https://www.linkedin.com/in/ana-ejemplo"
+  github: "https://github.com/ana-ejemplo"
+  portafolio: ""
+  cv_pdf_en: "~/Documentos/Ana_Ejemplo_CV_EN.pdf"     # tienen que existir
+  cv_pdf_es: "~/Documentos/Ana_Ejemplo_CV_ES.pdf"
+
+educacion:
+  institucion: "REVISAR"
+  titulo: "REVISAR"
+  graduacion: "REVISAR"
+  en_curso: false
+
+certificaciones: []
+
+# Preguntas legales y de elegibilidad: una respuesta falsa aquí puede
+# descalificarte. Las claves de autorizado_trabajar son países; la de tu país
+# es job_search.country del config, con "_" en lugar de espacios.
+elegibilidad:
+  mayor_de_18: "yes"
+  autorizado_trabajar:
+    Ecuador: "yes"
+    Estados_Unidos: "no"
+    Union_Europea: "no"
+    Reino_Unido: "no"
+    Canada: "no"
+  necesita_patrocinio_visa: "REVISAR"
+  dispuesto_a_mudarse: "no"
+  acepta_contrato_independiente: "yes"
+
+trabajo:
+  modalidad: "remote"
+  inicio: "Immediately"
+  disponibilidad_horas_semana: "40"
+  jornada: "full-time"
+  expectativa_salarial: "REVISAR"
+  anos_experiencia: "REVISAR"
+  aviso_previo: "None"
+
+idiomas:
+  Spanish: "Native"
+  English: "Intermediate"
+
+# Opcionales: para no responder una, pon "Prefer not to say".
+encuestas_voluntarias:
+  genero: "Prefer not to say"
+  identidad_genero: "Prefer not to say"
+  raza_etnia: "Prefer not to say"
+  orientacion_sexual: "Prefer not to say"
+  religion: "Prefer not to say"
+  estado_civil: "Prefer not to say"
+  rango_edad: "Prefer not to say"
+  veterano: "Prefer not to say"
+  discapacidad: "Prefer not to say"
+  pronombres: "Prefer not to say"
+
+# Respuestas a preguntas abiertas que se repiten entre empresas, en tus palabras.
+respuestas_abiertas:
+  remoto_async: |-
+    REVISAR: cómo has trabajado o estudiado a distancia, en 3-5 frases.
+  open_source: |-
+    REVISAR: tus contribuciones o proyectos públicos, o que aún no tienes.
+
+otros:
+  como_se_entero: "Job board"
+  referido_por: ""
+  contacto_previo_con_la_empresa: "no"
+
+# La carta se redacta para cada vacante SOLO con estos hechos y la descripción del puesto.
+carta:
+  idioma: "en"                 # "es" para empresas de Latinoamérica o España
+  maximo_palabras: 200
+  hechos_permitidos: >-
+    REVISAR: tus proyectos y logros con sus datos reales, en un párrafo.
+
+# Qué vacantes salta aplicar.py sin abrirlas.
+filtros:
+  saltar_si_titulo: ["senior", "sr.", "staff", "lead", "principal", "head", "director", "manager", "architect"]
+  saltar_si_ubicacion_exige: ["office", "on-site", "onsite", "hybrid", "in-person"]
+  maximo_por_sesion: 10

@@ -62,3 +62,5 @@ harvey.local.yaml
 # Backups and in-progress writes from `harvey train` hold the same config.
 harvey.local.yaml.*
 harvey.yaml.*
+# Job-search mode: the candidate's answers for application forms.
+perfil_aplicacion.yaml

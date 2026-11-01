@@ -521,7 +521,7 @@ MIGRATIONS: list[str] = [
     """,
 ]
 
-BRAIN_PROVIDERS = ("claude", "codex")
+BRAIN_PROVIDERS = ("claude", "codex", "deepseek")
 _USAGE_LOG_COLUMN = {"claude": "claude_calls", "codex": "codex_calls"}
 
 # When a company was last profiled: the newer of the explicit check stamp
@@ -2446,6 +2446,16 @@ class StateManager:
 
     async def get_usage_today(self, provider: str = "claude") -> int:
         """Brain calls made today on one provider's subscription."""
+        if provider not in _USAGE_LOG_COLUMN:
+            # Local fork (DeepSeek): no usage_log column, so a new migration
+            # can't collide with upstream's; count its usage_events instead.
+            async with self._connect() as db:
+                async with db.execute(
+                    "SELECT COUNT(DISTINCT session_id) FROM usage_events WHERE provider = ? "
+                    "AND date(created_at, 'localtime') = date('now', 'localtime')", (provider,),
+                ) as cursor:
+                    row = await cursor.fetchone()
+                    return (row[0] or 0) if row else 0
         column = _USAGE_LOG_COLUMN[provider]
         today = date.today().isoformat()
         async with self._connect() as db:
@@ -2455,7 +2465,19 @@ class StateManager:
                 row = await cursor.fetchone()
                 return (row[0] or 0) if row else 0
 
+    async def get_cost_today(self, provider: str) -> float:
+        """Estimated dollars spent today (local date) on a per-token provider."""
+        async with self._connect() as db:
+            async with db.execute(
+                "SELECT COALESCE(SUM(cost_usd), 0) FROM usage_events WHERE provider = ? "
+                "AND date(created_at, 'localtime') = date('now', 'localtime')", (provider,),
+            ) as cursor:
+                row = await cursor.fetchone()
+                return float(row[0] or 0) if row else 0.0
+
     async def increment_usage(self, provider: str = "claude"):
+        if provider not in _USAGE_LOG_COLUMN:
+            return  # counted from usage_events (get_usage_today)
         column = _USAGE_LOG_COLUMN[provider]
         today = date.today().isoformat()
         async with self._connect() as db:

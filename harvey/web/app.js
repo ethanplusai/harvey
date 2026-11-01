@@ -67,7 +67,7 @@ function safeHref(u) {
 
 // ── One status vocabulary ──
 //
-// Harvey's tables each carry their own words for state: a prospect is `new`,
+// Morthy's tables each carry their own words for state: a prospect is `new`,
 // a campaign is `draft`, an email is `pending_review`, a signal is `proposed`.
 // Five of those mean "waiting on you" and the old dashboard styled every one
 // differently. Everything now resolves through this map, so a status reads the
@@ -269,7 +269,7 @@ function actionText(a) {
     case 'outbox_edited': return 'You edited a draft';
     case 'conversation_status':
       return d.to === 'closed' ? 'You closed a conversation'
-        : d.from === 'needs_human' ? 'You handed a conversation back to Harvey' : 'You reopened a conversation';
+        : d.from === 'needs_human' ? 'You handed a conversation back to Morthy' : 'You reopened a conversation';
   }
   const text = escHtml(String(a.action_type || '').replace(/_/g, ' '));
   return a.agent === 'main' ? 'Heartbeat: ' + text : text;
@@ -283,7 +283,7 @@ function emptyState(glyph, title, copy) {
 
 function offlineState() {
   return emptyState('&#9888;', 'Dashboard can\'t reach the server',
-    'The dashboard process may have stopped. Restart it with <b>harvey dashboard</b> and refresh this page.');
+    'The dashboard process may have stopped. Restart it with <b>morthy dashboard</b> and refresh this page.');
 }
 
 async function api(path, opts) {
@@ -415,6 +415,7 @@ function loadCurrentTab() {
     case 'campaigns': loadCampaigns(); break;
     case 'outbox': loadOutbox(); break;
     case 'conversations': loadConversations(); break;
+    case 'otros': loadOtherMail(); break;  // otros.js (job-search mode)
     case 'activity': loadActivity(); break;
     case 'usage': loadUsage(); break;
     case 'settings': loadSettings(); loadSendingModeCard(); break;
@@ -431,7 +432,7 @@ async function loadToday() {
   if (data.error) {
     // A failed check must never read as "Nothing needs you".
     el.innerHTML = emptyState(icon('alert'), 'Couldn\'t check what needs you',
-      'The dashboard hit an error reading Harvey\'s data: ' + escHtml(data.error));
+      'The dashboard hit an error reading Morthy\'s data: ' + escHtml(data.error));
     return;
   }
 
@@ -447,7 +448,7 @@ async function loadToday() {
     el.innerHTML = '<div class="queue-clear">' +
       '<div class="queue-icon">' + icon('check') + '</div><div>' +
       '<div class="qtitle">Nothing needs you</div>' +
-      '<div class="qdetail">Harvey has everything it needs. Anything that requires a ' +
+      '<div class="qdetail">Morthy has everything it needs. Anything that requires a ' +
       'decision — an email to approve, a signal to confirm — shows up here.</div>' +
       '</div></div>';
     return;
@@ -477,8 +478,8 @@ async function loadLiveStatus() {
   if (!d || !Array.isArray(d.steps)) {
     // Keep the last good numbers on screen, but never let them pass for live.
     const flag = el.querySelector('.live-flag');
-    if (flag) flag.textContent = "Can't reach Harvey right now — numbers below may be old.";
-    else el.innerHTML = '<p class="muted live-flag">Can\'t reach Harvey right now. ' +
+    if (flag) flag.textContent = "Can't reach Morthy right now — numbers below may be old.";
+    else el.innerHTML = '<p class="muted live-flag">Can\'t reach Morthy right now. ' +
       'Is the dashboard window still open?</p>';
     return;
   }
@@ -607,7 +608,7 @@ async function loadTodayActivity() {
   const shown = data.filter(a => a.agent !== 'main').slice(0, 8);
   if (!shown.length) {
     el.innerHTML = '<p class="muted" style="font-size:13px">' +
-      'Nothing yet. Every action Harvey takes shows up here.</p>';
+      'Nothing yet. Every action Morthy takes shows up here.</p>';
     return;
   }
   el.innerHTML = '<div class="timeline">' + shown.map(a =>
@@ -684,8 +685,8 @@ async function loadSetupStatus() {
 
   el.innerHTML =
     '<div class="card setup-card">' +
-      '<div class="setup-head"><div><h3>Finish setting up Harvey</h3>' +
-        '<p class="muted">Harvey starts finding prospects and sending once these are done.</p></div>' +
+      '<div class="setup-head"><div><h3>Finish setting up Morthy</h3>' +
+        '<p class="muted">Morthy starts finding prospects and sending once these are done.</p></div>' +
         '<span class="setup-pct">' + done + ' of ' + required.length + ' done</span></div>' +
       '<div class="bar thick" style="margin-bottom:8px"><span style="width:' + pct + '%;background:var(--accent)"></span></div>' +
       required.map(c => renderCheck(c, false)).join('') +
@@ -735,7 +736,7 @@ async function useOtherWarmup() {
   if (data && data.success) loadSetupStatus();
 }
 
-// ── Signals: Harvey proposes, you confirm ──
+// ── Signals: Morthy proposes, you confirm ──
 
 async function loadSignals() {
   const data = await api('/api/signals');
@@ -826,7 +827,7 @@ async function setSignals(codes, status) {
     showToast(
       status === 'confirmed'
         ? 'Confirmed ' + data.changed + ' signal' + (data.changed === 1 ? '' : 's') +
-          ' — Harvey will collect ' + (data.changed === 1 ? 'it' : 'them') + ' from now on.'
+          ' — Morthy will collect ' + (data.changed === 1 ? 'it' : 'them') + ' from now on.'
         : data.changed + ' signal' + (data.changed === 1 ? '' : 's') + ' turned off.',
       'success');
   } else {
@@ -973,7 +974,7 @@ function renderProfileCard(pending, running) {
   if (!pending) { el.innerHTML = ''; return; }
   el.innerHTML = '<div class="subhead">Read websites</div><div class="card"><div class="queue-item good" style="padding:0;border:0;box-shadow:none">' +
     '<div class="qtext"><div class="qtitle">' + pending + ' compan' + (pending === 1 ? 'y' : 'ies') +
-    ' not looked at yet</div><div class="qdetail">Free, no account needed. Harvey reads each site for ' +
+    ' not looked at yet</div><div class="qdetail">Free, no account needed. Morthy reads each site for ' +
     'who their agency is, what they are missing, and whether they run ads. Up to 200 per run.</div></div>' +
     '<button class="btn btn-primary btn-sm" onclick="runProfile(this)"' + (running ? ' disabled' : '') + '>' +
     (running ? 'Busy…' : 'Read their sites') + '</button></div></div>';
@@ -996,7 +997,7 @@ function renderDiscoverResult(report, running) {
   const el = document.getElementById('discover-result');
   if (running) {
     el.innerHTML = '<div class="card"><h2>Running…</h2>' +
-      '<p class="muted" style="font-size:13px">Harvey is working through the ' +
+      '<p class="muted" style="font-size:13px">Morthy is working through the ' +
       'queries. Results land in Companies, and the run log is on Today.</p></div>';
     return;
   }
@@ -1268,13 +1269,13 @@ async function loadSettings() {
   const g = document.getElementById('gmail-status');
   if (g) {
     if (data.gmail_authorized) { g.className = 'email-tag verified'; g.textContent = 'authorized'; }
-    else if (data.gmail_client_secret_set) { g.className = 'email-tag risky'; g.textContent = 'run: harvey gmail auth'; }
+    else if (data.gmail_client_secret_set) { g.className = 'email-tag risky'; g.textContent = 'run: morthy gmail auth'; }
     else { g.className = 'email-tag guess'; g.textContent = 'not set up'; }
   }
   const m = document.getElementById('m365-status');
   if (m) {
     if (data.m365_authorized) { m.className = 'email-tag verified'; m.textContent = 'authorized'; }
-    else if (data.m365_client_id) { m.className = 'email-tag risky'; m.textContent = 'run: harvey microsoft auth'; }
+    else if (data.m365_client_id) { m.className = 'email-tag risky'; m.textContent = 'run: morthy microsoft auth'; }
     else { m.className = 'email-tag guess'; m.textContent = 'not set up'; }
   }
   tag('reoon-status', data.reoon_api_key_set, 'set');
@@ -1286,7 +1287,7 @@ function saveGmail() {
   const payload = {GMAIL_CLIENT_ID: document.getElementById('gmail-id').value.trim()};
   const sec = document.getElementById('gmail-secret').value;
   if (sec) payload.GMAIL_CLIENT_SECRET = sec;
-  saveEnv(payload, 'Gmail OAuth saved. Now run "harvey gmail auth" in your terminal.').then(loadSettings);
+  saveEnv(payload, 'Gmail OAuth saved. Now run "morthy gmail auth" in your terminal.').then(loadSettings);
 }
 
 function saveSmtp() {
@@ -1313,7 +1314,7 @@ function saveMicrosoft() {
   const client = document.getElementById('m365-client').value.trim();
   if (!client) { showToast('Paste the Application (client) ID first.', 'error'); return; }
   saveEnv({M365_CLIENT_ID: client, M365_TENANT_ID: document.getElementById('m365-tenant').value.trim()},
-          'Saved. Now run "harvey microsoft auth" in your terminal.').then(loadSettings);
+          'Saved. Now run "morthy microsoft auth" in your terminal.').then(loadSettings);
 }
 
 function saveVerifiers() {
@@ -1389,7 +1390,7 @@ async function loadHarveyStatus() {
   const running = !!data.running;
 
   headerDot.className = 'status-dot ' + (running ? 'running' : 'stopped');
-  headerText.textContent = running ? 'Harvey is running' : 'Harvey is stopped';
+  headerText.textContent = running ? 'Morthy is running' : 'Morthy is stopped';
   document.getElementById('control-dot').className = 'dot ' + (running ? 'running' : 'stopped');
   const label = document.getElementById('control-label');
   label.className = 'label ' + (running ? 'running' : 'stopped');
@@ -1401,7 +1402,7 @@ async function loadHarveyStatus() {
     if (data.started_at) info += ' &middot; started ' + formatDate(data.started_at);
     meta.innerHTML = info;
   } else {
-    meta.innerHTML = 'Harvey wakes every few minutes, does what needs doing, and sleeps.';
+    meta.innerHTML = 'Morthy wakes every few minutes, does what needs doing, and sleeps.';
   }
 
   document.getElementById('btn-start').style.display = running ? 'none' : '';
@@ -1412,7 +1413,7 @@ async function startHarvey() {
   const btn = document.getElementById('btn-start');
   btn.disabled = true;
   const data = await api('/api/harvey/start', {method: 'POST'});
-  if (data && data.success) showToast('Harvey started.', 'success');
+  if (data && data.success) showToast('Morthy started.', 'success');
   else showToast((data && data.message) || 'Failed to start.', 'error');
   btn.disabled = false;
   loadHarveyStatus();
@@ -1422,7 +1423,7 @@ async function stopHarvey() {
   const btn = document.getElementById('btn-stop');
   btn.disabled = true;
   const data = await api('/api/harvey/stop', {method: 'POST'});
-  if (data && data.success) showToast('Harvey stopped.', 'success');
+  if (data && data.success) showToast('Morthy stopped.', 'success');
   else showToast((data && data.message) || 'Failed to stop.', 'error');
   btn.disabled = false;
   loadHarveyStatus();
@@ -1436,7 +1437,7 @@ async function loadLogs() {
     el.textContent = data.lines.join('\n');
     if (stick) el.scrollTop = el.scrollHeight;
   } else {
-    el.textContent = 'No logs yet. Start Harvey to see activity.';
+    el.textContent = 'No logs yet. Start Morthy to see activity.';
   }
 }
 
@@ -1488,9 +1489,9 @@ function quotaCardHtml(data) {
   let html = '<h2>' + escHtml(title) + '</h2>';
   if (!data.quota || !Object.keys(data.quota).length) {
     const why = provider === 'codex'
-      ? "Quota unavailable: Harvey couldn't read your ChatGPT plan's limits (check codex login, the Codex CLI version, and network)."
-      : "Quota unavailable: Harvey couldn't read your Claude subscription's limits (check claude login and network).";
-    return html + '<p class="muted">' + escHtml(why) + ' Until it can, budgets count Harvey\'s own calls.</p>';
+      ? "Quota unavailable: Morthy couldn't read your ChatGPT plan's limits (check codex login, the Codex CLI version, and network)."
+      : "Quota unavailable: Morthy couldn't read your Claude subscription's limits (check claude login and network).";
+    return html + '<p class="muted">' + escHtml(why) + ' Until it can, budgets count Morthy\'s own calls.</p>';
   }
   const labels = {five_hour: '5-hour window', seven_day: 'Weekly', primary: 'Primary window',
                   secondary: 'Secondary window', limit_reached: 'Usage limit reached'};
@@ -1575,7 +1576,7 @@ async function loadUsage() {
   const anyRows = (data.by_agent || []).length || (data.by_task || []).length;
   if (!anyRows) {
     tablesEl.innerHTML = emptyState(icon('usage'), 'No usage recorded yet',
-      'Once Harvey starts making model calls (Claude or Codex), every one is logged here with exact calls and tokens by provider, agent and task.');
+      'Once Morthy starts making model calls (Claude or Codex), every one is logged here with exact calls and tokens by provider, agent and task.');
   } else {
     const providers = data.by_provider || [];
     const showProviders = providers.length > 1 || (providers.length === 1 && providers[0].provider !== 'claude');
@@ -1626,7 +1627,7 @@ async function loadOutbox() {
     (pending.length && !data.paused
       ? (pending.length > pending.filter(p => heldReason(p)).length
         ? '<button class="btn btn-primary btn-sm" onclick="outboxApproveAll()" ' +
-          'title="Emails Harvey held are left for you to approve one by one">Approve all ' +
+          'title="Emails Morthy held are left for you to approve one by one">Approve all ' +
           (pending.length - pending.filter(p => heldReason(p)).length) + '</button>' : '') : '') +
     (data.paused
       ? '<button class="btn btn-secondary btn-sm" onclick="sendingToggle(\'resume\')">' +
@@ -1651,8 +1652,8 @@ async function loadOutbox() {
   desk.innerHTML = pending.length ? renderDesk(pending, _desk.i) :
     '<div class="card">' + emptyState(icon('check'), 'Nothing to review',
       _sendingMode && _sendingMode.mode === 'autopilot'
-        ? 'Autopilot is on, so Harvey sends on its own. Anything it holds for you shows up here.'
-        : 'Every draft Harvey writes lands here first. Approve one and it sends on schedule.') +
+        ? 'Autopilot is on, so Morthy sends on its own. Anything it holds for you shows up here.'
+        : 'Every draft Morthy writes lands here first. Approve one and it sends on schedule.') +
     '</div>';
 
   const table = (title, rows, cols) => {
@@ -1723,7 +1724,7 @@ function renderDeskContext(ctx) {
 
 // ── Approval or autopilot ──
 // Approval (the default): every email waits in the Outbox for you.
-// Autopilot (channels.email.require_approval: false): Harvey sends on its
+// Autopilot (channels.email.require_approval: false): Morthy sends on its
 // own, and still holds what gate.autopilot_review flags. Turning autopilot
 // on takes typing the word; turning it off is one click and works at once.
 let _sendingMode = null, _autopilotArmed = false, _modeBusy = false;
@@ -1732,7 +1733,7 @@ function sendingModeBanner(m) {
   if (!m) return '';
   if (m.mode === 'autopilot') {
     return '<div class="banner wait mode-banner">' + icon('alert') + '<div><b>Autopilot is on</b>' +
-      '<p>Harvey sends email on its own. It holds anything that links to a site that isn’t yours or ' +
+      '<p>Morthy sends email on its own. It holds anything that links to a site that isn’t yours or ' +
       'quotes its own instructions; those wait here' + (m.held ? ' (' + m.held + ' now)' : '') + '.</p></div>' +
       '<button class="btn btn-secondary btn-sm" onclick="setSendingMode(\'approval\')"' +
         (_modeBusy ? ' disabled' : '') + '>Turn off autopilot</button></div>';
@@ -1741,7 +1742,7 @@ function sendingModeBanner(m) {
   return '<div class="banner mode-banner">' + icon('check') + '<div><b>Approval mode</b>' +
     '<p>' + (instantly
       ? 'Instantly can’t hold single emails, so campaigns aren’t sent to Instantly until you turn on autopilot.'
-      : 'Every email Harvey writes waits here until you approve it.') +
+      : 'Every email Morthy writes waits here until you approve it.') +
     ' <a href="#" onclick="goTab(\'settings\');return false">About autopilot</a></p></div></div>';
 }
 
@@ -1751,12 +1752,12 @@ function sendingModeCard(m) {
   const instantly = m.provider === 'instantly';
   const domains = (m.your_domains || []).map(escHtml).join(', ') || 'none yet';
   let html = '<div class="card mode-card"><h3>Sending mode: ' + (auto ? 'Autopilot' : 'Approval') + '</h3>' +
-    '<p><b>Approval</b> (the default): every email Harvey writes, first emails, follow-ups and replies, ' +
+    '<p><b>Approval</b> (the default): every email Morthy writes, first emails, follow-ups and replies, ' +
       'waits in the Outbox until you approve it.' +
       (instantly ? ' On Instantly, which can’t hold single emails, that means campaigns aren’t deployed.' : '') + '</p>' +
-    '<p><b>Autopilot</b>: Harvey sends on its own, on schedule, within your daily limit and quiet hours. ' +
+    '<p><b>Autopilot</b>: Morthy sends on its own, on schedule, within your daily limit and quiet hours. ' +
       'Opt-outs, bounces and Pause all sending work the same. It still holds an email for you when it links ' +
-      'to, or gives an address at, a site that isn’t yours, or quotes Harvey’s own instructions: text from ' +
+      'to, or gives an address at, a site that isn’t yours, or quotes Morthy’s own instructions: text from ' +
       'websites and replies can try to steer what it writes. The first reply after you undo an opt-out waits too.</p>' +
     '<p class="muted">Counted as yours: ' + domains + (m.booking_page ? '; your booking page ' + escHtml(m.booking_page) : '') +
       '. Add others under <code>channels.email.link_domains</code> in <code>' + escHtml(m.file) + '</code>.</p>';
@@ -1768,7 +1769,7 @@ function sendingModeCard(m) {
         (_modeBusy ? ' disabled' : '') + '>Turn off autopilot</button></div>';
   } else if (_autopilotArmed) {
     html += '<div class="convo-actions mode-confirm"><span class="muted">Approve a batch or two by hand first ' +
-      'and read what Harvey writes. Type <b>autopilot</b> to turn it on. It starts from Harvey’s next cycle.</span>' +
+      'and read what Morthy writes. Type <b>autopilot</b> to turn it on. It starts from Morthy’s next cycle.</span>' +
       '<input class="form-input" id="autopilot-confirm" autocomplete="off" aria-label="Type autopilot to confirm" ' +
         'oninput="document.getElementById(\'autopilot-go\').disabled = this.value.trim().toLowerCase() !== \'autopilot\'" ' +
         'onkeydown="if (event.key === \'Enter\' && this.value.trim().toLowerCase() === \'autopilot\') setSendingMode(\'autopilot\')">' +
@@ -1810,7 +1811,7 @@ async function setSendingMode(mode) {
     if (res && res.success) {
       _autopilotArmed = false;
       showToast(mode === 'autopilot'
-        ? 'Autopilot is on from Harvey’s next cycle. Held emails still wait for you.'
+        ? 'Autopilot is on from Morthy’s next cycle. Held emails still wait for you.'
         : 'Autopilot is off. Every email waits for you' +
           (res.requeued ? '; ' + res.requeued + ' queued by autopilot came back to the Outbox.' : '.') +
           (_sendingMode && _sendingMode.provider === 'instantly'
@@ -1841,7 +1842,7 @@ function renderDesk(items, i) {
     return '<div class="desk-item ' + (n === i ? 'active' : '') + '" onclick="deskGo(' + n + ')">' +
       '<span class="avatar">' + initials(parts[0], parts[1]) + '</span>' +
       '<div class="di-text"><div class="to">' + escHtml(who) +
-        (heldReason(it) ? ' <span class="tag t-bad" title="Harvey held this instead of sending it">Held</span>' : '') +
+        (heldReason(it) ? ' <span class="tag t-bad" title="Morthy held this instead of sending it">Held</span>' : '') +
         '</div>' +
       '<div class="sub">' + escHtml(it.subject || '(no subject)') + '</div></div>' +
     '</div>';
@@ -1884,9 +1885,9 @@ function renderDesk(items, i) {
         '<span class="muted">sends ' + formatDate(cur.send_at) + '</span></div>' +
       renderDeskContext(cur.context) +
       (heldReason(cur)
-        ? '<div class="banner wait desk-held">' + icon('alert') + '<div><b>Harvey held this instead of sending it</b>' +
+        ? '<div class="banner wait desk-held">' + icon('alert') + '<div><b>Morthy held this instead of sending it</b>' +
           '<div>' + escHtml(heldReason(cur)) + '. Read it before approving: text from a website or an ' +
-          'email can try to steer what Harvey writes.</div></div></div>'
+          'email can try to steer what Morthy writes.</div></div></div>'
         : '') +
       draft + footer +
       '<div class="desk-actions">' + actions +
@@ -1982,7 +1983,7 @@ async function outboxApproveAll() {
   if (deskBusy()) return;
   const data = await api('/api/outbox/approve-all', {method: 'POST'});
   if (data && data.success) showToast('Approved ' + data.approved + ' email(s).' + (data.held
-    ? ' ' + data.held + ' Harvey held ' + (data.held === 1 ? 'is' : 'are') + ' left for you to read and approve one by one.'
+    ? ' ' + data.held + ' Morthy held ' + (data.held === 1 ? 'is' : 'are') + ' left for you to read and approve one by one.'
     : ''), 'success');
   else showToast(failMsg(data, 'Approve-all failed.'), 'error');
   loadOutbox();
@@ -2066,19 +2067,19 @@ async function submitFeedback(entityType, entityId, promptText) {
     body: JSON.stringify({entity_type: entityType, entity_id: entityId, comment: comment})
   });
   if (data && data.success) showToast(entityType === 'campaign'
-    ? 'Saved. Harvey follows it in the emails it writes from now on.'
-    : 'Saved. Harvey uses it if it writes this person\'s first email (Gmail, SMTP or Microsoft 365).', 'success');
+    ? 'Saved. Morthy follows it in the emails it writes from now on.'
+    : 'Saved. Morthy uses it if it writes this person\'s first email (Gmail, SMTP or Microsoft 365).', 'success');
   else showToast((data && data.message) || 'Could not save feedback.', 'error');
 }
 
 function fbProspect(i) {
   const p = _prospects[i];
-  if (p) submitFeedback('contact', p.id, 'Anything Harvey should know before writing to this person?');
+  if (p) submitFeedback('contact', p.id, 'Anything Morthy should know before writing to this person?');
 }
 
 function fbCampaign(i) {
   const c = _campaigns[i];
-  if (c) submitFeedback('campaign', c.id, 'What should Harvey do differently in the emails it writes next? (e.g. "shorter; don\'t mention reviews")');
+  if (c) submitFeedback('campaign', c.id, 'What should Morthy do differently in the emails it writes next? (e.g. "shorter; don\'t mention reviews")');
 }
 
 // Search and status filter live outside the table, so the 15-second refresh
@@ -2099,7 +2100,7 @@ async function loadProspects() {
   _prospects = data;
   if (!data.length) {
     el.innerHTML = emptyState(icon('contacts'), 'No contacts yet',
-      'Harvey hasn\'t found any prospects. Once it\'s running, the Scout agent searches the web for people matching your ideal customer profile in <b>harvey.yaml</b>.');
+      'Morthy hasn\'t found any prospects. Once it\'s running, the Scout agent searches the web for people matching your ideal customer profile in <b>harvey.yaml</b>.');
     return;
   }
   if (!document.getElementById('contact-rows')) {
@@ -2160,7 +2161,7 @@ function renderContacts() {
       '<td class="muted" style="white-space:nowrap">' + relTime(p.created_at) + '</td>' +
       '<td><div class="cell-row">' + (p.status === 'opted_out' || p.opt_out_undone || _optOut.id === p.id
         ? '<button class="btn btn-ghost btn-sm" onclick="toggleOptOut(' + i + ')" ' +
-          'aria-expanded="' + (_optOut.id === p.id) + '" title="What made Harvey stop emailing them">' +
+          'aria-expanded="' + (_optOut.id === p.id) + '" title="What made Morthy stop emailing them">' +
           (p.status === 'opted_out' ? 'Why?' : 'Opt-out history') + '</button>' : '') +
         '<button class="btn btn-ghost btn-sm row-action" onclick="fbProspect(' + i + ')" ' +
         'title="Leave feedback on this contact">Feedback</button></div></td></tr>';
@@ -2170,7 +2171,7 @@ function renderContacts() {
     '<div class="table-foot">' + rows.length + ' of ' + _prospects.length + ' contacts</div>';
 }
 
-// Why someone is opted out, and undoing it. Harvey never moves anyone off
+// Why someone is opted out, and undoing it. Morthy never moves anyone off
 // "opted out" on its own, so a mistaken one (a bare "stop" that meant
 // something else) needs you: see what triggered it, then undo it here.
 let _optOut = {id: null, data: null, armed: false, busy: false};
@@ -2198,13 +2199,13 @@ function optOutPanel(p) {
   const name = escHtml([p.first_name, p.last_name].filter(Boolean).join(' ') || p.email);
   if (!d) return '<div class="optout-panel muted">Loading…</div>';
   if (d.error) return '<div class="optout-panel muted">Couldn’t load the opt-out record. Try again.</div>';
-  let html = '<div class="optout-panel"><h4>' + (d.opted_out ? 'Why Harvey stopped emailing ' : 'Opt-out history for ') +
+  let html = '<div class="optout-panel"><h4>' + (d.opted_out ? 'Why Morthy stopped emailing ' : 'Opt-out history for ') +
     name + '</h4>';
   if (d.recorded) {
     html += '<p>' + escHtml(d.why) + '</p><div class="optout-meta">' +
       escHtml(own(OPT_OUT_RULES, d.rule) || d.rule || '') + (d.at ? ' · ' + relTime(d.at) : '') + '</div>';
   } else if (d.opted_out || (d.history || []).length) {
-    html += '<p>They opted out before Harvey kept a record of why.' +
+    html += '<p>They opted out before Morthy kept a record of why.' +
       (d.message ? ' The last thing they wrote:' : ' There’s no reply from them on file.') + '</p>';
   }
   if (d.message) {
@@ -2219,8 +2220,8 @@ function optOutPanel(p) {
     html += '<div class="convo-actions"><span class="muted">Not opted out now (' +
       escHtml(statusMeta(d.status).label) + ').</span></div>';
   } else if (_optOut.armed) {
-    html += '<div class="convo-actions"><span class="muted">Harvey will treat them as having replied. Nothing is ' +
-      'sent automatically, emails the opt-out cancelled stay cancelled, and Harvey’s answer to their next ' +
+    html += '<div class="convo-actions"><span class="muted">Morthy will treat them as having replied. Nothing is ' +
+      'sent automatically, emails the opt-out cancelled stay cancelled, and Morthy’s answer to their next ' +
       'reply waits for your approval, even on autopilot. Only undo it if they didn’t mean to opt out.</span>' +
       '<button class="btn btn-primary btn-sm" onclick="undoOptOut()"' + (_optOut.busy ? ' disabled' : '') +
         '>Confirm undo</button>' +
@@ -2241,7 +2242,7 @@ async function undoOptOut() {
     method: 'POST', headers: {'Content-Type': 'application/json'},
     body: JSON.stringify({confirm: true}),
   });
-  if (res && res.success) showToast('Opt-out undone. They’re marked as replied; Harvey sends nothing on its own.', 'success');
+  if (res && res.success) showToast('Opt-out undone. They’re marked as replied; Morthy sends nothing on its own.', 'success');
   else showToast(failMsg(res, 'Could not undo the opt-out. Try again.'), 'error');
   if (_optOut.id !== id) return;
   _optOut.armed = false;
@@ -2288,7 +2289,7 @@ async function openInGmail(ci, si, ri) {
   // Cold email carries the postal address and opt-out line, sent by hand too.
   const filled = fillMergeVars(step.body, r).trimEnd();
   const body = filled + (c.footer && !filled.endsWith(c.footer) ? '\n\n' + c.footer : '');
-  // authuser picks the Google account Harvey sends as, not just whichever
+  // authuser picks the Google account Morthy sends as, not just whichever
   // one the browser happens to be signed into.
   const url = 'https://mail.google.com/mail/?view=cm&fs=1' +
     (c.send_as ? '&authuser=' + encodeURIComponent(c.send_as) : '') +
@@ -2306,7 +2307,7 @@ async function openInGmail(ci, si, ri) {
     return;
   }
   w.opener = null;
-  // Record the send BEFORE the user can press Send in Gmail, so Harvey can
+  // Record the send BEFORE the user can press Send in Gmail, so Morthy can
   // never email them as well — not even if they forget to tick the box.
   _gmailBusy = true;
   let claimed = r.sent_by_hand;
@@ -2365,7 +2366,7 @@ async function loadCampaigns() {
   _campaigns = data;
   if (!data.length) {
     el.innerHTML = emptyState(icon('campaigns'), 'No campaigns yet',
-      'The Writer agent hasn\'t drafted any sequences. It kicks in automatically once Harvey has scored prospects to write for.');
+      'The Writer agent hasn\'t drafted any sequences. It kicks in automatically once Morthy has scored prospects to write for.');
     return;
   }
   let html = '';
@@ -2373,22 +2374,22 @@ async function loadCampaigns() {
     let stepsHtml = '';
     (c.sequence || []).forEach((step, s) => {
       const sendBtns = (c.recipients || []).map((r, ri) => {
-        // Only offered when Harvey can't send itself and this person can
+        // Only offered when Morthy can't send itself and this person can
         // still be emailed (the server decides: can_send_by_hand).
         if (r.sent_by_hand) {
           const tick = '<label style="display:inline-flex;align-items:center;gap:4px;font-size:13px;cursor:pointer">' +
             '<input type="checkbox" checked onchange="markSent(' + i + ',' + ri + ',this.checked)"> ' +
             '&#10003; Sent by you</label>';
           if (s === 0) return '<span class="rcpt-who">' + escHtml(r.email) + '</span>' + tick;
-          // Follow-ups are the user's too: Harvey never emails someone they emailed.
+          // Follow-ups are the user's too: Morthy never emails someone they emailed.
           return '<span class="rcpt-who">' + escHtml(r.email) + '</span>' +
             '<button class="btn btn-secondary btn-sm" onclick="openInGmail(' + i + ',' + s + ',' + ri + ')">' +
             'Open in Gmail</button>' +
-            '<span class="muted" style="font-size:12px">Harvey won\'t send follow-ups to people you emailed yourself.</span>';
+            '<span class="muted" style="font-size:12px">Morthy won\'t send follow-ups to people you emailed yourself.</span>';
         }
         if (s !== 0) return '';
         if (!r.can_send_by_hand) {
-          // Harvey sends here; this only records an email the user already sent.
+          // Morthy sends here; this only records an email the user already sent.
           return r.can_mark_sent
             ? '<label class="muted" style="display:inline-flex;align-items:center;gap:4px;font-size:12px;cursor:pointer">' +
               '<input type="checkbox" onchange="markSent(' + i + ',' + ri + ',this.checked)"> ' +
@@ -2423,8 +2424,8 @@ async function loadCampaigns() {
   el.innerHTML = html;
 }
 
-// The whole exchange in order: Harvey's cold emails (from the Outbox), the
-// replies, Harvey's answers, and any answer still waiting for approval.
+// The whole exchange in order: Morthy's cold emails (from the Outbox), the
+// replies, Morthy's answers, and any answer still waiting for approval.
 let _convos = [], _convoFilter = 'needs';
 const STAGE_LABELS = {
   initial_outreach: 'Outreach', engaged: 'Engaged', qualifying: 'Qualifying', presenting: 'Presenting',
@@ -2491,11 +2492,11 @@ function convoCard(c) {
     }
     const m = it.msg, sent = m.sender === 'harvey';
     return '<div class="thread-msg ' + (sent ? 'sent' : 'received') + '"><div class="sender">' +
-      (sent ? 'Harvey' : escHtml(first)) + ' &middot; ' + relTime(m.timestamp) + '</div>' +
+      (sent ? 'Morthy' : escHtml(first)) + ' &middot; ' + relTime(m.timestamp) + '</div>' +
       escHtml(m.content) + '</div>';
   }).join('');
   const draft = c.draft
-    ? '<div class="thread-draft"><div class="sender">' + icon('pen') + 'Harvey drafted a reply · waiting for you</div>' +
+    ? '<div class="thread-draft"><div class="sender">' + icon('pen') + 'Morthy drafted a reply · waiting for you</div>' +
       '<div class="td-body">' + escHtml(c.draft.body) + '</div>' +
       '<button class="btn btn-primary btn-sm" onclick="goTab(\'outbox\')">Review in Outbox' + icon('arrow') + '</button></div>'
     : '';
@@ -2512,7 +2513,7 @@ function convoCard(c) {
     draft + '</div>' + convoActions(c) + '</div>';
 }
 
-// Harvey answers new replies only on open conversations: an escalated one
+// Morthy answers new replies only on open conversations: an escalated one
 // waits for you to reply yourself, then close it or hand it back.
 function convoActions(c) {
   if (c.status === 'needs_human' && c.prospect_status === 'opted_out') {
@@ -2526,8 +2527,8 @@ function convoActions(c) {
   }
   if (c.status === 'needs_human') {
     return '<div class="convo-actions"><span class="muted">' + icon('alert') +
-      'Harvey handed this to you. Reply from your inbox, then:</span>' +
-      '<button class="btn btn-secondary btn-sm" onclick="setConvoStatus(' + jsq(c.id) + ',\'open\')">Hand back to Harvey</button>' +
+      'Morthy handed this to you. Reply from your inbox, then:</span>' +
+      '<button class="btn btn-secondary btn-sm" onclick="setConvoStatus(' + jsq(c.id) + ',\'open\')">Hand back to Morthy</button>' +
       '<button class="btn btn-secondary btn-sm" onclick="setConvoStatus(' + jsq(c.id) + ',\'closed\')">Close</button></div>';
   }
   if (c.status === 'open') {
@@ -2535,8 +2536,8 @@ function convoActions(c) {
       jsq(c.id) + ',\'closed\')">Close conversation</button></div>';
   }
   if (c.status === 'closed' && c.prospect_status === 'opted_out') {
-    // Reopening wouldn't help: Harvey never answers someone who opted out.
-    return '<div class="convo-actions"><span class="muted">' + icon('alert') + 'Opted out. Harvey won’t write to them.</span>' +
+    // Reopening wouldn't help: Morthy never answers someone who opted out.
+    return '<div class="convo-actions"><span class="muted">' + icon('alert') + 'Opted out. Morthy won’t write to them.</span>' +
       '<button class="btn btn-secondary btn-sm" onclick="showOptOut(' + jsq(c.prospect_id) + ',' + jsq(c.prospect_email) +
       ')">Why opted out?</button></div>';
   }
@@ -2552,7 +2553,7 @@ async function setConvoStatus(id, status) {
     method: 'POST', headers: {'Content-Type': 'application/json'},
     body: JSON.stringify({status: status}),
   });
-  if (data && data.success) showToast(status === 'open' ? 'Open again. Harvey will answer the next reply.' : 'Closed. A new reply starts a new conversation.', 'success');
+  if (data && data.success) showToast(status === 'open' ? 'Open again. Morthy will answer the next reply.' : 'Closed. A new reply starts a new conversation.', 'success');
   else showToast(failMsg(data, 'Could not update that conversation.'), 'error');
   loadConversations();
   loadToday();
@@ -2564,7 +2565,7 @@ async function loadActivity() {
   if (!data) { el.innerHTML = offlineState(); return; }
   if (!data.length) {
     el.innerHTML = emptyState(icon('activity'), 'No activity yet',
-      'Harvey hasn\'t taken any actions. Every prospect found, email written, and reply handled will appear here the moment it happens.');
+      'Morthy hasn\'t taken any actions. Every prospect found, email written, and reply handled will appear here the moment it happens.');
     return;
   }
   let html = '<div class="card"><div class="timeline">';
