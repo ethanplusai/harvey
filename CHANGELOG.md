@@ -288,6 +288,14 @@ minor versions can still change behaviour.
 
 ### Fixed
 
+- **Microsoft 365 reads an inbox with more than one page.** Live Graph writes
+  the inbox in OData key form in `@odata.nextLink`
+  (`/me/mailFolders('inbox')/messages`), and the link check accepted only
+  `/me/mailFolders/inbox/messages`. Any mailbox with more than 50 messages in
+  the last 7 days failed every read with "@odata.nextLink rejected: not the
+  Graph inbox listing", so sending was held for good. Both spellings of the
+  same listing are accepted now; every other path is still refused before the
+  token is attached.
 - **OpenStreetMap discovery survives a bad afternoon** (from #125). A 500, 502 or
   503 from one Overpass mirror now moves on to the next instead of ending the
   search, Overpass gets enough time to get through its queue, and the mirror

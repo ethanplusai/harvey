@@ -50,6 +50,13 @@ GRAPH = "https://graph.microsoft.com/v1.0"
 GRAPH_HOST = "graph.microsoft.com"
 INBOX_MESSAGES = "/me/mailFolders/inbox/messages"
 INBOX_MESSAGES_PATH = "/v1.0" + INBOX_MESSAGES
+# Graph writes the inbox in OData key form in its nextLink
+# (/me/mailFolders('inbox')/messages): the same listing, so both are accepted.
+INBOX_NEXT_LINK_PATHS = {
+    INBOX_MESSAGES_PATH.lower(),
+    "/v1.0/me/mailfolders('inbox')/messages",
+    "/v1.0/me/mailfolders(%27inbox%27)/messages",
+}
 # Inbox pages read per cycle (limit messages each). More than this and the
 # read fails, and sending is held, rather than acting on a partial inbox.
 MAX_INBOX_PAGES = 40
@@ -392,7 +399,7 @@ def _checked_next_link(link) -> str:
         or url.port not in (None, 443)
         or url.userinfo
         or url.fragment
-        or path.lower() != INBOX_MESSAGES_PATH.lower()
+        or path.lower() not in INBOX_NEXT_LINK_PATHS
         or not url.query
     ):
         raise GraphError("@odata.nextLink rejected: not the Graph inbox listing")
