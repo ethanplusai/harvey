@@ -280,6 +280,78 @@ ESCALATION_PATTERNS = (
     "can-spam",
     "blacklist",
 )
+# Hebrew ones. A word with an ordinary business meaning needs the words that
+# make it a threat: "תביעות ביטוח" are a clinic's insurance claims and
+# "סליחה על ההטרדה" is "sorry to bother you"; "אתבע אתכם" (I'll sue you) is
+# only ever a threat.
+_HE_YOU = r"(?:אתכם|אותכם|אתכן|אותכן|אותך|אתך)"
+_HE_AGAINST_YOU = r"(?:נגדכם|נגדכן|נגדך)"
+_HE_ABOUT_YOU = r"(?:עליכם|עליכן|עלייך|עליך)"   # also "you must" ("עליכם להגיש")
+_HE_ACRONYM = r"[\"״'׳]{1,2}"   # עו"ד is a lawyer, עוד is "more"
+_HE_NOT_INSURER = r"(?!\s+(?:ל|ב|מול\s+|אל\s+|דרך\s+)?ה?(?:ביטוח|חבר[הת]|קופ))"
+HEBREW_ESCALATION_PATTERNS = (
+    # A lawyer, legal counsel, the legal department.
+    r"(?:עורך|עורכת|עורכי|עורכות)\s+ה?דין",
+    r"עו" + _HE_ACRONYM + "ד", r"עוה" + _HE_ACRONYM + "ד", r"יועמ" + _HE_ACRONYM + "ש",
+    r"פרקליט\w*",
+    r"(?:יועץ|יועצת|יועצי|יועצים|יועצות)\s+ה?משפטי(?:ת|ים|ות)?",
+    r"מחלקה\s+ה?משפטית",
+    # Legal action and court.
+    r"(?:צעד|צעדים|הליך|הליכים|פעולה|פעולות|אמצעים)\s+משפטי(?:ים|ת|ות)?",
+    r"(?:נקיטת|אנקוט|ננקוט|לנקוט)\s+(?:" + _HE_AGAINST_YOU + r"\s+)?ב?הליכים",
+    r"ערכא(?:ה|ות)",
+    r"(?:ניפגש|נפגש|נתראה)\s+ב?בית\s+ה?משפט",
+    r"(?:אפנה|נפנה|אגיע|נגיע|אלך|נלך|אגרור|נגרור)\s+(?:" + _HE_YOU + r"\s+)?לבית\s+ה?משפט",
+    r"תביעות\s+קטנות",
+    # Suing, and a lawsuit ("תביעה" alone is also an insurance claim).
+    r"(?:אתבע|נתבע|לתבוע|תובע|תובעת|תובעים|תובעות|תבעתי|תבענו)\s+" + _HE_YOU,
+    r"אתבע(?:\s+(?:על|אם|את)(?!\w)|(?=\s*(?:[.!]|$)))",
+    r"תביע(?:ה|ות)\s+(?:משפטית|משפטיות|ייצוגית|ייצוגיות)",
+    r"(?:תביע(?:ה|ות)|תלונ(?:ה|ות))\s+(?:רשמית\s+)?(?:" + _HE_AGAINST_YOU
+    + "|" + _HE_ABOUT_YOU + r"(?!\s+ל))",
+    r"(?:" + _HE_AGAINST_YOU + "|" + _HE_ABOUT_YOU + r")\s+(?:תביעה|תלונה)",
+    r"(?:אגיש|נגיש)\s+(?:תביעה|תלונה)" + _HE_NOT_INSURER,
+    r"(?:תקבלו|תקבל|תקבלי)\s+(?:(?:ממני|מאיתנו|מאתנו)\s+)?תביעה",
+    r"(?:צפו|תצפו|צפה|תצפה)\s+לתביעה",
+    r"מכתב\s+ה?(?:התראה|דרישה)",
+    r"התראה\s+(?:אחרונה\s+)?לפני\s+(?:נקיטת|תביעה|הליכים)",
+    # Reporting the sender: to the police, to a regulator.
+    r"(?:אתלונן|נתלונן|להתלונן|התלוננתי|אדווח|נדווח|לדווח|דיווחתי|דיווחנו)\s+(?:"
+    + _HE_AGAINST_YOU + "|" + _HE_ABOUT_YOU + ")",
+    r"(?:תלונ(?:ה|ות)|אתלונן|נתלונן|להתלונן|התלוננתי)\s+(?:\S+\s+)?[בל]משטרה",
+    r"(?:אלך|נלך|אפנה|נפנה|אגש|ניגש)\s+למשטרה",
+    r"רשות\s+ל?הגנת\s+ה?(?:פרטיות|צרכן)",
+    # The spam law (תיקון 40 לחוק התקשורת, סעיף 30א) and spam complaints.
+    r"חוק\s+ה?(?:ספאם|תקשורת)",
+    r"חוק\s+הגנת\s+ה?פרטיות",
+    r"תיקון\s+(?:מס['׳.\"]?\s*)?40",
+    r"סעיף\s+30\s*(?:א|a)",
+    r"דברי?\s+ה?פרסומת",
+    r"(?:ללא|בלי)\s+הוכחת\s+נזק",
+    r"(?:תלונ(?:ה|ת|ות)|דיווח)\s+(?:על\s+)?ה?ספאם",
+    r"(?:דיווחתי|דיווחנו|אדווח|נדווח|לדווח|סימנתי|אסמן|נסמן)\s+(?:\S+\s+){0,3}?כספאם",
+    # Harassment said as an accusation: not "אם זו הטרדה" or "זה לא מהווה הטרדה".
+    r"(?<!אם )(?<!לא )(?<!אין )(?:(?:זו|זאת|זה|זוהי)\s+(?:(?:ממש|פשוט|כבר)\s+)?"
+    r"(?:(?:מהווה|מהוות)\s+)?|מדובר\s+ב)הטרד(?:ה|ות)",
+    r"הטרד(?:ה|ות)\s+(?:מינית|מיניות|מאיימת|חוזרת|חוזרות)",
+    r"(?:תלונ(?:ה|ות)|תביע(?:ה|ות)|בגין)\s+(?:על\s+)?ה?הטרד(?:ה|ות)",
+    r"די\s+(?:עם\s+ה|ל)הטרד(?:ה|ות)",
+    r"(?:אתם|אתה|אתן)\s+מטריד(?:ים|ות)?\s+(?:אותי|אותנו)",
+    r"(?:תפסיק|תפסיקו|תפסיקי|הפסק|הפסיקו|הפסיקי)\s+להטריד",
+    r"רשימ(?:ה|ות)\s+ה?שחור(?:ה|ות)",
+    r"בלא?קליסט",
+)
+# Whole words, with the prefix letters Hebrew joins on ("ועורכת הדין", "לבית").
+HEBREW_ESCALATION_RE = re.compile(
+    r"(?<!\w)[ובכלמשה]{0,2}(?:" + "|".join(HEBREW_ESCALATION_PATTERNS) + r")(?!\w)")
+
+
+def _escalates(flat: str) -> bool:
+    """Whether their words (flattened, our text removed) need a human."""
+    # "עורך-דין" and "בית־המשפט" are the same words as with a space.
+    spaced = re.sub(r"(?<=[\u05d0-\u05ea])[-\u05be](?=[\u05d0-\u05ea])", " ", flat)
+    return (any(p in flat for p in ESCALATION_PATTERNS)
+            or HEBREW_ESCALATION_RE.search(spaced) is not None)
 
 
 # The conversation a reply is written from. Cold-email threads are short, so
@@ -555,9 +627,9 @@ class Handler:
         keyword_text = _flat(their_text)
         stripped = strip_quoted_reply(reply_text) or reply_text
         reply_text = ours.remove(stripped).strip() or stripped
+        escalate = _escalates(keyword_text)
 
         if prospect.status == "opted_out":
-            escalate = any(p in keyword_text for p in ESCALATION_PATTERNS)
             await self._record_after_opt_out(prospect, reply_text, campaign_id, escalate)
             return
 
@@ -575,11 +647,12 @@ class Handler:
             logger.debug(f"Handler: outbox cancel failed: {e}")
 
         # 1. Classify intent. Hard keyword checks run FIRST and override
-        # the LLM — opt-outs and legal threats must never be missed.
+        # the LLM — opt-outs and legal threats must never be missed. An
+        # opt-out that also threatens is both: honoured, and handed to you.
         opt_out = _opt_out_reason(their_text, reply_text)
         if opt_out:
             intent = "unsubscribe"
-        elif any(p in keyword_text for p in ESCALATION_PATTERNS):
+        elif escalate:
             intent = "escalate"
         else:
             intent = await self._classify_intent(reply_text, prospect)
@@ -644,9 +717,11 @@ class Handler:
 
         # 3. Route based on intent
         if intent == "unsubscribe":
-            # Honor opt-outs ALWAYS. No reply, no future contact.
+            # Honor opt-outs ALWAYS. No reply, no future contact. A legal
+            # threat or complaint in the same reply still goes to you.
             await self.state.update_conversation(
-                convo.id, status="needs_human" if handed_off else "closed", stage="closed_lost")
+                convo.id, status="needs_human" if handed_off or escalate else "closed",
+                stage="closed_lost")
             await self.state.update_prospect_status(prospect.id, "opted_out")
             await self.state.log_action(
                 action_type="opt_out",
@@ -659,6 +734,17 @@ class Handler:
                     "conversation_id": convo.id,
                 },
             )
+            if escalate:
+                await self.state.log_action(
+                    action_type="escalation",
+                    agent="handler",
+                    details={"prospect_email": lead_email, "reply_preview": reply_text[:200]},
+                )
+                logger.warning(
+                    f"Handler: {lead_email} opted out with a complaint or legal threat. "
+                    "Suppressed permanently and ESCALATED for human review. No reply sent."
+                )
+                return
             logger.info(f"Handler: {lead_email} opted out. Suppressed permanently. No reply sent.")
             return
 
