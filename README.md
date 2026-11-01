@@ -542,7 +542,7 @@ The sidebar is grouped by what you're doing: **Work** (what needs you), **Pipeli
 **Pipeline**
 - **Signals** — the confirmation gate and the cohort builder
 - **Discover** — the provider menu with prices side by side, an estimate, then a run; plus reading the sites of companies found but not yet looked at
-- **Companies / Contacts** — everything found, searchable, with CSV export
+- **Companies / Contacts** — everything found, searchable, with CSV export. Companies are sorted by a 0-100 fit score and show their status (emailed, draft waiting, or why not contacted); click one for its details card, or export the whole company register
 - **Campaigns** — each sequence Harvey wrote, who it's going to, and per-campaign feedback for the writer
 
 **System**
@@ -622,6 +622,7 @@ harvey status                # pipeline summary
 harvey usage                 # active provider's quota + per-agent tokens
 harvey outbox                # review queued email
 harvey export                # deliverable prospects → CSV
+harvey companies             # company register → CSV: every company, fit, and why it wasn't contacted
 harvey sending pause|resume  # kill switch
 harvey warmup [domain]       # is the sending domain ready? (SPF/DKIM/DMARC, age, blocklists, warmup)
 harvey trulyinbox connect    # connect TrulyInbox so Harvey reads the mailbox's warmup

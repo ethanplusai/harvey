@@ -226,7 +226,8 @@
 
 <!-- Companies -->
 <div id="companies" class="section">
-  <div class="section-head"><div><h2>Companies</h2><p>Organizations Harvey has researched. Click a row to see its contacts.</p></div></div>
+  <div class="section-head"><div><h2>Companies</h2><p>Organizations Harvey has researched, best fit first. Click a row to see its contacts.</p></div>
+    <div><button class="btn btn-secondary btn-sm" onclick="downloadCsv('/api/export/companies.csv', 'company-register.csv', this)"><svg class="icon" aria-hidden="true"><use href="#i-download"/></svg>Export register</button></div></div>
   <div id="companies-list"></div>
 </div>
 
