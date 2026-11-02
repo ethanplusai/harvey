@@ -42,6 +42,7 @@ from harvey.integrations.mail_provider import (
     SendResult,
     looks_like_bounce,
 )
+from harvey.integrations.signature import SignatureError, load_signature, render_html
 
 logger = logging.getLogger("harvey.microsoft")
 
@@ -230,10 +231,16 @@ class MicrosoftProvider(MailProvider):
     ) -> SendResult:
         """Draft, then send, so the RFC Message-ID is known (bounces and
         replies are matched on it). A reply is drafted with createReply on
-        the prospect's message, which sets In-Reply-To/References."""
+        the prospect's message, which sets In-Reply-To/References. With a
+        signature, the body is HTML and the logo is attached inline."""
+        try:
+            sig = load_signature(self.config)
+        except SignatureError as e:
+            return SendResult(ok=False, error=f"signature: {e}"[:300])
         content = {
             "subject": subject,
-            "body": {"contentType": "Text", "content": body},
+            "body": ({"contentType": "HTML", "content": render_html(body, sig)} if sig
+                     else {"contentType": "Text", "content": body}),
             "toRecipients": [{"emailAddress": {"address": to_email}}],
         }
         draft = None
@@ -253,6 +260,15 @@ class MicrosoftProvider(MailProvider):
                     draft = None
             if draft is None:
                 draft = await self._request("POST", "/me/messages", json=content)
+            if sig:
+                await self._request("POST", f"/me/messages/{draft['id']}/attachments", json={
+                    "@odata.type": "#microsoft.graph.fileAttachment",
+                    "name": sig.filename,
+                    "contentType": sig.mime,
+                    "contentBytes": base64.b64encode(sig.data).decode(),
+                    "isInline": True,
+                    "contentId": sig.content_id,
+                })
             await self._request("POST", f"/me/messages/{draft['id']}/send")
         except (GraphError, KeyError) as e:
             if draft and draft.get("id"):
@@ -382,8 +398,8 @@ class MicrosoftProvider(MailProvider):
 def _checked_next_link(link) -> str:
     """Graph's @odata.nextLink, used whole (Microsoft: don't rebuild or
     edit $skip). It gets the bearer token, so it must point back at the
-    inbox listing on Graph itself: https, graph.microsoft.com, the same
-    path, no credentials, no fragment. Anything else raises GraphError."""
+    inbox listing on Graph itself: https, graph.microsoft.com, either
+    spelling of that path, no credentials, no fragment. Anything else raises GraphError."""
     if not isinstance(link, str) or not link:
         raise GraphError("@odata.nextLink is not a URL")
     if any(c in link for c in "#\\") or any(c.isspace() or ord(c) < 32 for c in link):
