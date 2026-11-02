@@ -1995,6 +1995,9 @@ async function sendingToggle(action) {
   loadOutbox();
 }
 
+const COMPANIES_PER_PAGE = 50;
+let _companiesPage = 0;
+
 async function loadCompanies() {
   companyDrill = false;
   const el = document.getElementById('companies-list');
@@ -2007,9 +2010,21 @@ async function loadCompanies() {
       'OpenStreetMap is free and needs no account.');
     return;
   }
-  let html = '<div class="table-card"><table class="nowrap"><thead><tr><th>Company</th><th>Industry</th>' +
-    '<th>Location</th><th>Size</th><th class="num">Contacts</th><th>Source</th><th>Added</th></tr></thead><tbody>';
-  data.forEach((c, i) => {
+  renderCompaniesPage(_companiesPage);
+}
+
+function renderCompaniesPage(page) {
+  const el = document.getElementById('companies-list');
+  const data = _companies;
+  const pages = Math.max(1, Math.ceil(data.length / COMPANIES_PER_PAGE));
+  _companiesPage = Math.min(Math.max(0, page), pages - 1);
+  const start = _companiesPage * COMPANIES_PER_PAGE;
+  let html = '<div class="table-card"><table class="nowrap"><thead><tr><th>Company</th>' +
+    '<th title="Company fit, 0-100: sector, decision maker, reachability, buying signal. Hover a score for why.">Fit</th>' +
+    '<th title="Hover a status for why the company was or wasn\'t contacted">Status</th>' +
+    '<th>Industry</th><th>Location</th><th class="num">Contacts</th><th>Added</th></tr></thead><tbody>';
+  data.slice(start, start + COMPANIES_PER_PAGE).forEach((c, j) => {
+    const i = start + j;
     const website = c.website || (c.domain ? 'https://' + c.domain : '');
     const domain = safeHref(website)
       ? '<a href="' + safeHref(website) + '" target="_blank" rel="noopener noreferrer" onclick="event.stopPropagation()">' +
@@ -2018,15 +2033,70 @@ async function loadCompanies() {
     html += '<tr class="clickable" onclick="showCompanyContacts(' + i + ')">' +
       '<td><div class="cell-stack"><span class="cell-main">' + escHtml(c.name) + '</span>' +
         '<span class="cell-sub">' + domain + '</span></div></td>' +
+      '<td title="' + escHtml((c.fit_reasons || []).join(' · ')) + '">' +
+        (typeof c.fit === 'number' ? meterHtml(c.fit) : '') + '</td>' +
+      '<td title="' + escHtml(c.register_why || '') + '">' + escHtml(c.register_status || '') + '</td>' +
       '<td>' + (c.industry ? '<span class="tag">' + escHtml(c.industry) + '</span>' : '') + '</td>' +
       '<td>' + escHtml(c.location) + '</td>' +
-      '<td class="muted">' + escHtml(c.company_size) + '</td>' +
       '<td class="num">' + (c.contact_count || 0) + '</td>' +
-      '<td class="muted">' + sourceLabel(c.source) + '</td>' +
       '<td class="muted">' + relTime(c.created_at) + '</td></tr>';
   });
+  const pager = pages > 1
+    ? ' &nbsp; <button class="btn btn-ghost btn-sm" ' + (_companiesPage === 0 ? 'disabled ' : '') +
+        'onclick="renderCompaniesPage(' + (_companiesPage - 1) + ')">&larr; Prev</button> ' +
+      'Page ' + (_companiesPage + 1) + ' of ' + pages +
+      ' <button class="btn btn-ghost btn-sm" ' + (_companiesPage >= pages - 1 ? 'disabled ' : '') +
+        'onclick="renderCompaniesPage(' + (_companiesPage + 1) + ')">Next &rarr;</button>'
+    : '';
   el.innerHTML = html + '</tbody></table></div>' +
-    '<div class="table-foot">' + data.length + ' compan' + (data.length === 1 ? 'y' : 'ies') + '</div>';
+    '<div class="table-foot">' + (start + 1) + '–' + Math.min(start + COMPANIES_PER_PAGE, data.length) +
+    ' of ' + data.length + ' compan' + (data.length === 1 ? 'y' : 'ies') + pager + '</div>';
+}
+
+// Basic facts about one company, above its contacts: where it came from,
+// why it fits, what's been done, and what Harvey saw on its own site.
+function companyInfoCard(company, profile) {
+  const c = (profile && profile.company) || company;
+  const reg = (profile && profile.register) || {};
+  const obs = (profile && profile.observations) || [];
+  const link = (url, text) => safeHref(url)
+    ? '<a href="' + safeHref(url) + '" target="_blank" rel="noopener noreferrer">' + escHtml(text || url) + '</a>'
+    : escHtml(text || url || '');
+  const website = c.website || (c.domain ? 'https://' + c.domain : '');
+  const row = (k, v) => v ? '<tr><td class="muted" style="width:170px;vertical-align:top">' + k +
+    '</td><td style="white-space:normal">' + v + '</td></tr>' : '';
+  const latest = {};
+  for (const o of obs) {
+    const key = o.signal_code + '|' + (o.value_text || o.value_num);
+    if (!latest[key] && (o.value_text || o.value_num !== null)) latest[key] = o;
+  }
+  const by = code => Object.values(latest).filter(o => o.signal_code === code);
+  const list = (items, max) => items.slice(0, max).map(o =>
+    (o.evidence_url ? link(o.evidence_url, o.value_text || String(o.value_num)) : escHtml(o.value_text || String(o.value_num)))
+  ).join('<br>');
+  const people = by('DECISION_MAKER_TITLE').length ? by('DECISION_MAKER_TITLE') : by('CONTACT_FOUND');
+  const form = by('CONTACT_FORM_URL')[0];
+  const shown = new Set(['DECISION_MAKER_TITLE', 'CONTACT_FOUND', 'CONTACT_FORM_URL', 'HIRING_ROLE', 'FOUND_IN_SERP', 'TECH_STACK']);
+  const other = Object.values(latest).filter(o => !shown.has(o.signal_code));
+  let html = '<div class="card" style="margin-bottom:16px"><div class="card-head"><h3>' + escHtml(c.name || c.domain) + '</h3>' +
+    '<span class="meta">' + (typeof company.fit === 'number' ? 'Fit ' + company.fit + ' / 100' : '') + '</span></div>' +
+    '<table><tbody>' +
+    row('Website', link(website, c.domain || website)) +
+    row('Sector', escHtml(c.industry)) +
+    row('Area', escHtml(c.location)) +
+    row('Why selected', escHtml(reg.why_selected || (company.fit_reasons || []).join(' · '))) +
+    row('Status', '<b>' + escHtml(reg.status || company.register_status || '') + '</b>' +
+      (reg.why_not_contacted || company.register_why ? ' — ' + escHtml(reg.why_not_contacted || company.register_why) : '')) +
+    row('People named on site', list(people, 8)) +
+    row('Contact form', form ? link(form.value_text, form.value_text) : '') +
+    row('Hiring', list(by('HIRING_ROLE'), 6)) +
+    row('Tech on website', escHtml(by('TECH_STACK').map(o => o.value_text).slice(0, 1).join(''))) +
+    row('Other signals', other.slice(0, 8).map(o => escHtml(o.label) + ': ' +
+      escHtml(o.value_text || String(o.value_num))).join('<br>')) +
+    row('Found via', c.source_url ? link(c.source_url, 'search result') + ' · ' + escHtml(c.source || '') : escHtml(c.source || '')) +
+    row('First found', escHtml((c.created_at || '').slice(0, 10))) +
+    '</tbody></table></div>';
+  return html;
 }
 
 async function showCompanyContacts(index) {
@@ -2034,10 +2104,13 @@ async function showCompanyContacts(index) {
   if (!company) return;
   companyDrill = true;
   const el = document.getElementById('companies-list');
-  const data = await api('/api/companies/' + encodeURIComponent(company.id) + '/contacts');
+  const [data, profile] = await Promise.all([
+    api('/api/companies/' + encodeURIComponent(company.id) + '/contacts'),
+    api('/api/companies/' + encodeURIComponent(company.id) + '/profile'),
+  ]);
   let html = '<button class="btn btn-ghost btn-sm" onclick="loadCompanies()" style="margin-bottom:12px">' +
-    '&larr; All companies</button>' +
-    '<div class="card flush"><div class="card-head"><h3>' + escHtml(company.name) + '</h3>' +
+    '&larr; All companies</button>' + companyInfoCard(company, profile) +
+    '<div class="card flush"><div class="card-head"><h3>Contacts</h3>' +
     '<span class="meta">' + escHtml([company.industry, company.location].filter(Boolean).join(' · ')) + '</span></div>';
   if (!data || !data.length) {
     html += '<div class="empty"><div class="copy">No contacts found at this company yet.</div></div></div>';
