@@ -73,3 +73,23 @@ def test_decision_maker_named_on_site_but_not_a_contact():
     assert "decision maker: Plant Head" in reasons
     assert score == 20 + 30
 
+
+
+def test_a_closed_role_stops_counting():
+    obs = [{"signal_code": "HIRING_ROLE", "value_text": "Store Keeper", "value_num": None,
+            "observed_at": "2026-01-01 10:00"},
+           {"signal_code": "HIRING_ROLE", "value_text": "", "value_num": 0,
+            "observed_at": "2026-02-01 10:00"}]
+    score, reasons = company_fit(ACME, [person()], obs, config())
+    assert "careers page, no matching role" in reasons and score == 20 + 30 + 25 + 5
+
+
+def test_an_opted_out_contact_doesnt_count():
+    score, reasons = company_fit(ACME, [person(state="opted_out")], [], config())
+    assert score == 20 and "no way to reach yet" in reasons
+
+
+def test_a_contact_on_the_do_not_contact_list_doesnt_count():
+    jo = {**person(), "email": "jo@acme.example"}
+    score, _ = company_fit(ACME, [jo], [], config(dnc=["jo@acme.example"]))
+    assert score == 20

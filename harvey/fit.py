@@ -25,7 +25,7 @@ from harvey.gate import do_not_contact_match
 
 SECTOR, DECISION_MAKER, REACHABLE, BUYING = 20, 30, 25, 25
 EMAIL_POINTS = {"verified": 25, "risky": 12, "guess": 5}
-DEAD_STATUSES = {"lost"}
+DEAD_STATUSES = {"lost", "opted_out"}
 
 
 def _hiring_terms(icp) -> list[str]:
@@ -39,6 +39,16 @@ def _role_matches(text: str, terms: list[str]) -> str:
         if re.search(rf"(?<![\w-]){re.escape(term)}(?![\w-])", low):
             return term
     return ""
+
+
+def current_roles(observations: list[dict]) -> list[dict]:
+    """HIRING_ROLE rows still current: those after the latest "board lists
+    nothing relevant" row (num 0, no text), which closes earlier roles."""
+    roles = sorted((o for o in observations if o.get("signal_code") == "HIRING_ROLE"),
+                   key=lambda o: o.get("observed_at") or "")
+    closed = [i for i, o in enumerate(roles)
+              if o.get("value_num") == 0 and not (o.get("value_text") or "").strip()]
+    return roles[closed[-1]:] if closed else roles
 
 
 def company_fit(company: dict, prospects: list[dict], observations: list[dict],
@@ -60,7 +70,10 @@ def company_fit(company: dict, prospects: list[dict], observations: list[dict],
         score += SECTOR
         reasons.append(f"sector: {company['industry']}")
 
-    live = [p for p in prospects if (p.get("status") or "") not in DEAD_STATUSES]
+    # Someone who opted out or is on the list won't be written to: they
+    # don't make the company reachable.
+    live = [p for p in prospects if (p.get("status") or "") not in DEAD_STATUSES
+            and not (dnc and p.get("email") and do_not_contact_match(p["email"], dnc))]
     named = [p for p in live if (p.get("first_name") or "").strip()]
     makers = [p for p in named if icp.titles and title_matches(p.get("title") or "", icp.titles)]
     if not makers:
@@ -93,7 +106,7 @@ def company_fit(company: dict, prospects: list[dict], observations: list[dict],
         reasons.append("no way to reach yet")
 
     terms = _hiring_terms(icp)
-    roles = [o for o in observations if o.get("signal_code") == "HIRING_ROLE"]
+    roles = current_roles(observations)
     hit = next((t for o in roles if (t := _role_matches(o.get("value_text"), terms))), "")
     if hit:
         score += BUYING

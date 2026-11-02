@@ -12,7 +12,7 @@ import csv
 import io
 
 from harvey.config import ComplianceConfig, live_do_not_contact
-from harvey.fit import company_fit
+from harvey.fit import company_fit, current_roles
 from harvey.gate import do_not_contact_match
 
 COLUMNS = [
@@ -45,6 +45,11 @@ def company_status(company: dict, prospects: list[dict], outbox: list[dict],
     domain = (company.get("domain") or "").lower()
     if domain and dnc and do_not_contact_match(f"x@{domain}", dnc):
         return "Excluded", "On your do-not-contact list"
+    listed = [p for p in prospects
+              if dnc and p.get("email") and do_not_contact_match(p["email"], dnc)]
+    if listed and len(listed) == len([p for p in prospects if p.get("email")]):
+        return "Excluded", "Every contact here is on your do-not-contact list"
+    prospects = [p for p in prospects if p not in listed]
     if any(p.get("status") == "opted_out" for p in prospects):
         return "Opted out", "A contact here asked not to be emailed"
 
@@ -58,6 +63,17 @@ def company_status(company: dict, prospects: list[dict], outbox: list[dict],
     if "pending_review" in states:
         return "Draft waiting", "Email written, waiting for your review in the Outbox"
 
+    # The Writer picks up only 'new' contacts. A 'queued' one has had its
+    # drafts staged; with nothing pending (above), they were stopped.
+    if any(p.get("status") == "queued" for p in prospects) and \
+            not any(p.get("status") == "new" for p in prospects):
+        if states & {"rejected", "failed", "cancelled"}:
+            return "Not contacted", "Drafts were rejected or blocked before sending"
+        return "Queued", "Staged for a campaign"
+    if any(p.get("status") == "write_failed" for p in prospects) and \
+            not any(p.get("status") in LIVE for p in prospects):
+        return "Not contacted", ("Harvey couldn't write a draft after several tries; "
+                                 "see the log, and fix the cause to retry")
     live = [p for p in prospects if p.get("status") in LIVE]
     statuses = {(p.get("email_status") or "") for p in live}
     has_form = any(o.get("signal_code") == "CONTACT_FORM_URL" for o in observations)
@@ -96,7 +112,8 @@ async def build_register(query_db, config, company_id: str | None = None) -> lis
         "SELECT p.company_id, o.status, o.send_at FROM outbox o JOIN prospects p ON p.id = o.prospect_id "
         "WHERE 1=1" + one.format(col="p.company_id"), args)
     observations = await query_db(
-        "SELECT company_id, signal_code, value_text FROM observations WHERE signal_code IN "
+        "SELECT company_id, signal_code, value_text, value_num, observed_at FROM observations "
+        "WHERE signal_code IN "
         "('DECISION_MAKER_TITLE', 'CONTACT_FORM_URL', 'HIRING_ROLE')" + one.format(col="company_id"), args)
     by_p: dict[str, list] = {}
     by_o: dict[str, list] = {}
@@ -132,7 +149,8 @@ async def build_register(query_db, config, company_id: str | None = None) -> lis
             "contact_form": next((o.get("value_text") or "" for o in obs
                                   if o.get("signal_code") == "CONTACT_FORM_URL"), ""),
             "hiring": "; ".join(dict.fromkeys(
-                (o.get("value_text") or "")[:60] for o in obs if o.get("signal_code") == "HIRING_ROLE"))[:300],
+                (o.get("value_text") or "")[:60] for o in current_roles(obs)
+                if o.get("value_text")))[:300],
             "found_via": c.get("source_url") or "",
             "first_found": (c.get("created_at") or "")[:10],
         })

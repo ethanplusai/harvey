@@ -88,3 +88,18 @@ def test_register_csv_lists_every_company(client):
     assert lines[0].startswith("company,website,sector,area,fit,why_selected,status")
     assert len(lines) == 4
     assert "Quiet Mill" in resp.text and "Not processed yet" in resp.text
+
+
+def test_best_fit_first_across_more_than_the_page_cap(client, monkeypatch):
+    monkeypatch.setattr(dash, "COMPANIES_TAB_LIMIT", 2)
+    rows = client.get("/api/companies").json()
+    assert [r["id"] for r in rows] == ["c1", "c2"]
+
+
+def test_register_export_failure_is_an_error(client, monkeypatch):
+    import harvey.register as register
+
+    async def broken(*a, **k):
+        raise RuntimeError("boom")
+    monkeypatch.setattr(register, "build_register", broken)
+    assert client.get("/api/export/companies.csv").status_code == 500

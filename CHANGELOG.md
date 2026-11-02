@@ -23,8 +23,10 @@ minor versions can still change behaviour.
   hiring roles, each linked to the page they came from. `harvey companies`
   (or *Export register* on the tab) writes the whole register as a CSV,
   including companies with no contact, so they can be worked another way.
-  The tab now lists the newest 2,000 companies, best fit first and paged 50
-  at a time, instead of the newest 200; the CSV has every company. Nothing is stored: it's all read from the database on request, so it
+  The tab now lists up to 2,000 companies, best fit first and paged 50 at a
+  time, instead of the newest 200; the CSV has every company. A contact who
+  opted out or is on the do-not-contact list doesn't count toward fit, and a
+  role the careers board no longer lists stops counting as hiring. Nothing is stored: it's all read from the database on request, so it
   follows the config.
 
 - **Your own email shape** (`writer.email_rules`). Point it at a markdown file

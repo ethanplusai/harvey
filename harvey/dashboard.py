@@ -518,13 +518,17 @@ async def test_instantly(request: Request):
 # ── Companies ──
 
 
+# The Companies tab shows the best-fit companies, up to this many; the CSV has all.
+COMPANIES_TAB_LIMIT = 2000
+
+
 @app.get("/api/companies")
 async def get_companies():
-    """All companies with contact counts, fit score and register status, best fit first."""
+    """Companies with contact counts, fit score and register status, best fit first."""
     rows = await query_db("""
         SELECT c.*,
             (SELECT COUNT(*) FROM prospects p WHERE p.company_id = c.id) as contact_count
-        FROM companies c ORDER BY c.created_at DESC LIMIT 2000
+        FROM companies c ORDER BY c.created_at DESC
     """)
     try:
         from harvey.config import load_config
@@ -539,7 +543,7 @@ async def get_companies():
     except Exception as e:
         # A config that won't load must not take the Companies tab down with it.
         logger.warning(f"Company fit unavailable: {e}")
-    return rows
+    return rows[:COMPANIES_TAB_LIMIT]
 
 
 @app.get("/api/export/companies.csv")
@@ -551,7 +555,7 @@ async def export_companies():
         text = to_csv(await build_register(query_db, load_config()))
     except Exception as e:
         logger.warning("Company register export failed: %s", e)
-        text = ""
+        return PlainTextResponse(f"Company register export failed: {e}", status_code=500)
     return PlainTextResponse(
         "﻿" + text,
         media_type="text/csv",

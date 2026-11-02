@@ -69,6 +69,24 @@ async def test_register_reads_the_live_do_not_contact_list(monkeypatch):
     assert row["status"] == "Excluded" and row["fit"] == 0
 
 
+@pytest.mark.parametrize("closed", ["rejected", "failed", "cancelled"])
+def test_a_queued_contact_whose_drafts_were_stopped_is_not_ready(closed):
+    status, why = company_status(CO, [p(status="queued")], [{"status": closed}], [], [])
+    assert status == "Not contacted" and "rejected or blocked" in why
+
+
+def test_write_failed_says_so():
+    status, why = company_status(CO, [p(status="write_failed")], [], [], [])
+    assert status == "Not contacted" and "draft" in why.lower() and "not relevant" not in why
+
+
+def test_every_contact_on_the_do_not_contact_list_is_excluded():
+    assert company_status(CO, [p()], [], [], ["nora@acme.example"])[0] == "Excluded"
+    gmail = {**CO, "domain": ""}
+    person = {**p(), "email": "jo@gmail.example"}
+    assert company_status(gmail, [person], [], [], ["gmail.example"])[0] == "Excluded"
+
+
 def test_do_not_contact_is_excluded_first():
     assert company_status(CO, [p()], [{"status": "sent"}], [], ["acme.example"])[0] == "Excluded"
 
