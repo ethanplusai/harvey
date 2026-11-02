@@ -9,6 +9,26 @@ minor versions can still change behaviour.
 
 ### Added
 
+- **Company fit and the company register.** The Companies tab now sorts by a
+  0-100 fit score worked out from what Harvey already holds: the ICP sector
+  match, a contact with a target title, the best email found, and an open
+  role matching `icp.hiring_signals`. Hover a score for the reasons. A Status
+  column says what happened to each company (emailed, replied, opted out,
+  approved, draft waiting, ready) or why nothing was sent (only a risky email, no valid
+  address, nobody named on the site, not processed yet, on the do-not-contact
+  list). A risky (catch-all) email counts as ready when
+  `channels.email.send_to_risky` is on, and the do-not-contact list is read
+  as the sender reads it, so an entry added while Harvey runs shows at once. Clicking a company opens a details card above its contacts: website,
+  sector, area, why it was selected, the people named on its site and the
+  hiring roles, each linked to the page they came from. `harvey companies`
+  (or *Export register* on the tab) writes the whole register as a CSV,
+  including companies with no contact, so they can be worked another way.
+  The tab now lists up to 2,000 companies, best fit first and paged 50 at a
+  time, instead of the newest 200; the CSV has every company. A contact who
+  opted out or is on the do-not-contact list doesn't count toward fit, and a
+  role the careers board no longer lists stops counting as hiring. Nothing is stored: it's all read from the database on request, so it
+  follows the config.
+
 - **Your own email shape** (`writer.email_rules`). Point it at a markdown file
   (`skills/email_rules.md` is gitignored) and its rules replace the Writer's
   built-in shape, which ends every prompt and so beat anything in the skills:
@@ -305,7 +325,14 @@ minor versions can still change behaviour.
   discovery maps Spanish business terms (ferretería, supermercado,
   farmacia, mayorista, contador, panadería, clínica and others) to the tags
   that carry them.
-
+- **Microsoft 365 reads an inbox with more than one page.** Live Graph writes
+  the inbox in OData key form in `@odata.nextLink`
+  (`/me/mailFolders('inbox')/messages`), and the link check accepted only
+  `/me/mailFolders/inbox/messages`. Any mailbox with more than 50 messages in
+  the last 7 days failed every read with "@odata.nextLink rejected: not the
+  Graph inbox listing", so sending was held for good. Both spellings of the
+  same listing are accepted now; every other path is still refused before the
+  token is attached.
 - **Hebrew legal threats and complaints go to you without the model** (from
   #135), and an opt-out that also threatens, in any language, is honored and
   shows on **Needs you** instead of being closed unseen.

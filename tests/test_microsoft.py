@@ -61,7 +61,8 @@ class Graph:
             return httpx.Response(200 if method == "PATCH" else 204, json={} if method == "PATCH" else None)
         if path.endswith("/send"):
             return httpx.Response(202)
-        if path == "/v1.0/me/mailFolders/inbox/messages":
+        if path in ("/v1.0/me/mailFolders/inbox/messages",
+                    "/v1.0/me/mailFolders('inbox')/messages"):
             return self._inbox_page(request)
         return httpx.Response(404, json={"error": {"code": "notFound"}})
 
@@ -88,7 +89,8 @@ class Graph:
                 if r.url.host == "graph.microsoft.com"]
 
     def inbox_requests(self):
-        return [r for r in self.requests if r.url.path.endswith("/inbox/messages")]
+        return [r for r in self.requests
+                if r.url.path.endswith(("/inbox/messages", "('inbox')/messages"))]
 
 
 def message(i, sender="someone@elsewhere.example", body="hello"):
@@ -474,6 +476,33 @@ async def test_hostile_next_link_is_refused_before_any_request(graph, link):
     graph_requests = [r for r in graph.requests if r.url.host == "graph.microsoft.com"]
     assert [r.url.path for r in graph_requests] == [
         "/v1.0/me", "/v1.0/me/mailFolders/inbox/messages"]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("folder", ["mailFolders('inbox')", "mailFolders(%27inbox%27)"])
+async def test_next_link_in_odata_key_form_is_followed(graph, folder):
+    # Live Graph writes the inbox as mailFolders('inbox') in its nextLink.
+    graph.inbox = [message(i) for i in range(60)]
+    graph.pages[1] = {"@odata.nextLink": (
+        f"https://graph.microsoft.com/v1.0/me/{folder}/messages"
+        "?%24select=id&%24top=50&%24skip=50")}
+    replies = await provider(graph).get_replies()
+    assert len(replies) == 60
+    assert len(graph.inbox_requests()) == 2
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("link", [
+    "https://graph.microsoft.com/v1.0/me/mailFolders('sentitems')/messages?%24skip=50",
+    "https://graph.microsoft.com/v1.0/me/mailFolders('inbox')/messages/m1/send?x=1",
+    "https://graph.microsoft.com/v1.0/me/mailFolders('inbox')/messages",
+], ids=["other-folder", "send-path", "no-query"])
+async def test_odata_key_form_still_refuses_other_paths(graph, link):
+    graph.inbox = [message(i) for i in range(60)]
+    graph.pages[1] = {"@odata.nextLink": link}
+    with pytest.raises(GraphError, match="nextLink"):
+        await provider(graph).get_replies()
+    assert len(graph.inbox_requests()) == 1
 
 
 @pytest.mark.asyncio

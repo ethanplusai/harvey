@@ -518,15 +518,73 @@ async def test_instantly(request: Request):
 # ── Companies ──
 
 
+# The Companies tab shows the best-fit companies, up to this many; the CSV has all.
+COMPANIES_TAB_LIMIT = 2000
+
+
 @app.get("/api/companies")
 async def get_companies():
-    """All companies with contact counts."""
+    """Companies with contact counts, fit score and register status, best fit first."""
     rows = await query_db("""
         SELECT c.*,
             (SELECT COUNT(*) FROM prospects p WHERE p.company_id = c.id) as contact_count
-        FROM companies c ORDER BY c.created_at DESC LIMIT 200
+        FROM companies c ORDER BY c.created_at DESC
     """)
-    return rows
+    try:
+        from harvey.config import load_config
+        from harvey.register import build_register
+        register = {r["id"]: r for r in await build_register(query_db, load_config())}
+        for c in rows:
+            r = register.get(c["id"])
+            if r:
+                c["fit"], c["fit_reasons"] = r["fit"], r["fit_reasons"]
+                c["register_status"], c["register_why"] = r["status"], r["why_not_contacted"]
+        rows.sort(key=lambda c: c.get("fit", 0), reverse=True)
+    except Exception as e:
+        # A config that won't load must not take the Companies tab down with it.
+        logger.warning(f"Company fit unavailable: {e}")
+    return rows[:COMPANIES_TAB_LIMIT]
+
+
+@app.get("/api/export/companies.csv")
+async def export_companies():
+    """The company register: every company, why it fits, why it wasn't contacted."""
+    from harvey.config import load_config
+    from harvey.register import build_register, to_csv
+    try:
+        text = to_csv(await build_register(query_db, load_config()))
+    except Exception as e:
+        logger.warning("Company register export failed: %s", e)
+        return PlainTextResponse(f"Company register export failed: {e}", status_code=500)
+    return PlainTextResponse(
+        "﻿" + text,
+        media_type="text/csv",
+        headers={"Content-Disposition": 'attachment; filename="company-register.csv"'},
+    )
+
+
+@app.get("/api/companies/{company_id}/profile")
+async def get_company_profile(company_id: str):
+    """One company's facts for its detail card: the register row plus what
+    Harvey observed on its site (latest value per signal, with the page)."""
+    rows = await query_db("SELECT * FROM companies WHERE id = ?", (company_id,))
+    if not rows:
+        return JSONResponse({"error": "not found"}, status_code=404)
+    observations = await query_db(
+        "SELECT o.signal_code, o.value_text, o.value_num, o.evidence_url, o.observed_at, "
+        "COALESCE(s.label, o.signal_code) AS label FROM observations o "
+        "LEFT JOIN signal_codes s ON s.code = o.signal_code "
+        "WHERE o.company_id = ? AND o.prospect_id = '' ORDER BY o.observed_at DESC LIMIT 200",
+        (company_id,),
+    )
+    register = {}
+    try:
+        from harvey.config import load_config
+        from harvey.register import build_register
+        register = next(iter(await build_register(query_db, load_config(), company_id)), {})
+    except Exception as e:
+        logger.warning(f"Company profile register unavailable: {e}")
+    return {"company": rows[0], "register": register, "observations": observations}
 
 
 @app.get("/api/companies/{company_id}/contacts")
