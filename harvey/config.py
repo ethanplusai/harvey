@@ -433,7 +433,7 @@ _OPT_OUT_WORD_RE = "(?:" + "|".join(
     r"[\s,]+".join(map(re.escape, w.split()))
     for w in OPT_OUT_WORDS + HEBREW_OPT_OUT_WORDS + SPANISH_OPT_OUT_WORDS) + ")"
 _ASKS_FOR_OPT_OUT_RE = re.compile(
-    r"\b(?:reply(?:\s+with)?|responda|responde|respondan|conteste|escriba)"
+    r"\b(?:reply(?:\s+with)?|(?:responda|responde|respondan|conteste|contesta|escriba)(?:\s+con)?)"
     r"\s*[\"'\u201c\u2018]?\s*" + _OPT_OUT_WORD_RE + r"\b", re.IGNORECASE)
 # Reply / answer / write / tell me, then a few words at most ("במייל חוזר").
 _ASKS_FOR_OPT_OUT_HE_RE = re.compile(
@@ -513,7 +513,7 @@ class ComplianceConfig(BaseModel):
         if not (_ASKS_FOR_OPT_OUT_RE.search(v) or _ASKS_FOR_OPT_OUT_HE_RE.search(v)):
             raise ValueError(
                 "opt_out_line must ask for a reply Harvey recognises as an opt-out, "
-                'e.g. Reply "no thanks" / Reply STOP, or in Hebrew השיבו "הסר". Recognised: '
+                'e.g. Reply "no thanks" / Reply STOP, in Hebrew השיבו "הסר", or in Spanish Responda BAJA. Recognised: '
                 + ", ".join(f'"{w}"' for w in OPT_OUT_WORDS + HEBREW_OPT_OUT_WORDS
                             + SPANISH_OPT_OUT_WORDS) + "."
             )

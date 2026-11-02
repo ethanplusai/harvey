@@ -1740,3 +1740,6 @@ async def test_osm_maps_spanish_business_terms():
     assert provider._tags("distribuidora de alimentos") == ["shop=wholesale"]
     assert provider._tags("despacho contable") == ["office=accountant"]
     assert provider._tags("farmacia") == ["amenity=pharmacy"]
+    assert provider._tags("comercio al mayor") == ["shop=wholesale"]
+    assert provider._tags("mayorista") == ["shop=wholesale"]
+    assert provider._tags("mayor's office") == []

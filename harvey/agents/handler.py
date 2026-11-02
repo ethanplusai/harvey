@@ -10,6 +10,7 @@ sending domain while nobody's watching.
 import html
 import logging
 import re
+import unicodedata
 from datetime import datetime, timezone
 
 from harvey.brain import Brain, BrainUnavailable
@@ -58,34 +59,6 @@ NO_COMPANY_STOP_INTENTS = {"ooo", "wrong_person"}
 OPT_OUT_PATTERNS = (
     "unsubscribe",
     "opt out",
-    # Spanish
-    "no, gracias",
-    "no gracias",
-    "dar de baja",
-    "darme de baja",
-    "darnos de baja",
-    "deme de baja",
-    "denme de baja",
-    "no me escriba",
-    "no nos escriba",
-    "no me contacte",
-    "no nos contacte",
-    "dejen de escribir",
-    "deje de escribir",
-    "dejen de enviar",
-    "deje de enviar",
-    "no me envíe",
-    "no me envien",
-    "no me envíen",
-    "sáquenme de",
-    "saquenme de",
-    "elimínenme",
-    "eliminenme",
-    "no me interesa",
-    "no nos interesa",
-    "no estoy interesado",
-    "no estoy interesada",
-    "no estamos interesados",
     "opt-out",
     "remove me",
     "take me off",
@@ -108,13 +81,15 @@ NO_THANKS_RE = re.compile(
 # A reply that says only this (signature aside) is an opt-out ("Reply STOP").
 # "הסר" is the Hebrew one, the word Israeli marketing asks for ("להסרה השיבו הסר").
 BARE_OPT_OUTS = {"stop", "unsubscribe", "remove", "remove me", "opt out",
-                 "no thanks", "no thank you", "baja", "no gracias",
+                 "no thanks", "no thank you", "baja", "no gracias", "de baja", "dar de baja",
+                 "darme de baja",
                  "הסר", "הסירו", "הסירי", "תסיר", "תסירו", "להסיר", "הסרה", "להסרה"}
 # Said around a bare opt-out without changing it ("הסר בבקשה", "הסר, תודה").
-_BARE_COURTESIES = {"בבקשה", "נא", "תודה", "רבה"}
+_BARE_COURTESIES = {"בבקשה", "נא", "תודה", "רבה", "por", "favor", "gracias", "saludos"}
 _MOBILE_SIGNATURE_RE = re.compile(
     r"^[ \t\u200e\u200f]*(?:sent from my \w[^\n]*|get outlook for \w[^\n]*"
-    r"|sent from \w+ mail[^\n]*|נשלח מ[^\n]*|קבל(?:ו)? את outlook[^\n]*)$",
+    r"|sent from \w+ mail[^\n]*|נשלח מ[^\n]*|קבל(?:ו)? את outlook[^\n]*"
+    r"|enviado desde mi \w[^\n]*|obt[eé]n outlook para \w[^\n]*)$",
     re.IGNORECASE | re.MULTILINE)
 
 # Hebrew opt-outs. Each needs a verb aimed at the sender and its object
@@ -188,6 +163,65 @@ HEBREW_NO_THANKS_RE = re.compile(
     r"|(?<!\w)תודה[ \t,.!-]+(?:(?:אבל|אך)[ \t]+)?(?:(?:אני|אנחנו|אנו)[ \t]+)?"
     + _HE_NOT_INTERESTED + _HE_FOR_NOW
     + r"(?=[ \t]*(?:[.!,]|$))")
+# Spanish opt-outs, matched with accents removed. Like the Hebrew ones, each
+# needs the verb aimed at the sender: "dar de baja a nuestro proveedor" is a
+# buying signal, "sáquenme de dudas" a question, "no me escribe" news.
+_ES_US = r"(?:me|nos)"
+_ES_LIST = r"(?:(?:su|sus|la|las|el|los|esta|esa|este|ese|tu|vuestra)\s+)*(?:lista|base|correo|mail|email|envio|registro|contacto|boletin)\w*"
+_ES_MAIL = r"(?:mas|correos?|mails?|emails?|e-mails?|mensajes?|publicidad|nada|informacion|ofertas?)"
+_ES_SAY_END = r"(?=\s*(?:[.!;]|$))"
+SPANISH_OPT_OUT_PATTERNS = (
+    # Take me off.
+    r"(?:darme|darnos|dame|danos|deme|denos|denme|dennos|me\s+den|me\s+de|nos\s+den)\s+de\s+baja",
+    r"dar\s+de\s+baja\s+(?:mi|nuestro|nuestra|este|esta)\s+(?:correo|mail|email|direccion|suscripcion|cuenta)",
+    r"(?:saquen|saque|sacame|saca|quiten|quite|quita|borren|borre|borra|eliminen|elimine|elimina)"
+    + _ES_US + r"(?!\s+(?:de\s+)?(?:\w+\s+)?dudas?(?!\w))",
+    r"(?:sacar|quitar|borrar|eliminar)" + _ES_US + r"\s+de\s+" + _ES_LIST,
+    r"desuscrib\w+|desinscrib\w+|(?:cancelar|anular)\s+(?:mi\s+|la\s+)?suscripcion",
+    # Don't write to / contact me. Subjunctive only: "no me escribe" is news.
+    r"no\s+" + _ES_US + r"\s+(?:escrib(?:a|as|an)|contact(?:e|es|en)|molest(?:e|es|en))(?!\w)",
+    r"no\s+" + _ES_US + r"\s+(?:envi(?:e|es|en)|mand(?:e|es|en))(?!\w)(?:\s+" + _ES_MAIL + r"(?!\w)|" + _ES_SAY_END + ")",
+    r"no\s+" + _ES_US + r"\s+vuelva(?:s|n)?\s+a\s+(?:escribir|contactar|enviar|mandar|molestar)",
+    r"dej(?:e|en|a|ad)\s+de\s+(?:escribir|enviar|mandar|contactar|molestar)(?:me|nos|le|les)?",
+    r"no\s+(?:quiero|queremos|deseo|deseamos)\s+(?:seguir\s+)?recibir\s+(?:(?:mas|sus|estos|estas|ningun|ninguna)\s+)*" + _ES_MAIL,
+    # Not interested, as the whole thought: not "no me interesa el plan anual".
+    r"(?:no\s+" + _ES_US + r"\s+interesan?|no\s+(?:estoy|estamos)\s+interesad[oa]s?)"
+    r"(?:\s+(?:por\s+ahora|por\s+el\s+momento|en\s+este\s+momento|ahora))?"
+    r"(?=\s*(?:[.!;]|$|,(?!\s*(?:pero|aunque|salvo|excepto|a\s+menos|si)(?!\w))))",
+)
+SPANISH_OPT_OUT_RE = re.compile(r"(?<!\w)(?:" + "|".join(SPANISH_OPT_OUT_PATTERNS) + r")(?!\w)")
+# As with Hebrew: the word before it negates or conditions it, or its sentence
+# narrows it to a time or a channel. The model reads those instead.
+_ES_NOT_FINAL_BEFORE = {"no", "si", "porque", "cuando", "aun", "todavia", "como"}
+_ES_NOT_FINAL_AFTER_RE = re.compile(
+    r"(?<!\w)(?:hasta|antes|despues|whatsapp|telefono|llam\w+|mejor)(?!\w)")
+# "No, gracias": one line, as with "no thanks". Not "cómo no, gracias" (of
+# course), "sí o no", "si no", "por qué no", "todavía no", or "no, gracias a usted".
+SPANISH_NO_THANKS_RE = re.compile(
+    r"(?<!\bo )(?<!como )(?<!si )(?<!que )(?<!porque )(?<!todavia )(?<!aun )"
+    r"\bno,?[ \t]+gracias\b(?![ \t]+(?:a|por)\b)")
+
+
+def _no_accents(text: str) -> str:
+    """Accents dropped, for matching Spanish typed with or without them. Only
+    Latin letters: combining marks are what spell Hebrew and others' words."""
+    return "".join(
+        c for c in unicodedata.normalize("NFD", text)
+        if not (unicodedata.combining(c) and ord(c) < 0x370))
+
+
+def _spanish_opt_out(flat: str):
+    """The first Spanish opt-out phrase in accent-free flat text that means it."""
+    for m in SPANISH_OPT_OUT_RE.finditer(flat):
+        before = flat[:m.start()].split()
+        sentence_end = re.search(r"[.!?\n]", flat[m.end():])
+        after = flat[m.end():m.end() + sentence_end.start()] if sentence_end else flat[m.end():]
+        if (before and before[-1].lstrip("¿¡") in _ES_NOT_FINAL_BEFORE) or _ES_NOT_FINAL_AFTER_RE.search(after):
+            continue
+        return m
+    return None
+
+
 # Direction marks a mail client puts around Hebrew, and Hebrew vowel points:
 # they change no word, so they mustn't hide one.
 _INVISIBLE_RE = re.compile(
@@ -269,8 +303,16 @@ def _opt_out_reason(their_text: str, own_words: str) -> dict | None:
     if m:
         return {"rule": "phrase", "matched": m.group(0),
                 "why": f'Their reply contains "{m.group(0)}".'}
+    m = _spanish_opt_out(_no_accents(flat))
+    if m:
+        return {"rule": "phrase", "matched": m.group(0),
+                "why": f'Their reply contains "{m.group(0)}".'}
     for line in their_text.split("\n"):
         line = _flat(line)
+        m = SPANISH_NO_THANKS_RE.search(_no_accents(line))
+        if m:
+            return {"rule": "no_thanks", "matched": m.group(0),
+                    "why": f'Their reply says "{m.group(0)}" (no thanks).'}
         m = NO_THANKS_RE.search(line)
         if m:
             return {"rule": "no_thanks", "matched": m.group(0),
