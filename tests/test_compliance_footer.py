@@ -720,6 +720,17 @@ def test_hebrew_opt_outs_still_caught_after_tightening(reply):
     "No estamos interesados, saludos.", "no estoy interesada",
     "Todavía no me interesa? No. No me interesa.",
     "Les pido que me den de baja.", "Le pido que no me escriba más.",
+    "No me interesa\n\nSaludos\nJuan Pérez", "No estamos interesados\n\nAtte.\nMaría",
+    "No me interesa\nEnviado desde mi iPhone",
+    "Denme de baja\n\nJuan\nTeléfono: +1 555 0100",
+    "Por favor bórrenme de su lista\n--\nAna\nWhatsApp +1 555 0100",
+    "No me escriban más\nJuan\nLlámenos al 555-0100",
+    "No me escriban más, ni me llamen.", "No me interesa, ni ahora ni después.",
+    "No me escriban más, ya se lo dije antes.",
+    "No tengo interés", "No tenemos interés.", "No, muchas gracias",
+    "No vuelvan a escribirme", "Retírenme de su lista", "Eliminen mi correo de su lista",
+    "Por favor eliminar mi correo de su base de datos", "Paren de escribirme", "Basta de correos",
+    "No no me interesa",
 ])
 def test_spanish_opt_outs(reply):
     assert _opt_out_reason(reply, reply) is not None
@@ -744,9 +755,23 @@ def test_spanish_opt_outs(reply):
     "No me des de baja, por favor",
     "Me interesa, ¿cuánto cuesta el plan anual?",
     "La tendencia es a la baja.", "Estoy de baja hasta el lunes.",
+    "Sácame la cotización", "Sáquenme una cita para el jueves", "Quítenme el IVA",
+    "Bórrame el archivo anterior y mándame el nuevo", "Elimíname el cargo duplicado de la factura",
+    "Quítenme de copia, el encargado es Juan.", "Sáquenme de este hilo, lo lleva mi socio.",
+    "No me envíe más de dos opciones.", "No me escriba el lunes, estoy fuera; el martes sí.",
+    "No me escribas a este correo, escríbeme a ventas@acme.example",
+    "No me interesa ahora, escríbeme en enero.",
 ])
 def test_spanish_that_is_not_an_opt_out(reply):
     assert _opt_out_reason(reply, reply) is None
+
+
+def test_a_long_spanish_reply_is_quick():
+    import time
+    text = "no saquenme " * 20000
+    started = time.monotonic()
+    _opt_out_reason(text, text)
+    assert time.monotonic() - started < 2
 
 
 @pytest.mark.asyncio
