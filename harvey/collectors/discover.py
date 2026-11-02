@@ -1094,6 +1094,23 @@ class OpenStreetMap(DiscoveryProvider):
         "attorney": ['office=lawyer'],
         "contractor": ['craft=builder', 'office=construction_company'],
         "landscap": ['craft=gardener', 'shop=garden_centre'],
+        # Spanish terms
+        "ferreter": ['shop=hardware', 'shop=doityourself'],
+        "supermercado": ['shop=supermarket'],
+        "abasto": ['shop=convenience', 'shop=supermarket'],
+        "distribuidora": ['shop=wholesale'],
+        "al mayor": ['shop=wholesale'],
+        "por mayor": ['shop=wholesale'],
+        "mayorista": ['shop=wholesale'],
+        "contad": ['office=accountant'],
+        "contable": ['office=accountant'],
+        "farmacia": ['amenity=pharmacy'],
+        "repuesto": ['shop=car_parts'],
+        "electrodom": ['shop=electronics', 'shop=appliance'],
+        "tienda de ropa": ['shop=clothes'],
+        "panader": ['shop=bakery'],
+        "clinica": ['amenity=clinic'],
+        "clínica": ['amenity=clinic'],
     }
 
     def _tags(self, term: str) -> list[str]:

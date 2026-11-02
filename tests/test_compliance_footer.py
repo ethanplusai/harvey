@@ -660,7 +660,7 @@ def test_opt_out_line_can_ask_in_hebrew():
 
 # ── Review follow-ups ──
 
-from harvey.agents.handler import _opt_out_reason  # noqa: E402
+from harvey.agents.handler import OurText, _opt_out_reason  # noqa: E402
 
 @pytest.mark.parametrize("reply", [
     "למה לא, תודה",                # why not, thanks: they're interested
@@ -703,6 +703,101 @@ def test_hebrew_that_only_looks_like_an_opt_out_is_left_to_the_model(reply):
 ])
 def test_hebrew_opt_outs_still_caught_after_tightening(reply):
     assert _opt_out_reason(reply, reply) is not None
+
+
+# ── Spanish opt-outs ──
+
+@pytest.mark.parametrize("reply", [
+    "No, gracias.", "no gracias", "BAJA", "Baja, por favor", "Darme de baja", "De baja, gracias",
+    "Por favor no me escriba más.", "No me escribas", "no nos contacten", "No me envíes más correos.",
+    "no me envies mas", "No me manden publicidad", "No me vuelvan a escribir.",
+    "Denme de baja de su lista.", "Quiero darme de baja", "Quiero dar de baja mi correo",
+    "Dejen de escribirme.", "Deja de enviar correos.", "Dejen de molestar",
+    "Sáquenme de su lista.", "Quítenme de la lista de correo", "Elimínenme", "Bórrenme de su base de datos",
+    "No quiero recibir más correos.", "No deseamos recibir sus mensajes",
+    "Quiero desuscribirme", "Cancelar mi suscripción",
+    "No me interesa.", "No me interesa, gracias", "No nos interesa por ahora.",
+    "No estamos interesados, saludos.", "no estoy interesada",
+    "Todavía no me interesa? No. No me interesa.",
+    "Les pido que me den de baja.", "Le pido que no me escriba más.",
+    "No me interesa\n\nSaludos\nJuan Pérez", "No estamos interesados\n\nAtte.\nMaría",
+    "No me interesa\nEnviado desde mi iPhone",
+    "Denme de baja\n\nJuan\nTeléfono: +1 555 0100",
+    "Por favor bórrenme de su lista\n--\nAna\nWhatsApp +1 555 0100",
+    "No me escriban más\nJuan\nLlámenos al 555-0100",
+    "No me escriban más, ni me llamen.", "No me interesa, ni ahora ni después.",
+    "No me escriban más, ya se lo dije antes.",
+    "No tengo interés", "No tenemos interés.", "No, muchas gracias",
+    "No vuelvan a escribirme", "Retírenme de su lista", "Eliminen mi correo de su lista",
+    "Por favor eliminar mi correo de su base de datos", "Paren de escribirme", "Basta de correos",
+    "No no me interesa",
+])
+def test_spanish_opt_outs(reply):
+    assert _opt_out_reason(reply, reply) is not None
+
+
+@pytest.mark.parametrize("reply", [
+    "¡Cómo no, gracias!", "Sí o no, gracias", "Todavía no, gracias", "¿Por qué no? Gracias",
+    "No, gracias a usted por escribir", "Si no, gracias de todos modos",
+    "Queremos dar de baja a nuestro proveedor actual, ¿qué ofrecen?",
+    "Hay que dar de baja una línea",
+    "No me interesa el plan anual, pero sí el mensual.",
+    "No me interesa, pero el otro plan sí.",
+    "Si no me interesa, ¿puedo cancelar?",
+    "¿Y si no me interesa?",
+    "No estoy interesado en el plan grande, ¿tienen uno menor?",
+    "No me escriba hasta enero.", "No me escriba por aquí, mejor por WhatsApp.",
+    "No me envíe la propuesta por correo, llámeme.",
+    "Todavía no me envíen nada hasta que hablemos",
+    "¿Por qué no me escriben?", "Pablo no me escribe desde mayo.",
+    "Sáquenme de dudas: ¿cuánto cuesta?", "Sáqueme de una duda",
+    "Si dejan de enviar la factura, avíseme.",
+    "No me des de baja, por favor",
+    "Me interesa, ¿cuánto cuesta el plan anual?",
+    "La tendencia es a la baja.", "Estoy de baja hasta el lunes.",
+    "Sácame la cotización", "Sáquenme una cita para el jueves", "Quítenme el IVA",
+    "Bórrame el archivo anterior y mándame el nuevo", "Elimíname el cargo duplicado de la factura",
+    "Quítenme de copia, el encargado es Juan.", "Sáquenme de este hilo, lo lleva mi socio.",
+    "No me envíe más de dos opciones.", "No me escriba el lunes, estoy fuera; el martes sí.",
+    "No me escribas a este correo, escríbeme a ventas@acme.example",
+    "No me interesa ahora, escríbeme en enero.",
+])
+def test_spanish_that_is_not_an_opt_out(reply):
+    assert _opt_out_reason(reply, reply) is None
+
+
+def test_a_long_spanish_reply_is_quick():
+    import time
+    text = "no saquenme " * 20000
+    started = time.monotonic()
+    _opt_out_reason(text, text)
+    assert time.monotonic() - started < 2
+
+
+@pytest.mark.asyncio
+async def test_a_spanish_opt_out_reaches_the_handler(state):
+    status, _ = await _reply(state, "No, gracias.")
+    assert status == "opted_out"
+
+
+def test_spanish_mobile_signature_doesnt_hide_a_bare_opt_out():
+    reply = "BAJA\n\nEnviado desde mi iPhone"
+    assert _opt_out_reason(reply, reply)["rule"] == "only_words"
+
+
+def test_our_own_spanish_footer_quoted_back_is_not_an_opt_out():
+    line = '¿No le interesa? Responda "no, gracias" y no volveré a escribirle.'
+    ours = OurText([line])
+    their = ours.remove(f"Me interesa, ¿cuánto cuesta?\n> {line}")
+    assert _opt_out_reason(their, "Me interesa, ¿cuánto cuesta?") is None
+
+
+def test_spanish_opt_out_lines_are_accepted():
+    for line in ('¿No le interesa? Responda "no, gracias" y no volveré a escribirle.',
+                 "Para no recibir más correos, responda BAJA.",
+                 'Si prefiere no recibir más, conteste "baja".',
+                 "Si no quiere más correos, responda con BAJA."):
+        assert ComplianceConfig(opt_out_line=line).opt_out_line == line
 
 
 # ── Hebrew escalation ──

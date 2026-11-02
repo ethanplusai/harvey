@@ -312,6 +312,19 @@ minor versions can still change behaviour.
 
 ### Fixed
 
+- **Spanish opt-outs are caught without the model** (from #154). "No,
+  gracias", a bare "BAJA", "denme de baja", "no me escriba más", "dejen de
+  enviarme correos", "sáquenme de su lista", "no quiero recibir más correos"
+  and "no me interesa" as a whole answer are honored by rule, with or
+  without accents. Each needs the verb aimed at the sender, so "¡cómo no,
+  gracias!", "queremos dar de baja a nuestro proveedor", "sáquenme de dudas",
+  "no me interesa el plan anual, pero sí el mensual" and "no me escriba
+  hasta enero" go to the model instead. A Spanish `compliance.opt_out_line`
+  (`Responda BAJA`, `Responda "no, gracias"`) now passes validation, and
+  "Enviado desde mi iPhone" no longer hides a bare "BAJA". OpenStreetMap
+  discovery maps Spanish business terms (ferretería, supermercado,
+  farmacia, mayorista, contador, panadería, clínica and others) to the tags
+  that carry them.
 - **Microsoft 365 reads an inbox with more than one page.** Live Graph writes
   the inbox in OData key form in `@odata.nextLink`
   (`/me/mailFolders('inbox')/messages`), and the link check accepted only

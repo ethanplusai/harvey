@@ -1731,3 +1731,15 @@ async def test_scavio_maps_resolves_coordinates_in_run(state, config, register, 
 @pytest.mark.parametrize("coordinate", ["nan,0,40", "0,inf,40", "91,0,40", "0,181,40", "bad,0,40"])
 def test_scavio_invalid_map_centers_fall_back_to_place_name(coordinate):
     assert D.ScavioMaps.map_center(coordinate) == ""
+
+
+@pytest.mark.asyncio
+async def test_osm_maps_spanish_business_terms():
+    provider = D.OpenStreetMap()
+    assert provider._tags("ferretería") == ["shop=hardware", "shop=doityourself"]
+    assert provider._tags("distribuidora de alimentos") == ["shop=wholesale"]
+    assert provider._tags("despacho contable") == ["office=accountant"]
+    assert provider._tags("farmacia") == ["amenity=pharmacy"]
+    assert provider._tags("comercio al mayor") == ["shop=wholesale"]
+    assert provider._tags("mayorista") == ["shop=wholesale"]
+    assert provider._tags("mayor's office") == []
