@@ -204,6 +204,47 @@ def operator_timezone(config) -> str:
     return getattr(quiet, "timezone", "") or "UTC"
 
 
+class SignatureConfig(BaseModel):
+    """A logo under every email (see harvey/integrations/signature.py).
+
+    Empty ``logo``: no signature, and email goes out as plain text, as
+    before. Gmail, Microsoft and SMTP only.
+    """
+
+    logo: str = ""            # PNG, JPEG or GIF; relative to the project folder, or absolute
+    width: int = 120          # display width in pixels
+    alt: str = ""             # shown when images are off; empty → persona.company
+    link: str = ""            # optional https:// address the logo opens
+    direction: str = "auto"   # "rtl" for Hebrew or Arabic email, "ltr", or "auto"
+
+    @field_validator("logo", "alt", "link", mode="before")
+    @classmethod
+    def _blank_is_empty(cls, v):
+        return "" if v is None else str(v).strip()
+
+    @field_validator("width")
+    @classmethod
+    def _sane_width(cls, v: int) -> int:
+        if not 16 <= v <= 600:
+            raise ValueError("signature.width must be between 16 and 600 pixels.")
+        return v
+
+    @field_validator("link")
+    @classmethod
+    def _web_link(cls, v: str) -> str:
+        if v and not re.match(r"https?://[^\s\"<>]+$", v):
+            raise ValueError(f"signature.link '{v}' must be a web address (https://...).")
+        return v
+
+    @field_validator("direction", mode="before")
+    @classmethod
+    def _known_direction(cls, v):
+        v = (str(v) if v is not None else "auto").strip().lower() or "auto"
+        if v not in ("auto", "rtl", "ltr"):
+            raise ValueError("signature.direction must be rtl, ltr or auto.")
+        return v
+
+
 class EmailChannelConfig(BaseModel):
     enabled: bool = True
     # "instantly" (legacy), "gmail" (Gmail/Workspace via API — recommended),
@@ -233,11 +274,18 @@ class EmailChannelConfig(BaseModel):
     # zone (see SendWindowConfig). None: no window, as before. Native
     # providers only; Instantly schedules its own sends.
     send_window: SendWindowConfig | None = None
+    # A logo under every email (see SignatureConfig). Native providers only.
+    signature: SignatureConfig = SignatureConfig()
 
     @field_validator("warmup", mode="before")
     @classmethod
     def _blank_warmup(cls, v):
         return WarmupConfig() if v is None else v
+
+    @field_validator("signature", mode="before")
+    @classmethod
+    def _blank_signature(cls, v):
+        return SignatureConfig() if v is None else v
 
     @field_validator("max_daily_sends")
     @classmethod
