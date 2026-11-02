@@ -75,7 +75,7 @@ def test_profile_has_register_row_and_observations(client):
     data = client.get("/api/companies/c1/profile").json()
     assert data["company"]["domain"] == "acme.example"
     assert data["register"]["status"] == "Ready"
-    assert data["register"]["why_selected"].startswith('Search "forging company Springfield"')
+    assert data["register"]["why_selected"].startswith("Found via discover:test; sector: forging company")
     assert [o["signal_code"] for o in data["observations"]] == ["HIRING_ROLE"]
     assert client.get("/api/companies/nope/profile").status_code == 404
 

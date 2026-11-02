@@ -7,7 +7,8 @@ import pytest
 from harvey.register import build_register, company_status, to_csv
 
 CO = {"id": "c1", "name": "Acme Forge", "domain": "acme.example", "industry": "forging company",
-      "location": "Springfield", "website": "https://acme.example", "created_at": "2026-01-02 10:00"}
+      "location": "Springfield", "website": "https://acme.example", "created_at": "2026-01-02 10:00",
+      "source": "osm"}
 
 
 def p(email_status="verified", status="new", first="Nora", title="Managing Director"):
@@ -38,6 +39,36 @@ def test_reasons_say_why_nothing_went_out():
     assert company_status(CO, [], [], [], [])[0] == "Not processed yet"
 
 
+def test_risky_is_ready_when_you_send_to_risky():
+    assert company_status(CO, [p("risky")], [], [], [], send_to_risky=True)[0] == "Ready"
+    assert company_status(CO, [p("risky")], [], [], [])[0] == "Not contacted"
+
+
+def test_an_opt_out_is_not_shown_as_emailed():
+    status, why = company_status(CO, [p(status="opted_out")], [{"status": "sent"}], [], [])
+    assert status == "Opted out" and "asked not to be emailed" in why
+
+
+def test_do_not_contact_says_only_what_it_knows():
+    assert company_status(CO, [], [], [], ["acme.example"])[1] == "On your do-not-contact list"
+
+
+@pytest.mark.asyncio
+async def test_register_reads_the_live_do_not_contact_list(monkeypatch):
+    import harvey.register as register
+    monkeypatch.setattr(register, "live_do_not_contact", lambda config: ["acme.example"])
+    from harvey.config import ComplianceConfig
+    config = SimpleNamespace(
+        icp=SimpleNamespace(industries=[], titles=[], hiring_signals=[]),
+        compliance=ComplianceConfig())
+
+    async def query_db(sql, params=()):
+        return [CO] if "FROM companies" in sql else []
+
+    row = (await build_register(query_db, config))[0]
+    assert row["status"] == "Excluded" and row["fit"] == 0
+
+
 def test_do_not_contact_is_excluded_first():
     assert company_status(CO, [p()], [{"status": "sent"}], [], ["acme.example"])[0] == "Excluded"
 
@@ -58,7 +89,7 @@ async def test_register_keeps_companies_without_contacts_and_is_spreadsheet_safe
 
     rows = await build_register(query_db, config)
     assert [r["company"] for r in rows] == ["Acme Forge", "=HYPERLINK(\"x\")"]  # best fit first
-    assert rows[0]["why_selected"].startswith('Search "forging company Springfield"')
+    assert rows[0]["why_selected"].startswith("Found via osm; sector: forging company")
     assert rows[1]["status"] == "Not processed yet" and rows[1]["website"] == "https://beta.example"
     assert "'=HYPERLINK" in to_csv(rows)
 

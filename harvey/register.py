@@ -11,6 +11,7 @@ from __future__ import annotations
 import csv
 import io
 
+from harvey.config import ComplianceConfig, live_do_not_contact
 from harvey.fit import company_fit
 from harvey.gate import do_not_contact_match
 
@@ -37,12 +38,15 @@ def _contacts(prospects: list[dict]) -> str:
 
 
 def company_status(company: dict, prospects: list[dict], outbox: list[dict],
-                   observations: list[dict], dnc: list[str]) -> tuple[str, str]:
+                   observations: list[dict], dnc: list[str],
+                   send_to_risky: bool = False) -> tuple[str, str]:
     """(status, why) for one company. ``why`` says why nothing went out, or
-    what happens next."""
+    what happens next. ``send_to_risky`` is channels.email.send_to_risky."""
     domain = (company.get("domain") or "").lower()
     if domain and dnc and do_not_contact_match(f"x@{domain}", dnc):
-        return "Excluded", "On your do-not-contact list (directory, news site, or chosen by you)"
+        return "Excluded", "On your do-not-contact list"
+    if any(p.get("status") == "opted_out" for p in prospects):
+        return "Opted out", "A contact here asked not to be emailed"
 
     states = {o.get("status") for o in outbox}
     if "sent" in states or any(p.get("status") in DONE for p in prospects):
@@ -58,8 +62,8 @@ def company_status(company: dict, prospects: list[dict], outbox: list[dict],
     statuses = {(p.get("email_status") or "") for p in live}
     has_form = any(o.get("signal_code") == "CONTACT_FORM_URL" for o in observations)
     form = " Contact form available." if has_form else ""
-    if "verified" in statuses:
-        return "Ready", "Verified email found; Harvey will write to it on a coming cycle"
+    if "verified" in statuses or (send_to_risky and "risky" in statuses):
+        return "Ready", "Deliverable email found; Harvey will write to it on a coming cycle"
     if "risky" in statuses:
         return "Not contacted", ("Only a risky (catch-all) email, which your rules don't send to. "
                                  "Try phone, LinkedIn or the cold-email domain later." + form)
@@ -101,15 +105,17 @@ async def build_register(query_db, config, company_id: str | None = None) -> lis
         for r in rows:
             by.setdefault(r["company_id"], []).append(r)
 
-    dnc = list(getattr(getattr(config, "compliance", None), "do_not_contact", None) or [])
+    dnc = _do_not_contact(config)
+    channels = getattr(config, "channels", None)
+    send_to_risky = bool(getattr(getattr(channels, "email", None), "send_to_risky", False))
     rows = []
     for c in companies:
         cid = c["id"]
         ps, obs = by_p.get(cid, []), by_obs.get(cid, [])
-        fit, reasons = company_fit(c, ps, obs, config)
-        status, why = company_status(c, ps, by_o.get(cid, []), obs, dnc)
+        fit, reasons = company_fit(c, ps, obs, config, dnc)
+        status, why = company_status(c, ps, by_o.get(cid, []), obs, dnc, send_to_risky)
         sector, area = c.get("industry") or "", c.get("location") or ""
-        found = f'Search "{sector} {area}"'.strip() if sector else (c.get("source") or "")
+        found = f"Found via {c['source']}" if c.get("source") else ""
         rows.append({
             # id and fit_reasons are for the dashboard; the CSV leaves them out.
             "id": cid,
@@ -119,7 +125,7 @@ async def build_register(query_db, config, company_id: str | None = None) -> lis
             "sector": sector,
             "area": area,
             "fit": fit,
-            "why_selected": f"{found}; " + " · ".join(reasons) if reasons else found,
+            "why_selected": "; ".join(x for x in (found, " · ".join(reasons)) if x),
             "status": status,
             "why_not_contacted": why,
             "contacts": _contacts(ps),
@@ -132,6 +138,18 @@ async def build_register(query_db, config, company_id: str | None = None) -> lis
         })
     rows.sort(key=lambda r: r["fit"], reverse=True)
     return rows
+
+
+def _do_not_contact(config) -> list[str]:
+    """The do-not-contact list as the config file says it is now, as the
+    sender reads it, so an entry added while Harvey runs shows at once."""
+    compliance = getattr(config, "compliance", None)
+    if isinstance(compliance, ComplianceConfig):
+        try:
+            return list(live_do_not_contact(config) or [])
+        except Exception:
+            pass
+    return list(getattr(compliance, "do_not_contact", None) or [])
 
 
 def sqlite_query(db_path):

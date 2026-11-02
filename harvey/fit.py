@@ -42,12 +42,13 @@ def _role_matches(text: str, terms: list[str]) -> str:
 
 
 def company_fit(company: dict, prospects: list[dict], observations: list[dict],
-                config) -> tuple[int, list[str]]:
+                config, dnc: list[str] | None = None) -> tuple[int, list[str]]:
     """(score, reasons) for one company. ``prospects`` and ``observations``
-    are that company's rows, as dicts."""
+    are that company's rows, as dicts. ``dnc`` is the do-not-contact list
+    (default: the config's)."""
     icp = config.icp
-    compliance = getattr(config, "compliance", None)
-    dnc = getattr(compliance, "do_not_contact", None) or []
+    if dnc is None:
+        dnc = getattr(getattr(config, "compliance", None), "do_not_contact", None) or []
     domain = (company.get("domain") or "").lower()
     if domain and dnc and do_not_contact_match(f"x@{domain}", dnc):
         return 0, ["on the do-not-contact list"]
