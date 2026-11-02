@@ -2315,13 +2315,18 @@ CATEGORY_META = {
     "discovery": {
         "label": "Discovery — who exists",
         "blurb": "How Harvey finds businesses at all, and how visible they are. "
-                 "This is the only stage that costs money.",
+                 "Paid, like the Reputation signals.",
     },
     "profile": {
         "label": "Profile — what they are",
         "blurb": "Read from the pages a business already publishes. Free, no AI "
                  "tokens, three HTTP requests per company. These are the signals "
                  "that make an email specific.",
+    },
+    "reputation": {
+        "label": "Reputation — what their customers say",
+        "blurb": "Read from a business's newest Google reviews. Paid, and only "
+                 "collected when you run `harvey reviews`, under a cap.",
     },
     "people": {
         "label": "People — who decides",
@@ -2333,7 +2338,7 @@ CATEGORY_META = {
                  "it won't.",
     },
 }
-CATEGORY_ORDER = ["discovery", "profile", "people", "verification"]
+CATEGORY_ORDER = ["discovery", "profile", "reputation", "people", "verification"]
 
 
 @app.get("/api/signals")

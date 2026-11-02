@@ -519,6 +519,12 @@ MIGRATIONS: list[str] = [
     -- knows about the recipient. Empty until then.
     ALTER TABLE prospects ADD COLUMN timezone TEXT DEFAULT '';
     """,
+    # ── v15: when a company's Google reviews were last bought ──
+    """
+    -- Set on every paid read, including one that recorded nothing, so a
+    -- reviews run rotates through the list instead of paying twice.
+    ALTER TABLE companies ADD COLUMN reviews_checked_at TIMESTAMP DEFAULT NULL;
+    """,
 ]
 
 BRAIN_PROVIDERS = ("claude", "codex")
@@ -1908,6 +1914,39 @@ class StateManager:
             ) as cursor:
                 row = await cursor.fetchone()
                 return row[0] if row else 0
+
+    # Only a business discovered from a Google Maps listing carries a place
+    # reference (see harvey.collectors.reviews.place_ref).
+    _HAS_PLACE = ("(c.external_id LIKE 'gmaps:%' OR c.external_id LIKE 'dataforseo:%')")
+
+    async def companies_needing_reviews(
+        self, limit: int = 50, stale_days: int = 90
+    ) -> list[dict]:
+        """Companies a reviews run should read next: never read, or read
+        longer ago than ``stale_days``, never-read first."""
+        async with self._connect() as db:
+            db.row_factory = aiosqlite.Row
+            async with db.execute(
+                f"""SELECT c.id, c.name, c.external_id
+                   FROM companies c
+                   WHERE {self._HAS_PLACE}
+                     AND (c.reviews_checked_at IS NULL
+                          OR c.reviews_checked_at < datetime('now', ?))
+                   ORDER BY c.reviews_checked_at IS NOT NULL, c.reviews_checked_at
+                   LIMIT ?""",
+                (f"-{int(stale_days)} days", int(limit)),
+            ) as cursor:
+                return [dict(r) for r in await cursor.fetchall()]
+
+    async def mark_company_reviews_checked(self, company_id: str):
+        """Record that a reviews run paid for this company's reviews."""
+        async with self._connect() as db:
+            await db.execute(
+                """UPDATE companies SET reviews_checked_at = CURRENT_TIMESTAMP,
+                       updated_at = CURRENT_TIMESTAMP WHERE id = ?""",
+                (company_id,),
+            )
+            await db.commit()
 
     async def mark_company_profiled(self, company_id: str):
         """Record that a profile pass looked at this company, whether or

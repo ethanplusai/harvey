@@ -14,7 +14,7 @@ column. A new signal needs no migration, history comes free, and confidence
 and provenance travel with the fact.
 """
 
-# category: discovery | profile | people | verification
+# category: discovery | profile | reputation | people | verification
 # value_type: num | text | bool
 # cost_note: what collecting it actually costs, in plain language
 SIGNAL_CATALOG: list[dict] = [
@@ -295,6 +295,82 @@ SIGNAL_CATALOG: list[dict] = [
         "value_type": "num",
         "collector": "profile",
         "cost_note": "free (public job-board feed, one request)",
+        "confidence_floor": 0.0,
+    },
+
+    # ── Reputation: what their customers say (paid, `harvey reviews`) ──
+    # Read from the newest Google reviews of a business found on Google Maps.
+    # Never on the heartbeat: a reviews run is started by hand, under a cap.
+    {
+        "code": "REVIEW_REPLY_RATE",
+        "label": "Replies to Google reviews",
+        "description": (
+            "How many of their newest Google reviews (up to 20) have a reply "
+            "from the business, as a percentage, with the count kept beside "
+            "it. A business that never answers isn't managing its reputation; "
+            "one that answers every review already is."
+        ),
+        "category": "reputation",
+        "value_type": "num",
+        "collector": "reviews",
+        "cost_note": "1 reviews credit per business (~$0.01), shared by every reputation signal",
+        "confidence_floor": 0.0,
+    },
+    {
+        "code": "LAST_REVIEW_DAYS",
+        "label": "Days since the last Google review",
+        "description": (
+            "How long ago their newest Google review was posted or last "
+            "edited. Months of silence on a busy listing means nobody is "
+            "asking customers for reviews."
+        ),
+        "category": "reputation",
+        "value_type": "num",
+        "collector": "reviews",
+        "cost_note": "1 reviews credit per business (~$0.01), shared by every reputation signal",
+        "confidence_floor": 0.0,
+    },
+    {
+        "code": "NEW_REVIEWS_90D",
+        "label": "New Google reviews in 90 days",
+        "description": (
+            "How many of their newest Google reviews arrived in the last 90 "
+            "days. Read from one page of 20, so a busy listing is recorded "
+            "as \"at least 20\" rather than its true count."
+        ),
+        "category": "reputation",
+        "value_type": "num",
+        "collector": "reviews",
+        "cost_note": "1 reviews credit per business (~$0.01), shared by every reputation signal",
+        "confidence_floor": 0.0,
+    },
+    {
+        "code": "RECENT_BAD_REVIEW",
+        "label": "Recent 1-2 star review",
+        "description": (
+            "A 1- or 2-star Google review in the last 6 months, among their "
+            "newest, and whether the business replied. Only the stars, the "
+            "date and the reply are kept, never the text or the reviewer, so "
+            "an email can mention it but never quote it."
+        ),
+        "category": "reputation",
+        "value_type": "bool",
+        "collector": "reviews",
+        "cost_note": "1 reviews credit per business (~$0.01), shared by every reputation signal",
+        "confidence_floor": 0.0,
+    },
+    {
+        "code": "REVIEW_TOPICS",
+        "label": "What reviews talk about",
+        "description": (
+            "The topics Google picks out of all their reviews, with how many "
+            "mention each (\"insurance claims (125)\"). Tells you what the "
+            "business is known for, in its customers' words."
+        ),
+        "category": "reputation",
+        "value_type": "text",
+        "collector": "reviews",
+        "cost_note": "1 reviews credit per business (~$0.01), shared by every reputation signal",
         "confidence_floor": 0.0,
     },
 

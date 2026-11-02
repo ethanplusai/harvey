@@ -705,6 +705,53 @@ def cmd_discover(args):
     asyncio.run(_discover())
 
 
+def cmd_reviews(args):
+    """Read the newest Google reviews of businesses found on Google Maps.
+    Paid, so it estimates first and stops at a cap."""
+    from harvey.state import StateManager
+    from harvey.collectors.reviews import REVIEW_PROVIDERS, run_reviews
+
+    async def _reviews():
+        state = StateManager()
+        await state.init_db()
+        provider = REVIEW_PROVIDERS[args.provider]
+        report = await run_reviews(state, args.provider, limit=args.limit,
+                                   max_spend=args.max_spend,
+                                   stale_days=args.stale_days, dry_run=True)
+        if not report.companies:
+            print("\n  Nothing to read. Reviews need a business found on Google Maps "
+                  "(scavio_maps, dataforseo or dataforseo_maps), and every one has "
+                  "been read recently.\n")
+            return
+        print(f"\n  {report.companies} businesses via {provider.label}")
+        print(f"  Estimated cost: ${report.estimated_cost:.4f}   (cap: ${args.max_spend:.2f})")
+        print(f"  {provider.cost_note}")
+        if args.estimate:
+            print("\n  Estimate only. Re-run without --estimate to collect.\n")
+            return
+
+        print("\n  Reading...\n")
+        report = await run_reviews(state, args.provider, limit=args.limit,
+                                   max_spend=args.max_spend, stale_days=args.stale_days)
+        print(f"  REVIEWS — {report.read} businesses read, "
+              f"{report.observations} observations")
+        if report.partial:
+            print(f"    {report.partial} answered without their newest reviews "
+                  f"(nothing recorded)")
+        if report.failed:
+            print(f"    {report.failed} failed")
+        print(f"    actual cost: ${report.actual_cost:.4f}")
+        if report.stopped:
+            print(f"    stopped early: {report.stopped}")
+        for err in report.errors[:5]:
+            print(f"    ! {err}")
+        if report.stopped in ("not configured", "over budget", "no confirmed signals"):
+            raise SystemExit(1)
+        print("\n  See what turned up: harvey dashboard → Signals\n")
+
+    asyncio.run(_reviews())
+
+
 def cmd_signals(args):
     """Review the signal vocabulary — Harvey proposes, you confirm.
 
@@ -1111,6 +1158,20 @@ def main():
     sub.add_argument("--stale-days", type=int, default=90,
                      help="Re-read a site after this many days (default: 90)")
     sub.set_defaults(func=cmd_profile)
+
+    sub = subparsers.add_parser(
+        "reviews", help="Read Google reviews of businesses found on Maps (paid)")
+    sub.add_argument("--provider", default="scavio", choices=["scavio"],
+                     help="Reviews provider (default: scavio — SCAVIO_API_KEY)")
+    sub.add_argument("--estimate", action="store_true",
+                     help="Print projected spend and exit without calling anything")
+    sub.add_argument("--limit", type=int, default=50,
+                     help="Max businesses to read (default: 50)")
+    sub.add_argument("--max-spend", type=float, default=1.0,
+                     help="Hard cap in dollars (default: 1.00)")
+    sub.add_argument("--stale-days", type=int, default=90,
+                     help="Re-read a business after this many days (default: 90)")
+    sub.set_defaults(func=cmd_reviews)
 
     sub = subparsers.add_parser(
         "signals", help="Review/confirm which signals Harvey prospects against")

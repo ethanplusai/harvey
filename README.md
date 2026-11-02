@@ -200,7 +200,7 @@ you need the Codex provider.
 
 This is the part that makes Harvey different from a black box, and it is deliberately not skippable.
 
-Harvey knows how to collect **29 signals** about a business. It does not collect any of them until you say so. On first run it *proposes* the catalog; you confirm, skip, or reject each one in the dashboard or from the terminal:
+Harvey knows how to collect **34 signals** about a business. It does not collect any of them until you say so. On first run it *proposes* the catalog; you confirm, skip, or reject each one in the dashboard or from the terminal:
 
 ```bash
 harvey signals                       # review the catalog
@@ -217,6 +217,10 @@ Every signal shows what it is in plain language, **what it costs**, and how many
 | | `NO_WEBSITE` | They have a listing and a phone and no site. If you sell websites, the highest-intent signal that exists. |
 | | `UNCLAIMED_LISTING` | Nobody has claimed their Google Business Profile. |
 | | `REVIEW_RATING` / `REVIEW_COUNT` | Good but invisible, or visible but struggling. |
+| **Reputation** | `REVIEW_REPLY_RATE` | How many of their newest Google reviews the business answered. Nobody replying means nobody is managing it. |
+| | `LAST_REVIEW_DAYS` / `NEW_REVIEWS_90D` | When the last review came in, and how many arrived in 90 days: whether anyone is asking customers for reviews. |
+| | `RECENT_BAD_REVIEW` | A 1-2 star review in the last 6 months, and whether they replied. Stars, date and reply only, never the text. |
+| | `REVIEW_TOPICS` | What customers talk about most, by Google's count. |
 | **Profile** | `INCUMBENT_AGENCY` | Who currently has the account, credited in their own footer. Every detection builds a roster you can target as a whole book of business. |
 | | `RUNNING_GOOGLE_ADS` / `RUNNING_META_ADS` | They are spending on acquisition *today*. The strongest budget signal available for free. |
 | | `NO_ONLINE_BOOKING` | Leads have to phone in, so after-hours demand is lost. |
@@ -247,7 +251,7 @@ Four stages. Each one runs independently, re-runs safely, and states its cost.
 
 ### 1. DISCOVER — who exists
 
-The only stage that spends money, so it always estimates first and never calls anything until you press go.
+The main stage that spends money (reading reviews, below, is the other), so it always estimates first and never calls anything until you press go.
 
 ```bash
 harvey discover --providers   # the menu, with real prices
@@ -263,7 +267,7 @@ harvey discover               # go
 | **DataForSEO SERP** | $0.006 / search at depth 30 (Live, $0.002 per 10 results) | $1 credit + free sandbox | Organic rank as the buying signal, plus who holds the local 3-pack, searched from the city centre. |
 | **DataForSEO Google Maps** | $0.002 / search (up to 100 results) | $1 credit + free sandbox | Map rank, rating, category and claimed status, including businesses with no website. |
 | **Serper** | ~$0.30–1.00 / 1,000 | 2,500 free, no card | The easiest paid one to try. |
-| **Scavio Google Maps** | $0.01 / page (up to 20 listings) | 50 credits, no card | Google Maps listings around each city: phone, website, category, rating and reviews, including businesses with no website. |
+| **Scavio Google Maps** | $0.01 / page (up to 20 listings) | 50 credits, no card | Google Maps listings around each city: phone, website, category, rating and reviews, including businesses with no website. The same key reads their reviews (`harvey reviews`). |
 | **Scavio Google Search** | ~$0.03 / depth-30 search | same 50 credits | Rank as the signal, on the same key as Scavio Google Maps. |
 
 **Selling to startups?** Harvey has a built-in startup skill, made of three
@@ -327,6 +331,18 @@ ignore environment proxies, so proxy routing cannot bypass that boundary.
 Homepage, `robots.txt`, `sitemap.xml`, plus the team and careers pages when they exist — then regex over HTML already in hand. Out comes the incumbent agency, the ad pixels, the missing schema, the abandoned blog, the open roles, the named humans.
 
 Agency detection is the compounding one. Almost every agency credits itself in the footer, and Harvey scores the wording: *"Powered by"* / *"Website by"* → 0.9 confidence; a bare descriptive link → 0.75; an unlabelled link → 0.35 and **not recorded**. A wrong incumbent in an email is worse than saying nothing.
+
+#### Reputation — what their customers say (optional, paid)
+
+Discovery keeps a listing's star rating and review count. `harvey reviews` reads the newest Google reviews behind them, for businesses found on Google Maps (`scavio_maps`, `dataforseo`, `dataforseo_maps`), and records the confirmed **Reputation** signals: how many reviews the owner answered, when the last one came in, how many arrived in 90 days, a recent 1-2 star review and whether it got a reply, and the topics customers mention most.
+
+```bash
+harvey signals --confirm REVIEW_REPLY_RATE,LAST_REVIEW_DAYS
+harvey reviews --estimate     # how many businesses, what it would cost
+harvey reviews --limit 50     # go (cap: --max-spend, default $1.00)
+```
+
+It never runs on the heartbeat, and it buys nothing unless a reputation signal is confirmed. It uses `SCAVIO_API_KEY`: 1 credit per business for its 20 newest reviews, 2 for one found by DataForSEO (a place lookup comes first). A business is read again after `--stale-days` (90). When Google answers with a listing's short overview instead of its newest reviews, nothing is recorded rather than making a busy business look quiet. No review text and no reviewer is stored, so an email can say a bad review went unanswered but can never quote it. The writer gets these facts, aged to the day it writes.
 
 ### 3. ENRICH — who decides
 
@@ -628,6 +644,7 @@ harvey dashboard             # web UI at 127.0.0.1:5555 (--url: print the unlock
 harvey signals               # review/confirm what to prospect against
 harvey discover              # find businesses; --providers / --estimate
 harvey profile               # read discovered companies' sites (free)
+harvey reviews               # read Google reviews of Maps businesses (paid); --estimate
 harvey train <url>           # learn a product from its website (--provider codex --model gpt-5.5)
 harvey status                # pipeline summary
 harvey usage                 # active provider's quota + per-agent tokens
@@ -777,14 +794,15 @@ harvey/
 ├── claude_runtime.py    # Isolated Claude CLI calls (safe mode, no tools, clean dir)
 ├── codex.py             # Isolated Codex subscription runtime
 ├── state.py             # SQLite schema, migrations, observations, cohorts
-├── signals.py           # the 23-signal catalog Harvey proposes
+├── signals.py           # the 34-signal catalog Harvey proposes
 ├── pipeline.py          # DISCOVER → PROFILE chaining
 ├── gate.py              # deterministic pre-send checks
 ├── dashboard.py         # FastAPI JSON API
 ├── dashboard_auth.py    # dashboard token, Host/Origin checks
 ├── collectors/
 │   ├── discover.py      # provider adapters, junk filtering, entity resolution
-│   └── profile.py       # the free HTTP profiler
+│   ├── profile.py       # the free HTTP profiler
+│   └── reviews.py       # Google reviews of Maps businesses (paid, opt-in)
 ├── agents/              # scout, writer, sender, handler, analyst
 ├── integrations/        # mail providers, email finder, quota
 └── web/                 # dashboard HTML/CSS/JS — no build step

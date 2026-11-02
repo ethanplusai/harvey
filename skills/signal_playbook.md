@@ -108,10 +108,36 @@ nearby searches for what I do" is a question they already care about.
 - A rank is a snapshot. Past about a month, say "recently" or re-check it
   before quoting a number.
 
+### Reputation signal (REVIEW_REPLY_RATE, LAST_REVIEW_DAYS, RECENT_BAD_REVIEW...)
+Read from their newest Google reviews, which the owner can open in ten
+seconds. That is the strength (it's checkable) and the risk (it's personal:
+those are their customers talking).
+
+- **Talk about the pattern, never a review.** "Most of your recent Google
+  reviews don't have a reply" is an observation. Repeating what one customer
+  said, or who said it, is surveillance, and Harvey doesn't keep the text
+  for exactly that reason.
+- **A bad review is context, not the hook's punchline.** "Saw a 1-star from
+  last month is still unanswered" can open a reputation pitch; it can't be
+  framed as a threat ("that's costing you jobs"). You don't know what it
+  cost them.
+- **Use the counts as stored.** "2 of your 20 newest reviews have a reply",
+  not "you ignore 90% of customers". A rate over 20 reviews is a sample.
+- **Quiet listing**: no new review in months is a fair opener for anyone
+  selling review requests, follow-up or local marketing. "At least 20 in
+  90 days" means they're busy; don't call that quiet.
+- **Topics** tell you what they're known for ("insurance claims (125)").
+  Use them to talk about their work in their customers' words, not as a
+  signal on their own.
+- A reading ages: the facts are dated to the day you write. Past about six
+  months they're dropped rather than stated as current.
+
 ## Which signal wins when there are several
 
 Rank by recency and actionability: **hiring > funding > tech-gap >
-tech-present > industry problem > nothing**. Use exactly ONE signal as the
+tech-present > industry problem > nothing**. A reputation signal ranks with
+the tech gap when you sell reputation, reviews or local marketing, and below
+it otherwise. Use exactly ONE signal as the
 hook. Stacking two ("you raised AND you're hiring AND you use X") reads as a
 dossier and kills the human feel. Bank the others for follow-ups.
 

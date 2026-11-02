@@ -9,6 +9,19 @@ minor versions can still change behaviour.
 
 ### Added
 
+- **Reputation signals from Google reviews** (`harvey reviews`). For
+  businesses found on Google Maps (Scavio Maps, DataForSEO listings or Maps),
+  reads the 20 newest Google reviews and records five new signals in a
+  Reputation group: `REVIEW_REPLY_RATE`, `LAST_REVIEW_DAYS`,
+  `NEW_REVIEWS_90D`, `RECENT_BAD_REVIEW` and `REVIEW_TOPICS`. Paid and
+  opt-in: it needs `SCAVIO_API_KEY`, a confirmed reputation signal and an
+  explicit run under `--max-spend`; `--estimate` prices it first, and the
+  discovery kill switch stops it. Never on the heartbeat. A short answer
+  (Google's five-review overview instead of the newest) records nothing. No
+  review text or reviewer is stored. The writer gets the facts, aged to the
+  day it writes, and `skills/signal_playbook.md` says how to use them.
+  Migration v15 adds `companies.reviews_checked_at`.
+
 - **Company fit and the company register.** The Companies tab now sorts by a
   0-100 fit score worked out from what Harvey already holds: the ICP sector
   match, a contact with a target title, the best email found, and an open

@@ -47,7 +47,7 @@ def test_signals_seed_as_proposed_not_confirmed(client):
 def test_signals_grouped_with_plain_language(client):
     data = client.get("/api/signals").json()
     keys = [g["key"] for g in data["groups"]]
-    assert keys == ["discovery", "profile", "people", "verification"]
+    assert keys == ["discovery", "profile", "reputation", "people", "verification"]
     for group in data["groups"]:
         assert group["blurb"]  # every category explains itself
         for sig in group["signals"]:
@@ -296,7 +296,9 @@ def test_cost_notes_are_machine_classifiable():
     chip both key off the cost note. A signal that costs credits must not
     read as free — that is how someone accidentally turns on paid collection.
     """
-    paid = {"SERP_RANK", "MAPS_RANK", "EMAIL_STATUS", "EMAIL_PATTERN", "FOUND_IN_SERP"}
+    paid = {"SERP_RANK", "MAPS_RANK", "EMAIL_STATUS", "EMAIL_PATTERN", "FOUND_IN_SERP",
+            "REVIEW_REPLY_RATE", "LAST_REVIEW_DAYS", "NEW_REVIEWS_90D",
+            "RECENT_BAD_REVIEW", "REVIEW_TOPICS"}
     for sig in SIGNAL_CATALOG:
         free = sig["cost_note"].lower().startswith(("free", "included"))
         if sig["code"] in paid:

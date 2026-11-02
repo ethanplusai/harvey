@@ -498,6 +498,7 @@ async function loadLiveStatus() {
   }).join('');
   const jobName = r => r.stage === 'profile' ? 'Reading websites'
     : r.stage === 'discover' ? 'Searching for businesses (' + (r.provider || '') + ')'
+    : r.stage === 'reviews' ? 'Reading Google reviews'
     : String(r.stage || 'Job');
   const running = d.running || [];
   const runningHtml = running.length
