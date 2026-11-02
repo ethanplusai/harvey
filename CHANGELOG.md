@@ -292,6 +292,14 @@ minor versions can still change behaviour.
 
 ### Fixed
 
+- **Microsoft 365 reads an inbox with more than one page.** Live Graph writes
+  the inbox in OData key form in `@odata.nextLink`
+  (`/me/mailFolders('inbox')/messages`), and the link check accepted only
+  `/me/mailFolders/inbox/messages`. Any mailbox with more than 50 messages in
+  the last 7 days failed every read with "@odata.nextLink rejected: not the
+  Graph inbox listing", so sending was held for good. Both spellings of the
+  same listing are accepted now; every other path is still refused before the
+  token is attached.
 - **Hebrew legal threats and complaints go to you without the model** (from
   #135), and an opt-out that also threatens, in any language, is honored and
   shows on **Needs you** instead of being closed unseen.

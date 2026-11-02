@@ -165,7 +165,9 @@ heartbeat holds sending. It returns the whole 7-day window or nothing:
   shifts `$skip` mid-read) are returned once.
 - **Links are checked before the token is attached.** A `nextLink` must be
   `https://graph.microsoft.com` (default port), on the path
-  `/v1.0/me/mailFolders/inbox/messages`, with a query, and no credentials,
+  `/v1.0/me/mailFolders/inbox/messages` or its OData key form
+  `/v1.0/me/mailFolders('inbox')/messages` (which live Graph returns), with
+  a query, and no credentials,
   fragment, backslash or control characters. A link that repeats an earlier
   page is a loop. Either way the read fails without sending the request.
 - **Bounded.** More than `MAX_INBOX_PAGES` (40) pages, i.e. 2,000 messages
