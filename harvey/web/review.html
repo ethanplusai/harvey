@@ -1,0 +1,244 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="referrer" content="no-referrer">
+<title>Email Review — Rash Sales Agent</title>
+<script src="/static/auth.js"></script>
+<style>
+  :root { --bg:#f6f5f2; --card:#fff; --ink:#1d1d1f; --muted:#6b6b70; --line:#e3e1dc;
+          --ok:#1f7a4d; --no:#b3261e; --accent:#2f5bd3; color-scheme: light; }
+  @media (prefers-color-scheme: dark) {
+    :root { --bg:#161618; --card:#1f1f22; --ink:#ececee; --muted:#9a9aa1; --line:#333338;
+            --ok:#4cc38a; --no:#f2867e; --accent:#7f9cff; color-scheme: dark; }
+  }
+  * { box-sizing: border-box; }
+  body { margin:0; background:var(--bg); color:var(--ink);
+         font:15px/1.5 system-ui, -apple-system, "Segoe UI", sans-serif; }
+  .wrap { max-width:760px; margin:0 auto; padding:24px 16px 48px; }
+  header { display:flex; justify-content:space-between; align-items:baseline; gap:12px; flex-wrap:wrap; }
+  h1 { font-size:20px; margin:0; }
+  .count { color:var(--muted); }
+  .card { background:var(--card); border:1px solid var(--line); border-radius:12px; padding:20px; margin-top:16px; }
+  .who { font-size:17px; font-weight:600; }
+  .meta { color:var(--muted); font-size:13px; margin-top:2px; }
+  .meta a { color:var(--accent); }
+  .row { display:flex; gap:8px; align-items:center; margin-top:14px; }
+  .row label { width:64px; color:var(--muted); font-size:13px; flex:none; }
+  input, textarea { flex:1; width:100%; font:inherit; color:inherit; background:transparent;
+                    border:1px solid var(--line); border-radius:8px; padding:8px 10px; }
+  textarea { min-height:260px; resize:vertical; margin-top:14px; }
+  .footer { color:var(--muted); font-size:13px; white-space:pre-wrap; margin-top:6px; }
+  .notes { color:var(--muted); font-size:13px; margin-top:12px; border-top:1px dashed var(--line); padding-top:10px; }
+  .actions { display:flex; flex-wrap:wrap; gap:8px; margin-top:18px; }
+  button { font:inherit; border:1px solid var(--line); background:var(--card); color:var(--ink);
+           border-radius:8px; padding:9px 14px; cursor:pointer; }
+  button:hover { border-color:var(--muted); }
+  .primary { background:var(--accent); border-color:var(--accent); color:#fff; }
+  .ok { color:var(--ok); border-color:var(--ok); font-weight:600; }
+  .no { color:var(--no); border-color:var(--no); }
+  .small { padding:6px 10px; font-size:13px; }
+  .nav { display:flex; justify-content:space-between; margin-top:14px; }
+  .toast { position:fixed; left:50%; bottom:24px; transform:translateX(-50%); background:var(--ink); color:var(--bg);
+           padding:10px 16px; border-radius:8px; font-size:14px; }
+  .empty { text-align:center; color:var(--muted); padding:48px 16px; }
+  .help { color:var(--muted); font-size:13px; margin-top:6px; }
+  .reach { margin-top:16px; border-top:1px solid var(--line); padding-top:12px; }
+  .reach h2 { font-size:14px; margin:0; }
+  .reach textarea { min-height:90px; margin-top:8px; }
+  .num { font-size:17px; font-weight:600; letter-spacing:.02em; }
+  .wa { background:#1f8f4e; border-color:#1f8f4e; color:#fff; }
+  a.btn { display:inline-block; text-decoration:none; border-radius:8px; padding:9px 14px; font-size:14px; }
+  .li { background:#0a66c2; border:1px solid #0a66c2; color:#fff; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <h1>Email Review</h1>
+    <span class="count" id="count"></span>
+  </header>
+  <p class="help">One email at a time. Copy it or open it in Outlook, send it yourself, then press <b>I sent it</b>. Press <b>Not OK</b> to throw it away. If Harvey has their mobile number, you can also call them or send a WhatsApp from the box under the email; office lines are left out. There is always a LinkedIn button: their profile if Harvey has it, otherwise a LinkedIn search for them.</p>
+  <div id="main"></div>
+</div>
+<div class="toast" id="toast" hidden></div>
+
+<script>
+let items = [], idx = 0, footer = '', sender = {};
+
+function $(id) { return document.getElementById(id); }
+function toast(msg) {
+  const t = $('toast'); t.textContent = msg; t.hidden = false;
+  clearTimeout(toast.t); toast.t = setTimeout(() => { t.hidden = true; }, 2200);
+}
+async function post(path, data) {
+  const r = await authFetch(path, { method: 'POST', headers: { 'Content-Type': 'application/json' },
+                                    body: JSON.stringify(data || {}) });
+  let j = {}; try { j = await r.json(); } catch {}
+  if (!r.ok || j.success === false) throw new Error(j.message || ('Error ' + r.status));
+  return j;
+}
+function fullBody() {
+  const b = $('body').value.trim();
+  return footer ? b + '\n\n' + footer : b;
+}
+
+async function load() {
+  let data;
+  try { data = await (await authFetch('/api/outbox')).json(); }
+  catch { $('main').innerHTML = '<div class="card empty">Can\'t reach the agent. Open this window from the dashboard.</div>'; return; }
+  if (data.error) { $('main').innerHTML = '<div class="card empty">Locked. Open this window from the dashboard\'s Outbox page.</div>'; return; }
+  footer = data.footer || '';
+  sender = data.sender || {};
+  // First emails only: follow-ups come later, once a first email has gone out.
+  items = (data.pending || []).filter(i => (i.step || 1) === 1 && i.kind !== 'reply')
+    .sort((a, b) => String(a.send_at || '').localeCompare(String(b.send_at || '')));
+  if (idx >= items.length) idx = Math.max(0, items.length - 1);
+  render();
+}
+
+function render() {
+  $('count').textContent = items.length ? `${idx + 1} of ${items.length} waiting` : '';
+  const m = $('main');
+  if (!items.length) { m.innerHTML = '<div class="card empty">Nothing waiting. New emails show up here as the agent writes them.</div>'; return; }
+  const it = items[idx], c = it.context || {};
+  m.innerHTML = `
+    <div class="card">
+      <div class="who" id="who"></div>
+      <div class="meta" id="meta"></div>
+      <div class="row"><label>To</label><input id="to" readonly><button class="small" data-copy="to">Copy</button></div>
+      <div class="row"><label>Subject</label><input id="subject"><button class="small" data-copy="subject">Copy</button></div>
+      <textarea id="body"></textarea>
+      <div class="footer" id="footer"></div>
+      <div class="notes" id="notes"></div>
+      <div class="actions">
+        <button class="primary" id="b-outlook">Open in Outlook</button>
+        <button id="b-copy">Copy whole email</button>
+        <button class="ok" id="b-sent">✓ I sent it</button>
+        <button class="no" id="b-reject">✗ Not OK</button>
+        <button id="b-save">Save my edits</button>
+      </div>
+      <div class="reach" id="reach"></div>
+      <div class="nav"><button id="b-prev">← Previous</button><button id="b-next">Next →</button></div>
+    </div>`;
+  $('who').textContent = (c.contact || it.to_email) + (c.company ? ' · ' + c.company : '');
+  const meta = $('meta');
+  meta.textContent = [c.contact_title, c.found_by].filter(Boolean).join(' · ');
+  if (c.website) {
+    const a = document.createElement('a'); a.href = c.website; a.target = '_blank'; a.rel = 'noopener';
+    a.textContent = c.website.replace(/^https?:\/\//, ''); meta.append(meta.textContent ? ' · ' : '', a);
+  }
+  $('to').value = it.to_email || '';
+  $('subject').value = it.subject || '';
+  $('body').value = it.body || '';
+  $('footer').textContent = footer;
+  $('notes').textContent = c.notes ? 'Why this person: ' + c.notes : '';
+  $('notes').hidden = !c.notes;
+
+  m.querySelectorAll('[data-copy]').forEach(b => b.onclick = () => copy($(b.dataset.copy).value, 'Copied'));
+  $('b-copy').onclick = () => copy(`To: ${$('to').value}\nSubject: ${$('subject').value}\n\n${fullBody()}`, 'Whole email copied');
+  $('b-outlook').onclick = () => {
+    const url = 'https://outlook.office.com/mail/deeplink/compose?to=' + encodeURIComponent($('to').value) +
+      '&subject=' + encodeURIComponent($('subject').value) + '&body=' + encodeURIComponent(fullBody());
+    window.open(url, '_blank', 'noopener');
+  };
+  $('b-sent').onclick = () => act(() => post(`/api/prospects/${encodeURIComponent(it.prospect_id)}/sent`, { sent: true }), 'Marked as sent');
+  $('b-reject').onclick = () => act(() => post(`/api/outbox/${encodeURIComponent(it.id)}/reject`), 'Thrown away');
+  $('b-save').onclick = async () => {
+    try { await post(`/api/outbox/${encodeURIComponent(it.id)}/edit`, { subject: $('subject').value, body: $('body').value });
+          it.subject = $('subject').value; it.body = $('body').value; toast('Saved'); }
+    catch (e) { toast(e.message); }
+  };
+  renderReach(it, c);
+  $('b-prev').onclick = () => { if (idx > 0) { idx--; render(); } };
+  $('b-next').onclick = () => { if (idx < items.length - 1) { idx++; render(); } };
+}
+
+function waOpener(it, c) {
+  const first = (c.contact || '').split(' ')[0];
+  const me = [String(sender.name || '').split(' ')[0], sender.company].filter(Boolean).join(' from ');
+  const about = $('subject') ? $('subject').value : (it.subject || '');
+  return `Hi ${first || 'there'}, ${me ? 'this is ' + me + '. ' : ''}` +
+    `I've just sent you an email${about ? ' about "' + about + '"' : ''}. ` +
+    `Happy to chat here if that's easier for you.`;
+}
+
+function linkedinRow(c) {
+  // Their profile when Harvey has it; else a LinkedIn people search for them.
+  if (!c.linkedin_url && !c.contact && !c.company) return '';
+  return `<div class="row"><label>LinkedIn</label>
+    <a class="btn li" id="b-li" target="_blank" rel="noopener noreferrer"></a></div>`;
+}
+function wireLinkedin(c) {
+  const a = $('b-li');
+  if (!a) return;
+  const who = [c.contact, c.company].filter(Boolean).join(' ');
+  const own = /^https:\/\/([a-z]+\.)?linkedin\.com\//i.test(c.linkedin_url || '');
+  a.href = own ? c.linkedin_url : 'https://www.linkedin.com/search/results/people/?keywords=' + encodeURIComponent(who);
+  a.textContent = own ? 'Open their LinkedIn' : 'Search LinkedIn for ' + (c.contact || c.company);
+}
+
+function renderReach(it, c) {
+  const r = $('reach');
+  if (!c.phone) {
+    const office = c.office_phone_display
+      ? `No mobile number yet. Their website only lists an office line (${c.office_phone_display.replace(/[^+\d ]/g, '')}), so it isn't offered here.`
+      : 'No mobile number for this person yet.';
+    r.innerHTML = `<h2>Mobile / WhatsApp / LinkedIn</h2>
+      <p class="help">${office}</p>
+      <div class="actions"><button id="b-find">Look for a mobile number</button></div>
+      ${linkedinRow(c)}`;
+    wireLinkedin(c);
+    $('b-find').onclick = async () => {
+      if (!c.company_id) { toast('No company on file for this person'); return; }
+      $('b-find').disabled = true; $('b-find').textContent = 'Looking at their website…';
+      try { const j = await post(`/api/companies/${encodeURIComponent(c.company_id)}/find-phone`);
+            toast(j.message); if (j.found) await load(); else renderReach(it, c); }
+      catch (e) { toast(e.message); renderReach(it, c); }
+    };
+    return;
+  }
+  const kind = c.phone_is_personal ? 'their own number' : 'mobile from their website';
+  const waNote = c.whatsapp_from_site ? 'Their website lists this number for WhatsApp.'
+    : 'A mobile number, so it most likely has WhatsApp.';
+  r.innerHTML = `<h2>Mobile / WhatsApp / LinkedIn</h2>
+    ${c.phone ? `<div class="row"><label>Call</label>
+      <span class="num" id="num"></span><span class="help" style="margin:0">(${kind})</span>
+      <button class="small" id="b-copynum">Copy number</button>
+      <button class="small" id="b-called">I called</button></div>` : ''}
+    <div class="row"><label>WhatsApp</label><input id="wa"><button class="small" id="b-wacopy">Copy message</button></div>
+    <p class="help">${waNote}</p>
+    <textarea id="wamsg"></textarea>
+    <div class="actions"><button class="wa" id="b-wa">Open in WhatsApp</button></div>
+    ${linkedinRow(c)}`;
+  wireLinkedin(c);
+  if (c.phone) {
+    $('num').textContent = c.phone_display;
+    $('b-copynum').onclick = () => copy(c.phone_display, 'Number copied');
+    $('b-called').onclick = () => post(`/api/prospects/${encodeURIComponent(it.prospect_id)}/touch`, { channel: 'call' })
+      .then(() => toast('Call noted')).catch(e => toast(e.message));
+  }
+  $('wa').value = c.whatsapp_display || '';
+  $('wamsg').value = waOpener(it, c);
+  $('b-wacopy').onclick = () => copy($('wamsg').value, 'Message copied');
+  $('b-wa').onclick = () => {
+    const digits = $('wa').value.replace(/\D/g, '').replace(/^00/, '');
+    if (digits.length < 8) { toast('Put the full number with country code, e.g. +971 50 000 0000'); return; }
+    window.open('https://wa.me/' + digits + '?text=' + encodeURIComponent($('wamsg').value), '_blank', 'noopener');
+    post(`/api/prospects/${encodeURIComponent(it.prospect_id)}/touch`, { channel: 'whatsapp' }).catch(() => {});
+  };
+}
+
+async function copy(text, msg) {
+  try { await navigator.clipboard.writeText(text); toast(msg); }
+  catch { toast('Copy failed: select the text and press Ctrl+C'); }
+}
+async function act(fn, msg) {
+  try { await fn(); toast(msg); await load(); } catch (e) { toast(e.message); }
+}
+
+load();
+</script>
+</body>
+</html>

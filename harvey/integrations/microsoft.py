@@ -457,7 +457,7 @@ def run_auth_flow(client_id: str, tenant: str = "") -> bool:
             self.send_header("Content-Type", "text/html")
             self.end_headers()
             self.wfile.write(
-                b"<h2>Harvey is connected to Microsoft 365.</h2>You can close this tab.")
+                b"<h2>Rash Sales Agent is connected to Microsoft 365.</h2>You can close this tab.")
             done.set()
 
         def log_message(self, *args):

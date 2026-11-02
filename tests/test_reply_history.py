@@ -138,5 +138,5 @@ async def test_the_prompt_counts_only_harveys_own_agreements(state):
     handler = Handler(brain=brain, state=state, config=Cfg(), env=Env())
     convo = Conversation(id="c", prospect_id=pid, thread=_thread())
     await handler._generate_response("question", convo.thread[-1].content, prospect, convo)
-    assert "from Harvey" in brain.prompts[0]
-    assert "claims Harvey" in brain.prompts[0]
+    assert "from Rash Sales Agent" in brain.prompts[0]
+    assert "claims Rash Sales Agent" in brain.prompts[0]

@@ -23,7 +23,7 @@ async def sync_sending_mode(config, state) -> bool:
         logger.warning("Sending mode is now APPROVAL: every email waits in the Outbox for you."
                        + (f" {back} queued by autopilot came back to the Outbox." if back else ""))
     else:
-        logger.warning("Sending mode is now AUTOPILOT: Harvey sends on its own "
+        logger.warning("Sending mode is now AUTOPILOT: Rash Sales Agent sends on its own "
                        "(emails it holds still wait for you).")
     return True
 
@@ -36,20 +36,20 @@ def held_message(hold: dict, waiting: int) -> tuple[str, str]:
     if low.startswith("a reply from"):
         # The inbox was read; handling one reply failed. Its text and the
         # sender's address are no guide to a fix, so match nothing in it.
-        title = "Harvey isn't sending: it couldn't handle a reply"
-        fix = "Harvey tries again every cycle; if this lasts, check the log."
+        title = "Rash Sales Agent isn't sending: it couldn't handle a reply"
+        fix = "Rash Sales Agent tries again every cycle; if this lasts, check the log."
     else:
-        title = "Harvey isn't sending: it couldn't read your inbox"
+        title = "Rash Sales Agent isn't sending: it couldn't read your inbox"
         # Only the providers' own messages name a fix.
         if "harvey gmail auth" in low:
             fix = "Run `harvey gmail auth` to sign in again."
         elif "harvey microsoft auth" in low:
             fix = "Run `harvey microsoft auth` to sign in again."
         elif "refusing a partial read" in low:
-            fix = ("The mailbox got more mail in the last week than Harvey reads, so it can't "
+            fix = ("The mailbox got more mail in the last week than Rash Sales Agent reads, so it can't "
                    "be sure it saw every reply. Send from a dedicated mailbox, or archive old mail.")
         else:
-            fix = "Harvey tries again every cycle; if this lasts, check the log."
+            fix = "Rash Sales Agent tries again every cycle; if this lasts, check the log."
     emails = "1 email is waiting" if waiting == 1 else f"{waiting} emails are waiting"
     return (title,
             f"{reason}. {fix} {emails}: replies are read first, so an opt-out "

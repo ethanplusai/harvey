@@ -25,7 +25,7 @@ def _check_python_version():
 
     have = f"{sys.version_info.major}.{sys.version_info.minor}"
     want = f"{MIN_PYTHON[0]}.{MIN_PYTHON[1]}"
-    print(f"\n  Harvey needs Python {want} or newer. This is Python {have}.")
+    print(f"\n  Rash Sales Agent needs Python {want} or newer. This is Python {have}.")
     print(f"  ({sys.executable})\n")
     print("  On macOS, `python3` is usually the system 3.9, so a venv built")
     print("  with it is 3.9 too. Build the venv from a newer Python instead:\n")
@@ -39,7 +39,7 @@ def _check_python_version():
 def cmd_install(args):
     """Install all dependencies including Playwright browsers."""
     _check_python_version()
-    print("\n  Installing Harvey dependencies...\n")
+    print("\n  Installing Rash Sales Agent dependencies...\n")
 
     # Install Python packages
     print("  [1/2] Installing Python packages...")
@@ -76,7 +76,7 @@ def cmd_install(args):
         print("  ✓ Playwright browsers installed.\n")
 
     _ensure_importable(args._project_root)
-    print("  Harvey is installed. Run 'harvey setup' next.\n")
+    print("  Rash Sales Agent is installed. Run 'harvey setup' next.\n")
 
 
 def _ensure_importable(project_root: str):
@@ -200,7 +200,7 @@ def cmd_status(args):
         await state.init_db()
         summary = await state.get_state_summary()
 
-        print("\n  Harvey Pipeline Status")
+        print("\n  Rash Sales Agent Pipeline Status")
         print("  " + "=" * 40)
         print(f"  Prospects:            {summary['prospects']}")
         print(f"  Ready to write for:   {summary.get('writable_prospects', 0)} "
@@ -419,7 +419,7 @@ def cmd_export(args):
         print(f"\n  Exported {count} prospect(s) to {args.out}  ({scope})")
         if count == 0 and not args.all:
             print("  Tip: no deliverable emails yet? Add a REOON_API_KEY to .env so")
-            print("  Harvey can verify addresses, or use --all for the raw list.\n")
+            print("  Rash Sales Agent can verify addresses, or use --all for the raw list.\n")
         else:
             print("  The CSV imports directly into Instantly, Smartlead, or any sequencer.\n")
 
@@ -483,7 +483,7 @@ def cmd_outbox(args):
             print(f"\n  Approved {n} email(s). They'll send on schedule.")
             held = await state.count_held_for_review()
             if held:
-                print(f"  {held} email(s) Harvey held for review were left out: read each one,")
+                print(f"  {held} email(s) Rash Sales Agent held for review were left out: read each one,")
                 print("  then approve it with --approve <id>.")
             print()
             return
@@ -828,7 +828,7 @@ def cmd_warmup(args):
     print("      it shows Gmail's spam rate and domain reputation once you send volume.")
     print("    - Inbox placement: send one email to a seed test (mail-tester.com is free)")
     print("      and aim for 9/10+. TrulyInbox shows the warmup inbox rate, and with it")
-    print("      connected (harvey trulyinbox connect) Harvey reads it into this report.")
+    print("      connected (harvey trulyinbox connect) Rash Sales Agent reads it into this report.")
     print("      Wait for ~95%+ inbox for a week before relying on cold sends.\n")
     if failed or unknown:
         raise SystemExit(1)
@@ -875,7 +875,7 @@ def cmd_trulyinbox(args):
         await state.init_db()
         if args.trulyinbox_action == "other":
             await ti.set_choice(state, "other")
-            print("\n  Noted: you use another warmup service. Harvey won't ask about "
+            print("\n  Noted: you use another warmup service. Rash Sales Agent won't ask about "
                   "TrulyInbox again.\n")
             return 0
         if args.trulyinbox_action == "connect":
@@ -905,7 +905,7 @@ def cmd_trulyinbox(args):
             try:
                 _write_env_file(updates)
             except OSError as e:
-                print(f"\n  The key works, but Harvey couldn't save it to .env: {e}\n")
+                print(f"\n  The key works, but Rash Sales Agent couldn't save it to .env: {e}\n")
                 return 1
             await ti.set_choice(state, "connected")
             print("\n  Connected. " + d.check_warmup_service(health, warmup).detail + "\n")
@@ -950,7 +950,7 @@ def main():
 
     parser = argparse.ArgumentParser(
         prog="harvey",
-        description="Harvey — Autonomous AI Sales Agent. Always Be Closing.",
+        description="Rash Sales Agent — Autonomous AI Sales Agent. Always Be Closing.",
     )
     subparsers = parser.add_subparsers(dest="command")
 
@@ -963,11 +963,11 @@ def main():
     sub.set_defaults(func=cmd_setup)
 
     # harvey run
-    sub = subparsers.add_parser("run", help="Start Harvey's heartbeat loop")
+    sub = subparsers.add_parser("run", help="Start Rash Sales Agent's heartbeat loop")
     sub.set_defaults(func=cmd_run)
 
     # harvey train <url>
-    sub = subparsers.add_parser("train", help="Train Harvey on a website")
+    sub = subparsers.add_parser("train", help="Train Rash Sales Agent on a website")
     sub.add_argument("url", help="Website URL to crawl and learn from")
     sub.add_argument(
         "max_pages",
@@ -1078,7 +1078,7 @@ def main():
     sub.set_defaults(func=cmd_profile)
 
     sub = subparsers.add_parser(
-        "signals", help="Review/confirm which signals Harvey prospects against")
+        "signals", help="Review/confirm which signals Rash Sales Agent prospects against")
     sub.add_argument("--confirm", metavar="CODES", default="",
                      help="Comma-separated codes to confirm ('all' or 'free' accepted)")
     sub.add_argument("--reject", metavar="CODES", default="",
@@ -1101,7 +1101,7 @@ def main():
     sub.set_defaults(func=cmd_warmup)
 
     sub = subparsers.add_parser(
-        "trulyinbox", help="Warmup service: connect TrulyInbox so Harvey can read the inbox rate")
+        "trulyinbox", help="Warmup service: connect TrulyInbox so Rash Sales Agent can read the inbox rate")
     sub.add_argument("trulyinbox_action", nargs="?", default="status",
                      choices=["status", "connect", "other"],
                      help="connect a key, 'other' if you use another warmup service, "
@@ -1120,7 +1120,7 @@ def main():
         parser.print_help()
         print("\n  Quick start:")
         print("    harvey install   — Install dependencies")
-        print("    harvey setup     — Configure Harvey (first time)")
+        print("    harvey setup     — Configure Rash Sales Agent (first time)")
         print("    harvey run       — Start closing deals")
         print("    harvey dashboard — Open the web dashboard")
         print()

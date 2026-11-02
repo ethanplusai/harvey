@@ -355,7 +355,7 @@ class Brain:
                     if any(p in error.lower() for p in _NON_RETRYABLE_PATTERNS):
                         logger.error(
                             "Non-retryable Claude error (auth). "
-                            "Run 'claude login' and restart Harvey."
+                            "Run 'claude login' and restart Rash Sales Agent."
                         )
                         return ""
                     continue  # retry transient failures

@@ -707,7 +707,7 @@ def hold_message(hold: dict) -> dict:
             "tone": "warn", "url": url or GET_KEY_URL, "url_label": "Get a free key",
             "title": "Precleared's free checks for today are used up",
             "detail": (f"{emails}. Without a key, Precleared allows 10 checks a day. "
-                       f"A free key gives Harvey its own 25 a day: get one at {url or GET_KEY_URL} "
+                       f"A free key gives Rash Sales Agent its own 25 a day: get one at {url or GET_KEY_URL} "
                        "and put it in .env as PRECLEARED_API_KEY. Otherwise the waiting "
                        f"emails go out after the checks reset at midnight UK time. {replies}"),
         }
@@ -732,14 +732,14 @@ def hold_message(hold: dict) -> dict:
     if kind == "rate_limited":
         return {
             "tone": "warn", "url": "", "url_label": "",
-            "title": "Precleared is limiting how fast Harvey can check",
+            "title": "Precleared is limiting how fast Rash Sales Agent can check",
             "detail": (f"{emails}. Precleared allows a set number of checks a minute, "
-                       f"and Harvey asks again next cycle. {replies}"),
+                       f"and Rash Sales Agent asks again next cycle. {replies}"),
         }
     reason = _text(_clean(_text(hold.get("reason")))) or "no answer"
     return {
         "tone": "warn", "url": "", "url_label": "",
         "title": "Precleared can't be reached right now",
-        "detail": (f"{emails} until it answers ({reason}). Harvey asks again every "
+        "detail": (f"{emails} until it answers ({reason}). Rash Sales Agent asks again every "
                    f"cycle. {replies}"),
     }

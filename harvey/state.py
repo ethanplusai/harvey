@@ -111,7 +111,7 @@ RECHECK_PREFIX = "Precleared couldn't check this address; trying again after "
 # dashboard never offers a second one by hand.
 MAYBE_SENT_PREFIX = "may have gone out: "
 STALE_SENDING_ERROR = (
-    MAYBE_SENT_PREFIX + "Harvey stopped in the middle of sending it; check "
+    MAYBE_SENT_PREFIX + "Rash Sales Agent stopped in the middle of sending it; check "
     "your Sent folder before emailing them again"
 )
 # A claimed email still not finished after this long was cut off mid-send (a
@@ -385,7 +385,7 @@ MIGRATIONS: list[str] = [
     -- The governed vocabulary. A collector may only emit a code that exists
     -- here (enforced by the observations FK), so a typo fails loudly instead
     -- of quietly inventing a junk signal. `status` is the user-confirmation
-    -- gate: Harvey PROPOSES signals, the user confirms which ones to
+    -- gate: Rash Sales Agent PROPOSES signals, the user confirms which ones to
     -- prospect against, and only confirmed signals get collected.
     CREATE TABLE IF NOT EXISTS signal_codes (
         code TEXT PRIMARY KEY,
@@ -515,9 +515,15 @@ MIGRATIONS: list[str] = [
     """,
     # ── v14: each recipient's time zone, for the send window ──
     """
-    -- An IANA name such as 'Europe/Oslo', worked out once from what Harvey
+    -- An IANA name such as 'Europe/Oslo', worked out once from what Rash Sales Agent
     -- knows about the recipient. Empty until then.
     ALTER TABLE prospects ADD COLUMN timezone TEXT DEFAULT '';
+    """,
+    # ── v15: the WhatsApp number a business publishes (wa.me link) ──
+    """
+    -- International digits, e.g. 971500000000. companies.phone holds the
+    -- phone the same way once Scout has read the site.
+    ALTER TABLE companies ADD COLUMN whatsapp TEXT DEFAULT '';
     """,
 ]
 
@@ -690,6 +696,22 @@ class StateManager:
                 "updated_at = ? WHERE id = ?",
                 (json.dumps(tech), json.dumps(signals),
                  _utcnow().isoformat(), company_id),
+            )
+            await db.commit()
+
+    async def set_company_numbers(self, company_id: str, phone: str = "", whatsapp: str = "",
+                                  overwrite_phone: bool = False):
+        """Fill a company's phone / WhatsApp number where it has none yet.
+        `overwrite_phone` lets a mobile replace a stored office line."""
+        if not (phone or whatsapp):
+            return
+        async with self._connect() as db:
+            await db.execute(
+                "UPDATE companies SET "
+                "phone = CASE WHEN COALESCE(phone, '') = '' OR (? AND ? != '') THEN ? ELSE phone END, "
+                "whatsapp = CASE WHEN COALESCE(whatsapp, '') = '' THEN ? ELSE whatsapp END, "
+                "updated_at = ? WHERE id = ?",
+                (int(overwrite_phone), phone, phone, whatsapp, _utcnow().isoformat(), company_id),
             )
             await db.commit()
 

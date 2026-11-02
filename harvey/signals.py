@@ -70,7 +70,7 @@ SIGNAL_CATALOG: list[dict] = [
     {
         "code": "FOUND_IN_SERP",
         "label": "Discovered via search",
-        "description": "The business appeared in a target-market search — how Harvey found it at all.",
+        "description": "The business appeared in a target-market search — how Rash Sales Agent found it at all.",
         "category": "discovery",
         "value_type": "text",
         "collector": "discover",

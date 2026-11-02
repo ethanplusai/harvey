@@ -20,6 +20,7 @@ class Company(BaseModel):
     company_size: str = ""
     location: str = ""
     phone: str = ""
+    whatsapp: str = ""        # international digits, from a wa.me link on their site
     source: str = ""          # how we found them: google_dork, linkedin, company_scrape
     source_url: str = ""      # specific URL where we found the info
     # Provider-stable identity ("dataforseo:ChIJ...", "osm:node/123"). The

@@ -38,6 +38,7 @@ from bs4 import BeautifulSoup
 
 from harvey.brain import Brain
 from harvey.collectors import people as people_mod
+from harvey.collectors import phones as phones_mod
 from harvey.collectors.discover import site_name_from_html
 from harvey.collectors.profile import _reads_like_title, looks_like_challenge
 from harvey.config import HarveyConfig, EnvConfig
@@ -1608,6 +1609,7 @@ Respond ONLY with the JSON array."""
         except Exception as e:
             logger.debug(f"Team scrape failed for {domain}: {e}")
             return []
+        await self._save_company_numbers(company_id, domain)
 
         contacts: list[Prospect] = []
         named_on_site = False
@@ -1664,7 +1666,9 @@ Respond ONLY with the JSON array."""
         # already a prospect (a revisit), or anyone already on file from
         # another source, means the company is covered.
         reachable = any(c.email_status in ("verified", "risky") for c in contacts)
-        if not reachable and (contacts or not named_on_site) \
+        icp = getattr(getattr(self, "config", None), "icp", None)
+        if getattr(icp, "company_inboxes", True) and not reachable \
+                and (contacts or not named_on_site) \
                 and await self._company_uncontacted(company_id):
             inbox = await self._company_inbox_prospect(
                 company_id, domain, company_name, industry, signal_note,
@@ -1672,6 +1676,18 @@ Respond ONLY with the JSON array."""
             if inbox:
                 contacts.append(inbox)
         return contacts
+
+    async def _save_company_numbers(self, company_id: str, domain: str):
+        """The phone and WhatsApp number the site publishes, from the pages
+        already read for its people (no extra requests)."""
+        try:
+            site = await self._read_site(domain)
+            company = await self.state.get_company(company_id)
+            nums = phones_mod.contact_numbers(
+                site["pages"], getattr(company, "location", ""), domain)
+            await self.state.set_company_numbers(company_id, **nums)
+        except Exception as e:
+            logger.debug(f"Phone lookup failed for {domain}: {e}")
 
     async def _observe_likely_owner(self, company_id: str, member: dict):
         """Record LIKELY_OWNER for a company — only when the user confirmed

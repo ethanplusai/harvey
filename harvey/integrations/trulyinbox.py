@@ -55,10 +55,10 @@ RATE_LIMITED = "TrulyInbox's API limit is reached. Try again in a minute."
 LOCKED_OUT = ("TrulyInbox locked this computer out for 15 minutes after rejected keys. "
               "Wait, then try again with a working key.")
 BAD_WORKSPACE_ID = "TRULYINBOX_WORKSPACE_ID must be the workspace's number. Fix it in .env."
-NO_ADDRESS = ("Harvey doesn't know which mailbox it sends from. Set persona.email in "
+NO_ADDRESS = ("Rash Sales Agent doesn't know which mailbox it sends from. Set persona.email in "
               "harvey.yaml first.")
 NO_ANSWER = "TrulyInbox didn't answer. Try again in a minute."
-UNREADABLE = "TrulyInbox sent a reply Harvey couldn't read."
+UNREADABLE = "TrulyInbox sent a reply Rash Sales Agent couldn't read."
 
 # Each error rule in both spellings the docs use (6-digit and string codes).
 AUTH_CODES = {"150001", "150002", "invalid_api_key", "unauthorized", "Api.InvalidKey"}

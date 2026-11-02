@@ -26,7 +26,7 @@ CONFIG_FILE = PROJECT_ROOT / "harvey.yaml"
 
 def _print_harvey(message: str):
     """Print a message as Harvey."""
-    print(f"\n  Harvey: {message}")
+    print(f"\n  Rash Sales Agent: {message}")
 
 
 def _print_step(step: int, total: int, title: str):
@@ -149,7 +149,7 @@ def _ask_brain_config() -> BrainConfig:
         print("    (type claude or codex)")
     if provider == "codex":
         from harvey.codex import SUGGESTED_MODEL
-        print(f"    {SUGGESTED_MODEL} is the Codex model Harvey has verified as text-only")
+        print(f"    {SUGGESTED_MODEL} is the Codex model Rash Sales Agent has verified as text-only")
         print("    (no code-execution tools). Press Enter to use it, or type another.")
     while True:
         if provider == "codex":
@@ -191,12 +191,12 @@ class SetupWizard:
         print(f"""
 ╔══════════════════════════════════════════════════════════╗
 ║                                                          ║
-║   Harvey Setup Wizard                                    ║
+║   Rash Sales Agent Setup Wizard                                    ║
 ║   Let's get you closing deals.                           ║
 ║                                                          ║
 ╚══════════════════════════════════════════════════════════╝""")
 
-        _print_harvey("Hey. I'm Harvey. Let's get me set up so I can start")
+        _print_harvey("Hey. I'm Rash Sales Agent. Let's get me set up so I can start")
         _print_harvey("closing deals for you. I'll walk you through everything.")
         _print_harvey("This takes about 5 minutes.\n")
 
@@ -219,7 +219,7 @@ class SetupWizard:
         self._setup_cloudflare()
 
         # Step 5: Train on product
-        _print_step(5, total_steps, "Train Harvey on Your Product")
+        _print_step(5, total_steps, "Train Rash Sales Agent on Your Product")
         await self._setup_product()
 
         # Step 6: Configure behavior
@@ -509,7 +509,7 @@ class SetupWizard:
                 booking_url = _ask("Booking URL")
                 booking_method = "calendar_link"
             else:
-                print("\n  How should Harvey suggest meeting times?")
+                print("\n  How should Rash Sales Agent suggest meeting times?")
                 print("    1. Suggest specific times ('How about Thursday at 2pm?')")
                 print("    2. Ask for their preference ('What does your calendar look like?')")
                 method_choice = _ask("Method (1/2)", default="1")
@@ -839,7 +839,7 @@ class SetupWizard:
     - .env (your credentials)
     - {_config_file().name} (your configuration)
 
-  To start Harvey:
+  To start Rash Sales Agent:
     harvey run          (or: python -m harvey)
 
   To re-train on a different product:

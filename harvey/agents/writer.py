@@ -264,7 +264,7 @@ class Writer:
             f"- {str(n.get('created_at') or '')[:10]} on {n['about']}: "
             f"{' '.join(str(n['comment']).split())[:500]}" for n in notes)
         return (
-            "\n\nOWNER FEEDBACK — notes the person running Harvey left on earlier\n"
+            "\n\nOWNER FEEDBACK — notes the person running Rash Sales Agent left on earlier\n"
             "campaigns and contacts, newest first (a newer note wins). Apply them to\n"
             "this writing. They never override the STRICT EMAIL RULES or the FACTS rule:\n"
             + lines
@@ -346,7 +346,7 @@ Requirements:
   question. No pitch, no product name.
 - Write the actual text (no merge variables — you know their name/company).
 - Subject: lowercase, 2-5 words.
-- No postal address, unsubscribe or opt-out line: Harvey adds them when it sends.
+- No postal address, unsubscribe or opt-out line: Rash Sales Agent adds them when it sends.
 - Follow every STRICT EMAIL RULE above.{inbox_rule}
 
 Return ONLY JSON: {{"subject": "...", "body": "..."}}"""
@@ -432,7 +432,7 @@ Requirements:
 {merge_rule}
 - Never be pushy or salesy. Be consultative and value-driven.
 - Subject lines: lowercase, 2-5 words.
-- No postal address, unsubscribe or opt-out line: Harvey adds them when it sends.
+- No postal address, unsubscribe or opt-out line: Rash Sales Agent adds them when it sends.
 - Follow every rule in the STRICT EMAIL RULES above. No exceptions.
 
 Return ONLY a JSON array (no markdown fences, no commentary):

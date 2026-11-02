@@ -924,12 +924,12 @@ async def test_a_rate_limit_is_recorded_as_its_own_hold(state):
 
     hold = await stored_hold(state)
     assert hold["kind"] == "rate_limited" and hold["waiting"] == 2
-    assert hold_message(hold)["title"] == "Precleared is limiting how fast Harvey can check"
+    assert hold_message(hold)["title"] == "Precleared is limiting how fast Rash Sales Agent can check"
 
 
 def test_the_rate_limit_hold_says_what_happens_next():
     message = hold_message({"kind": "rate_limited", "waiting": 2})
-    assert message["title"] == "Precleared is limiting how fast Harvey can check"
+    assert message["title"] == "Precleared is limiting how fast Rash Sales Agent can check"
     assert message["detail"].startswith("2 cold emails are waiting.")
     assert "next cycle" in message["detail"]
     assert "free key" not in message["detail"]

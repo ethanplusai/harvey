@@ -142,7 +142,7 @@ def find_claude(env: dict | None = None) -> str | None:
                if size is not None else "isn't there")
     raise ClaudeRuntimeError(
         f"Found the claude.cmd shim ({found}), but the claude.exe it launches "
-        f"({native}) {problem}. Harvey never runs Claude through cmd.exe, which "
+        f"({native}) {problem}. Rash Sales Agent never runs Claude through cmd.exe, which "
         f"re-parses the flags that keep each call isolated. {INSTALL_HINT}")
 
 
@@ -255,14 +255,14 @@ def check_cli(env: dict | None = None) -> str:
     except (OSError, subprocess.SubprocessError) as e:
         raise ClaudeRuntimeError(
             f"Could not run '{exe} --help' to check the Claude CLI ({type(e).__name__}). "
-            "Harvey sends no prompt until it can confirm the CLI isolates calls.") from e
+            "Rash Sales Agent sends no prompt until it can confirm the CLI isolates calls.") from e
     missing = missing_flags(help_text)
     if missing:
         raise ClaudeRuntimeError(
-            f"This Claude CLI ({exe}) lacks {', '.join(missing)}, which Harvey needs "
+            f"This Claude CLI ({exe}) lacks {', '.join(missing)}, which Rash Sales Agent needs "
             "to keep your CLAUDE.md, hooks, skills, plugins and settings out of its "
             "prompts. Update it ('claude update', or rebuild the Docker image) and "
-            "Harvey resumes on its own. No prompt was sent.")
+            "Rash Sales Agent resumes on its own. No prompt was sent.")
     with _capable_lock:
         _capable[key] = True
     return exe

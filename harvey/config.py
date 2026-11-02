@@ -75,6 +75,9 @@ class ICPConfig(BaseModel):
     # Each variant runs in every city alongside the industry itself, so the
     # estimate grows with it. Empty → each industry is its own one search.
     keyword_variants: dict[str, list[str]] = {}
+    # False: never fall back to a company's general inbox (info@, contact@);
+    # only named people are prospected.
+    company_inboxes: bool = True
 
 
 class WarmupConfig(BaseModel):
@@ -446,7 +449,7 @@ class ComplianceConfig(BaseModel):
             )
         if not _ASKS_FOR_OPT_OUT_RE.search(v):
             raise ValueError(
-                "opt_out_line must ask for a reply Harvey recognises as an opt-out, "
+                "opt_out_line must ask for a reply Rash Sales Agent recognises as an opt-out, "
                 'e.g. Reply "no thanks" / Reply STOP. Recognised: '
                 + ", ".join(f'"{w}"' for w in OPT_OUT_WORDS) + "."
             )
@@ -484,7 +487,7 @@ def compliance_notice(config) -> str:
     return (
         "Cold emails are going out without " + " or ".join(missing) + ". US law "
         "(CAN-SPAM) requires both in every cold email. Set them in harvey.yaml "
-        "(or harvey.local.yaml if you trained Harvey)."
+        "(or harvey.local.yaml if you trained Rash Sales Agent)."
     )
 
 
@@ -672,7 +675,7 @@ def load_config(config_path: str | None = None) -> HarveyConfig:
         raise ConfigError(f"Could not read {config_path}: {e}")
 
     if data is None:
-        raise ConfigError(f"{config_path} is empty. Run 'harvey setup' to configure Harvey.")
+        raise ConfigError(f"{config_path} is empty. Run 'harvey setup' to configure Rash Sales Agent.")
     if not isinstance(data, dict):
         raise ConfigError(
             f"{config_path} must contain a YAML mapping (key: value pairs), "

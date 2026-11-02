@@ -7,7 +7,7 @@ import sys
 # the single most likely first-run problem.
 if sys.version_info < (3, 11):  # pragma: no cover - version guard
     raise RuntimeError(
-        f"Harvey needs Python 3.11+, but this is "
+        f"Rash Sales Agent needs Python 3.11+, but this is "
         f"{sys.version_info.major}.{sys.version_info.minor} "
         f"({sys.executable}). On macOS `python3` is the system 3.9 — rebuild "
         f"the venv from a newer Python:\n"
@@ -16,4 +16,4 @@ if sys.version_info < (3, 11):  # pragma: no cover - version guard
         f"    source .venv/bin/activate && pip install -e ."
     )
 
-"""Harvey — Autonomous Sales Agent. Always Be Closing."""
+"""Rash Sales Agent — Autonomous Sales Agent. Always Be Closing."""

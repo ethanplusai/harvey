@@ -126,7 +126,7 @@ def unusable_backlog_notice(summary: dict) -> str:
     if writable or recent < PROSPECT_BACKLOG:
         return ""
     return (
-        f"Harvey found {recent} prospects in the last day, but none has a verified "
+        f"Rash Sales Agent found {recent} prospects in the last day, but none has a verified "
         "or catch-all email, so it paused prospecting for about a day to save search "
         "and verifier credits. Add an email verifier key (REOON_API_KEY, "
         "ZEROBOUNCE_API_KEY or HUNTER_API_KEY in .env) or check it still has credits. "
@@ -251,7 +251,7 @@ async def heartbeat(stop_event: asyncio.Event | None = None):
         stop_event = asyncio.Event()
 
     logger.info("=" * 60)
-    logger.info("Harvey is online. Always Be Closing.")
+    logger.info("Rash Sales Agent is online. Always Be Closing.")
     logger.info("=" * 60)
 
     try:
@@ -345,7 +345,7 @@ async def heartbeat(stop_event: asyncio.Event | None = None):
             problem = await brain.preflight()
             if problem:
                 logger.error(
-                    f"Harvey is paused: {problem} Nothing was sent or changed. "
+                    f"Rash Sales Agent is paused: {problem} Nothing was sent or changed. "
                     f"Re-checking in {config.usage.heartbeat_interval_minutes} minutes."
                 )
                 if await _interruptible_sleep(interval, stop_event):
@@ -474,7 +474,7 @@ async def heartbeat(stop_event: asyncio.Event | None = None):
             if await _interruptible_sleep(backoff, stop_event):
                 break
 
-    logger.info("Harvey shutting down. Deals don't close themselves, but I need a break.")
+    logger.info("Rash Sales Agent shutting down. Deals don't close themselves, but I need a break.")
 
 
 def _needs_setup() -> bool:
@@ -538,9 +538,9 @@ def main():
     if _needs_setup():
         if not sys.stdin.isatty():
             # Started by the dashboard or a service: nobody can answer the wizard.
-            print("Harvey isn't set up yet. Run `harvey setup` in a terminal first.")
+            print("Rash Sales Agent isn't set up yet. Run `harvey setup` in a terminal first.")
             sys.exit(1)
-        print("\n  First time running Harvey? Let's get you set up.\n")
+        print("\n  First time running Rash Sales Agent? Let's get you set up.\n")
         from harvey.setup import run_setup
         asyncio.run(run_setup())
         return
@@ -550,7 +550,7 @@ def main():
     lock = hold_loop_lock(LOCK_FILE)
     if lock is None:
         running = read_pid()
-        print(f"Harvey is already running{f' (pid {running})' if running else ''}. "
+        print(f"Rash Sales Agent is already running{f' (pid {running})' if running else ''}. "
               "Stop it first, from the dashboard or with Ctrl+C in its terminal.")
         sys.exit(1)
     write_pid_file()

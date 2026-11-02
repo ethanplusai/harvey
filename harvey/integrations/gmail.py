@@ -124,7 +124,7 @@ class GmailProvider(MailProvider):
             return None
         # Why there's no token, for whoever asked (get_replies says it).
         unreachable = ("couldn't reach Google to refresh the Gmail sign-in{}; "
-                       "Harvey tries again next cycle.")
+                       "Rash Sales Agent tries again next cycle.")
         try:
             async with httpx.AsyncClient(timeout=TIMEOUT) as client:
                 resp = await client.post(TOKEN_URL, data={
@@ -583,7 +583,7 @@ def run_auth_flow(client_id: str, client_secret: str) -> bool:
             self.send_header("Content-Type", "text/html")
             self.end_headers()
             self.wfile.write(
-                b"<h2>Harvey is connected to Gmail.</h2>You can close this tab.")
+                b"<h2>Rash Sales Agent is connected to Gmail.</h2>You can close this tab.")
             done.set()
 
         def log_message(self, *args):
@@ -617,7 +617,7 @@ def run_auth_flow(client_id: str, client_secret: str) -> bool:
         return False
     data = resp.json()
     if not data.get("refresh_token"):
-        print("  Google returned no refresh token. Remove Harvey from your"
+        print("  Google returned no refresh token. Remove Rash Sales Agent from your"
               " account's third-party access list and retry.")
         return False
     _save_token({

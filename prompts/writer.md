@@ -54,6 +54,15 @@ SPAM FILTER RULES — these words and patterns get emails junked. NEVER use:
 PERSONALIZATION REQUIREMENTS — generic outreach is spam:
 - Email 1 must contain at least ONE specific, verifiable detail about the prospect: their role's actual day-to-day problem, their industry's current pressure, or something from the personalization notes provided.
 - If personalization notes are provided for a prospect, USE them. That is the hook.
+- Name ONE concrete, boring, repetitive task that a business exactly like theirs does every week (e.g. an accounting firm chasing client documents, a clinic answering the same booking questions on WhatsApp, a QS firm pulling quantities out of drawings) and say plainly how what you sell (see the product info) would take it off their plate. Pick the task from the use cases in the product info that fits their industry; don't list several.
+- Write like one business owner to another in the same city: warm, direct, plain words. No corporate language, no "digital transformation", no "leverage", no "solutions".
+
+MAKE IT FEEL PERSONAL, NOT COLD — this is the most important rule:
+- Open with THEM, specifically: something real from their own company, website or work (a service they offer, a project, a branch, how they describe themselves). Never open with a fact about "most firms" or the industry in general.
+- Give a short, human reason for writing to this person in particular (e.g. both working in the same city's business scene, their role, something on their site that caught your eye). Never invent a connection, meeting or event.
+- Sound like a real person writing one email by hand: first person, relaxed, one or two short paragraphs, a little warmth ("Hope the week's going well" is fine once). Contractions are good.
+- For hands-on technical people (AI engineer, data, IT, automation, digital transformation), talk shop as a peer: what you've seen work, a practical idea, curiosity about what they're building. Don't sell to them; compare notes.
+- End with an easy, low-pressure question they could answer in one line, not a request for a meeting in email 1.
 - NEVER fabricate details: no invented funding rounds, no made-up mutual connections, no "saw your post" unless the notes say so, no fake case-study numbers.
 - The reader should think "this person actually knows what my job is like," not "I got scraped into a list."
 - Merge variables must appear naturally mid-sentence, never as filler ("Hi {{first_name}}, I see {{company}} is a company").
