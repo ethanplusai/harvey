@@ -791,7 +791,7 @@ harvey/
 
 skills/                  # ← the sales knowledge. Editable Markdown.
 prompts/                 # ← agent system prompts. Also editable Markdown.
-tests/                   # 242 tests
+tests/                   # 2,988 tests
 ```
 
 ---
@@ -824,7 +824,7 @@ tests/                   # 242 tests
 
 ## Changelog
 
-See [CHANGELOG.md](CHANGELOG.md). Current release: **0.2.1**.
+See [CHANGELOG.md](CHANGELOG.md). Current release: **0.3.0**.
 
 ---
 
