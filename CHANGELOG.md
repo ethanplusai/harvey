@@ -312,6 +312,18 @@ minor versions can still change behaviour.
 
 ### Fixed
 
+- **The offer you configured now shapes the reply.** `product.offer` was
+  mostly dead config: only `booking_url` was read, by the send gate, and every
+  reply was told to "propose 2-3 specific times". An interested prospect (or a
+  thread already closing) now gets the configured next step. With
+  `calendar_link` the booking link is offered as written; with
+  `suggest_times` (or `calendar_link` and no usable URL) Harvey proposes two
+  or three real weekday times in the recipient's time zone, inside the send
+  window's hours when one is set; `ask_preference` asks what works for them.
+  `goal: start_trial` offers `entry`, and `get_reply` keeps the conversation
+  going without a pitch. `meeting_duration` and `meeting_owner` are used, and
+  the model is told never to invent a time or link. Questions and objections
+  still get an answer, not a meeting.
 - **Spanish opt-outs are caught without the model** (from #154). "No,
   gracias", a bare "BAJA", "denme de baja", "no me escriba más", "dejen de
   enviarme correos", "sáquenme de su lista", "no quiero recibir más correos"
