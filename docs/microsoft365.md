@@ -97,7 +97,10 @@ To make sure nobody else in the tenant can use the app, go to
 
 - **Sending.** Harvey creates a draft and then sends it, so the email's
   RFC `Message-ID` is known. Bounces and replies are matched on it. Bodies
-  are plain text.
+  are plain text, unless `channels.email.signature.logo` is set: then the
+  body is HTML and the logo is added to the draft as an inline attachment
+  before it's sent. Outlook's own signature isn't added to mail sent
+  through Graph, so this is the way to put a logo under Harvey's email.
 - **Replies are threaded.** Harvey answers with `createReply` on the
   prospect's own message, so `In-Reply-To` and `References` are correct. If
   that message was deleted, the reply goes out as a new email.

@@ -28,11 +28,19 @@ async def sync_sending_mode(config, state) -> bool:
     return True
 
 
+SIGNATURE_HOLD_PREFIX = "email signature: "
+
+
 def held_message(hold: dict, waiting: int) -> tuple[str, str]:
     """What Today and `harvey status` say while sending is held because
     replies couldn't all be read or handled: (title, detail)."""
     reason = str(hold.get("reason") or "replies couldn't all be read").strip().rstrip(".")
     low = reason.lower()
+    emails = "1 email is waiting" if waiting == 1 else f"{waiting} emails are waiting"
+    if low.startswith(SIGNATURE_HOLD_PREFIX):
+        return ("Harvey isn't sending: your email logo can't be used",
+                f"{reason[len(SIGNATURE_HOLD_PREFIX):]}. Fix the file, or clear "
+                f"channels.email.signature.logo to send plain text. {emails}.")
     if low.startswith("a reply from"):
         # The inbox was read; handling one reply failed. Its text and the
         # sender's address are no guide to a fix, so match nothing in it.
@@ -50,7 +58,6 @@ def held_message(hold: dict, waiting: int) -> tuple[str, str]:
                    "be sure it saw every reply. Send from a dedicated mailbox, or archive old mail.")
         else:
             fix = "Harvey tries again every cycle; if this lasts, check the log."
-    emails = "1 email is waiting" if waiting == 1 else f"{waiting} emails are waiting"
     return (title,
             f"{reason}. {fix} {emails}: replies are read first, so an opt-out "
             f"stops its follow-up before anything goes. Held since "
