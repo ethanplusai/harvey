@@ -56,6 +56,10 @@ minor versions can still change behaviour.
   conversations only. A card for a general inbox (no person's name) shows
   the company name instead of "Unknown". People who replied, opted out or
   bounced, and colleagues of anyone who replied, aren't listed.
+- **An optional logo under every email** (from #138).
+  `channels.email.signature.logo` sends Gmail, Microsoft 365 and SMTP email as
+  HTML with the logo embedded. Off by default. An unusable logo holds approved
+  email and says why on Today, rather than sending without it.
 - **TrulyInbox for warmup.** Harvey now recommends TrulyInbox for warming and
   keeping sending mailboxes healthy, and reads it: `harvey trulyinbox connect`
   (or the new warmup step on the dashboard's setup checklist) checks a key and
@@ -304,6 +308,9 @@ minor versions can still change behaviour.
 
 ### Fixed
 
+- **Hebrew legal threats and complaints go to you without the model** (from
+  #135), and an opt-out that also threatens, in any language, is honored and
+  shows on **Needs you** instead of being closed unseen.
 - **OpenStreetMap discovery survives a bad afternoon** (from #125). A 500, 502 or
   503 from one Overpass mirror now moves on to the next instead of ending the
   search, Overpass gets enough time to get through its queue, and the mirror

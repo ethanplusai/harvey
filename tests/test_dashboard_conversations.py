@@ -188,3 +188,38 @@ def test_a_colleague_of_someone_who_replied_is_not_awaiting(client):
     _sql(db, "INSERT INTO conversations (id, prospect_id, campaign_id, channel, status, updated_at) "
              "VALUES ('j', 'jane', 'k1', 'email', 'open', '2026-10-20')")
     assert _awaiting(client) == ["other"]
+
+
+def _render_actions(convo):
+    """Run app.js's convoActions under node with the real escaping helpers."""
+    import re
+    import shutil
+    import subprocess
+    from pathlib import Path
+    import pytest
+
+    node = shutil.which("node")
+    if not node:
+        pytest.skip("node is not installed")
+    source = (Path(__file__).resolve().parent.parent / "harvey" / "web" / "app.js").read_text(encoding="utf-8")
+    parts = []
+    for pattern in (r"^function escHtml\(.*?^}\n", r"^function jsq\(.*?^}\n",
+                    r"^function icon\(.*?^}\n", r"^function convoActions\(.*?^}\n"):
+        match = re.search(pattern, source, re.S | re.M)
+        assert match, pattern
+        parts.append(match.group(0))
+    script = "\n".join(parts) + f"\nprocess.stdout.write(convoActions({json.dumps(convo)}));"
+    return subprocess.run([node, "-e", script], capture_output=True, text=True, encoding="utf-8",
+                          check=True, timeout=30).stdout
+
+
+def test_an_escalation_from_someone_who_opted_out_cant_be_handed_back():
+    html = _render_actions({"id": "c1", "status": "needs_human", "prospect_status": "opted_out",
+                            "prospect_id": "p1", "prospect_email": "i@x.test"})
+    assert "Opted out, and Harvey handed this to you" in html
+    assert "Hand back to Harvey" not in html
+    assert "Close</button>" in html and "Why opted out?" in html
+    # Anyone else's escalation can still go back to Harvey.
+    html = _render_actions({"id": "c2", "status": "needs_human", "prospect_status": "replied",
+                            "prospect_id": "p2", "prospect_email": "b@x.test"})
+    assert "Hand back to Harvey" in html and "Why opted out?" not in html
