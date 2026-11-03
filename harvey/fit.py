@@ -10,7 +10,8 @@ the moment it changes.
                           (15 for another named person, 5 for a general inbox)
     reachable         25  best email: verified 25, risky 12, guess 5;
                           a contact form alone is 5
-    buying signal     25  an open role matching icp.hiring_signals
+    buying signal     25  an open role matching icp.hiring_signals, or a
+                          tool from icp.tech_signals on the company's site
                           (5 for a careers page with no matching role)
 
 A company on the do-not-contact list scores 0.
@@ -18,6 +19,7 @@ A company on the do-not-contact list scores 0.
 
 from __future__ import annotations
 
+import json
 import re
 
 from harvey.collectors.people import title_matches
@@ -39,6 +41,19 @@ def _role_matches(text: str, terms: list[str]) -> str:
         if re.search(rf"(?<![\w-]){re.escape(term)}(?![\w-])", low):
             return term
     return ""
+
+
+def _site_tech(company: dict, observations: list[dict]) -> set[str]:
+    """The tools last seen on the company's site, lowercased: the latest
+    TECH_STACK observation plus what the Scout stored on the company."""
+    stacks = sorted((o for o in observations if o.get("signal_code") == "TECH_STACK"),
+                    key=lambda o: o.get("observed_at") or "")
+    names = (stacks[-1].get("value_text") or "").split(",") if stacks else []
+    try:
+        names += json.loads(company.get("tech_stack_json") or "[]")
+    except (TypeError, ValueError):
+        pass
+    return {str(n).strip().lower() for n in names if str(n).strip()}
 
 
 def current_roles(observations: list[dict]) -> list[dict]:
@@ -108,9 +123,15 @@ def company_fit(company: dict, prospects: list[dict], observations: list[dict],
     terms = _hiring_terms(icp)
     roles = current_roles(observations)
     hit = next((t for o in roles if (t := _role_matches(o.get("value_text"), terms))), "")
-    if hit:
+    wanted = [t.strip() for t in (getattr(icp, "tech_signals", None) or []) if t.strip()]
+    on_site = _site_tech(company, observations) if wanted else set()
+    built = [t for t in wanted if t.lower() in on_site]
+    if hit or built:
         score += BUYING
-        reasons.append(f"hiring: {hit}")
+        if built:
+            reasons.append("built with: " + ", ".join(built))
+        if hit:
+            reasons.append(f"hiring: {hit}")
     elif roles:
         score += 5
         reasons.append("careers page, no matching role")

@@ -93,3 +93,49 @@ def test_a_contact_on_the_do_not_contact_list_doesnt_count():
     jo = {**person(), "email": "jo@acme.example"}
     score, _ = company_fit(ACME, [jo], [], config(dnc=["jo@acme.example"]))
     assert score == 20
+
+
+def tech_config(*tools):
+    cfg = config()
+    cfg.icp.hiring_signals = []
+    cfg.icp.tech_signals = list(tools)
+    return cfg
+
+
+def test_a_wanted_tool_on_the_site_is_a_buying_signal():
+    score, reasons = company_fit(
+        ACME, [person()],
+        [{"signal_code": "TECH_STACK", "value_text": "Google Analytics, Lovable, Supabase"}],
+        tech_config("Lovable", "Supabase"))
+    assert score == 100
+    assert reasons[-1] == "built with: Lovable, Supabase"
+
+
+def test_the_latest_tech_stack_is_the_one_that_counts():
+    obs = [{"signal_code": "TECH_STACK", "value_text": "Lovable", "observed_at": "2026-01-01"},
+           {"signal_code": "TECH_STACK", "value_text": "WordPress", "observed_at": "2026-06-01"}]
+    score, reasons = company_fit(ACME, [person()], obs, tech_config("Lovable"))
+    assert score == 75 and not any(r.startswith("built with") for r in reasons)
+
+
+def test_the_scouts_stored_tech_counts_too():
+    company = {**ACME, "tech_stack_json": '["Lovable"]'}
+    _, reasons = company_fit(company, [person()], [], tech_config("lovable"))
+    assert "built with: lovable" in reasons
+
+
+def test_tech_on_the_site_is_ignored_without_tech_signals():
+    _, reasons = company_fit(
+        ACME, [person()], [{"signal_code": "TECH_STACK", "value_text": "Lovable"}], tech_config())
+    assert not any(r.startswith("built with") for r in reasons)
+
+
+def test_hiring_and_a_wanted_tool_still_cap_the_buying_signal():
+    cfg = tech_config("Lovable")
+    cfg.icp.hiring_signals = ["Store Keeper"]
+    score, reasons = company_fit(
+        ACME, [person()],
+        [{"signal_code": "TECH_STACK", "value_text": "Lovable"},
+         {"signal_code": "HIRING_ROLE", "value_text": "Store Keeper"}], cfg)
+    assert score == 100
+    assert reasons[-2:] == ["built with: Lovable", "hiring: store keeper"]

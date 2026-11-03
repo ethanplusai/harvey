@@ -65,6 +65,11 @@ class ICPConfig(BaseModel):
     # hiring a "Head of Growth" is buying growth tooling). Empty → falls back
     # to `titles`. Used for careers-page scanning and job-board discovery.
     hiring_signals: list[str] = []
+    # Tools on a company's own site that mark it as a buyer, by the names in
+    # the tech-stack detector (e.g. ["Lovable", "Supabase"] when selling to
+    # founders of AI-built apps). One found counts as a buying signal in the
+    # company's fit score, as a matching open role does.
+    tech_signals: list[str] = []
     # Discovery needs a radius, not a place name. Maps each entry in
     # `geography` to "lat,lng,radius_km" — e.g.
     #   "Denver, CO": "39.7392,-104.9903,50"
