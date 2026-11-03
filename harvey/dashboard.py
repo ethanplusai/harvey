@@ -351,6 +351,7 @@ async def get_settings():
         "IMAP_HOST", "IMAP_PORT", "IMAP_USERNAME", "IMAP_PASSWORD",
         "M365_CLIENT_ID", "M365_TENANT_ID",
         "REOON_API_KEY", "ZEROBOUNCE_API_KEY", "HUNTER_API_KEY",
+        "PROSPEO_API_KEY", "APOLLO_API_KEY", "EMAIL_FINDERS",
     ]
     for key in all_keys:
         if key not in env_vars:
@@ -358,6 +359,12 @@ async def get_settings():
 
     def is_set(k):
         return bool((env_vars.get(k) or "").strip())
+
+    def hint(k):
+        """A saved key's last four characters, so the user can tell which key
+        is set without the key itself ever reaching the browser."""
+        value = (env_vars.get(k) or "").strip()
+        return f"••••{value[-4:]}" if len(value) >= 12 else ("••••" if value else "")
 
     # Gmail is authorized once harvey gmail auth has stored a token file.
     gmail_token = (PROJECT_ROOT / "data" / "gmail_token.json").is_file()
@@ -390,6 +397,15 @@ async def get_settings():
         "reoon_api_key_set": is_set("REOON_API_KEY"),
         "zerobounce_api_key_set": is_set("ZEROBOUNCE_API_KEY"),
         "hunter_api_key_set": is_set("HUNTER_API_KEY"),
+        "reoon_api_key_hint": hint("REOON_API_KEY"),
+        "zerobounce_api_key_hint": hint("ZEROBOUNCE_API_KEY"),
+        "hunter_api_key_hint": hint("HUNTER_API_KEY"),
+        "prospeo_api_key_hint": hint("PROSPEO_API_KEY"),
+        "apollo_api_key_hint": hint("APOLLO_API_KEY"),
+        # Email finders: keys are secret (presence only); the order isn't.
+        "prospeo_api_key_set": is_set("PROSPEO_API_KEY"),
+        "apollo_api_key_set": is_set("APOLLO_API_KEY"),
+        "email_finders": env_vars.get("EMAIL_FINDERS", ""),
     }
 
 
@@ -410,7 +426,8 @@ async def save_env_settings(request: Request):
                      "SMTP_HOST", "SMTP_PORT", "SMTP_USERNAME", "SMTP_PASSWORD",
                      "IMAP_HOST", "IMAP_PORT", "IMAP_USERNAME", "IMAP_PASSWORD",
                      "M365_CLIENT_ID", "M365_TENANT_ID",
-                     "REOON_API_KEY", "ZEROBOUNCE_API_KEY", "HUNTER_API_KEY"]:
+                     "REOON_API_KEY", "ZEROBOUNCE_API_KEY", "HUNTER_API_KEY",
+                     "PROSPEO_API_KEY", "APOLLO_API_KEY", "EMAIL_FINDERS"]:
             if key in data and data[key] is not None:
                 value = data[key]
                 if isinstance(value, bool) or not isinstance(value, (str, int, float)):
@@ -418,6 +435,15 @@ async def save_env_settings(request: Request):
                                         status_code=400)
                 value = str(value)
                 # A port Harvey can't parse would stop it starting at all.
+                if key == "EMAIL_FINDERS":
+                    from harvey.integrations.email_finders import KNOWN
+                    names = [n.strip().lower() for n in value.split(",") if n.strip()]
+                    unknown = [n for n in names if n not in KNOWN]
+                    if unknown:
+                        return JSONResponse({"success": False, "message":
+                                             f"Unknown email finder: {', '.join(unknown)}. "
+                                             f"Use {', '.join(KNOWN)}."}, status_code=400)
+                    value = ",".join(dict.fromkeys(names))
                 if key.endswith("_PORT") and value.strip() and not value.strip().isdigit():
                     return JSONResponse({"success": False, "message": f"{key} must be a number."},
                                         status_code=400)

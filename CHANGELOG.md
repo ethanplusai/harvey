@@ -9,6 +9,25 @@ minor versions can still change behaviour.
 
 ### Added
 
+- **Email finders: Hunter, Prospeo and Apollo** (`EMAIL_FINDERS` in `.env`).
+  When the company's address format gives nothing deliverable for a named
+  person, Harvey asks the configured services for that person's own address,
+  in order: Hunter's Email Finder, Prospeo's Enrich Person and Apollo's
+  People Enrichment. An address is used only if it's at the company's own
+  domain (or its parent, for a regional subdomain site), isn't another named person's mailbox, and passes the same
+  verifiers as any candidate; a finder's own "verified" counts only when
+  those can't decide, and anything unchecked stays a guess. Each finder has
+  a monthly cap counted per attempt (Hunter's shares its search budget), and
+  Apollo is never asked for personal emails or phone numbers. When a
+  company's site named nobody reachable, the finders are also asked who else
+  works there: people matching `icp.titles`, best title first, get their
+  address looked up and graded, and up to `EMAIL_FINDER_COMPANY_CONTACTS` (2)
+  become contacts. Never where anyone has been emailed, replied or opted out,
+  never on the do-not-contact list, at most once per company every 90 days.
+  Keys and order go in `.env` (`EMAIL_FINDERS`, `PROSPEO_API_KEY`,
+  `APOLLO_API_KEY`) or on Settings → Email finders. Off unless
+  `EMAIL_FINDERS` is set, so existing installs spend nothing new.
+
 - **Company fit and the company register.** The Companies tab now sorts by a
   0-100 fit score worked out from what Harvey already holds: the ICP sector
   match, a contact with a target title, the best email found, and an open

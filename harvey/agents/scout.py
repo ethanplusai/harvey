@@ -104,6 +104,9 @@ MAX_PROSPECTS_PER_CYCLE = 25
 # integrations/email_finder.py); this just paces it, since a heartbeat every
 # 15 minutes would spend a free-tier month in a few hours otherwise.
 HUNTER_DOMAINS_PER_CYCLE = 1
+# Companies per cycle that email finders search for people (EMAIL_FINDERS).
+# Each costs up to one search and a few lookups, within each provider's cap.
+COMPANY_FINDER_PER_CYCLE = 3
 
 # Rotate a small pool of realistic desktop user-agents. Scrapers that always
 # send one UA are trivially fingerprinted and blocked.
@@ -178,6 +181,9 @@ class Scout:
         # the mercy of Serper/Bing flakiness — cheapest, most reliable win
         # available before spending any queries.
         strategies.append(("known_companies", self._prospect_via_known_companies))
+        # Then companies whose site named nobody Harvey can reach: ask the
+        # email finders (if configured) who else there fits the ICP.
+        strategies.append(("company_finders", self._prospect_via_company_finders))
         if self.config.channels.linkedin.enabled and self.env.linkedin_email:
             strategies.append(("linkedin", self._prospect_via_linkedin))
         # Job boards first: hiring is the strongest intent signal, and the
@@ -648,6 +654,82 @@ class Scout:
                 if count >= MAX_PROSPECTS_PER_CYCLE:
                     return count
 
+        return count
+
+    async def _prospect_via_company_finders(self) -> int:
+        """For companies whose own site gave no one reachable, ask the email
+        finders who else there has a target title, and add the best one or
+        two whose address checks out.
+
+        Only after the site has been read (``prospects_checked_at``), never
+        where anyone has been emailed, replied or opted out, and at most once
+        every 90 days per company. Each address is graded by our verifiers
+        before it becomes a contact; anything that doesn't verify (or isn't
+        a catch-all) is left out.
+        """
+        from harvey.config import live_do_not_contact
+        from harvey.gate import do_not_contact_match
+        from harvey.integrations.email_finder import grade_found_address
+        from harvey.integrations.email_finders import (
+            company_contacts, company_contacts_wanted, configured_finders,
+        )
+
+        want = company_contacts_wanted()
+        if want <= 0 or not configured_finders():
+            return 0
+        try:
+            companies = await self.state.companies_without_reachable_contact(
+                limit=COMPANY_FINDER_PER_CYCLE)
+        except Exception as e:
+            logger.debug(f"companies_without_reachable_contact failed: {e}")
+            return 0
+        dnc = live_do_not_contact(self.config)
+        default_industry = self.config.icp.industries[0] if self.config.icp.industries else ""
+        titles = list(self.config.icp.titles or [])
+
+        count = 0
+        for company in companies:
+            domain = (company.get("domain") or "").strip().lower()
+            if not domain:
+                continue
+            if dnc and do_not_contact_match(f"x@{domain}", dnc):
+                await self.state.mark_contacts_searched(company["id"])
+                continue
+            known = await self.state.prospect_names_at_company(company["id"])
+            added = 0
+            async for person in company_contacts(domain, titles, self.state, want, skip_names=known):
+                status = await grade_found_address(person.email, domain, self.env,
+                                                   person.verified_by_provider)
+                if status not in ("verified", "risky"):
+                    continue
+                prospect = Prospect(
+                    first_name=person.first,
+                    last_name=person.last,
+                    email=person.email,
+                    email_status=status,
+                    email_verified=status == "verified",
+                    company=company.get("name") or self._domain_to_name(domain),
+                    company_id=company["id"],
+                    title=person.title,
+                    seniority=self._infer_seniority(person.title),
+                    industry=company.get("industry") or default_industry,
+                    source=f"finder:{person.provider}",
+                    source_url=f"https://{domain}",
+                )
+                if not prospect.is_valid() or await self._is_duplicate_prospect(prospect):
+                    continue
+                await self.state.add_prospect(prospect)
+                self._remember_prospect(prospect)
+                known.add(f"{person.first} {person.last}".strip().lower())
+                added += 1
+                count += 1
+                logger.info(f"Scout: Added {prospect.full_name()} ({prospect.title}) at "
+                            f"{prospect.company} [{prospect.source}, {status}]")
+                if added >= want or count >= MAX_PROSPECTS_PER_CYCLE:
+                    break
+            await self.state.mark_contacts_searched(company["id"])
+            if count >= MAX_PROSPECTS_PER_CYCLE:
+                break
         return count
 
     # ── Strategy 0: Known companies with zero prospects ──

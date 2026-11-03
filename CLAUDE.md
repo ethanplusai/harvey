@@ -90,6 +90,10 @@ REOON_API_KEY=              # 600 free/mo — best free tier
 ZEROBOUNCE_API_KEY=         # 100 free/mo — best for M365/Workspace catch-alls
 HUNTER_API_KEY=             # 50 free/mo + pattern lookup
 
+# --- Email finders (optional): ask for one named person's address ---
+EMAIL_FINDERS=              # e.g. prospeo,hunter,apollo (order to ask; off when empty)
+PROSPEO_API_KEY=  APOLLO_API_KEY=
+
 # --- Discovery (optional — the free OpenStreetMap source needs no key) ---
 TINYFISH_API_KEY=                         # free web search (30/min, 500/hr); no rank signals
 DATAFORSEO_LOGIN=  DATAFORSEO_PASSWORD=   # cheapest local-business + SERP data

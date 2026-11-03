@@ -1227,11 +1227,11 @@ async function loadSettings() {
   if (provEl) provEl.textContent = prov;
 
   // Secret fields never echo a value — show a "saved" placeholder instead.
-  const savedPh = (id, isSet, base) => {
+  const savedPh = (id, isSet, base, hint) => {
     const el = document.getElementById(id);
     if (!el) return;
     el.value = '';
-    el.placeholder = isSet ? 'Saved — enter new value to change' : base;
+    el.placeholder = isSet ? 'Saved' + (hint ? ' (' + hint + ')' : '') + ' — enter new value to change' : base;
   };
   const tag = (id, ok, okLabel) => {
     const el = document.getElementById(id);
@@ -1258,9 +1258,9 @@ async function loadSettings() {
   savedPh('imap-pass', data.imap_password_set, 'Same as SMTP password');
   document.getElementById('imap-same-pass').checked = !data.imap_password_set;
   savedPh('instantly-key', data.instantly_api_key_set, 'Enter your Instantly API key');
-  savedPh('reoon-key', data.reoon_api_key_set, '600 free/mo — reoon.com/email-verifier');
-  savedPh('zerobounce-key', data.zerobounce_api_key_set, '100 free/mo — best for M365/Workspace catch-alls');
-  savedPh('hunter-key', data.hunter_api_key_set, '50 free/mo + email-pattern lookup');
+  savedPh('reoon-key', data.reoon_api_key_set, '600 free/mo — reoon.com/email-verifier', data.reoon_api_key_hint);
+  savedPh('zerobounce-key', data.zerobounce_api_key_set, '100 free/mo — best for M365/Workspace catch-alls', data.zerobounce_api_key_hint);
+  savedPh('hunter-key', data.hunter_api_key_set, '50 free/mo + email-pattern lookup', data.hunter_api_key_hint);
   savedPh('linkedin-password', data.linkedin_password_set, 'Enter password');
   savedPh('cf-api-token', data.cloudflare_api_token_set, 'Your Cloudflare API Token');
 
@@ -1280,6 +1280,12 @@ async function loadSettings() {
   tag('reoon-status', data.reoon_api_key_set, 'set');
   tag('zerobounce-status', data.zerobounce_api_key_set, 'set');
   tag('hunter-status', data.hunter_api_key_set, 'set');
+  savedPh('prospeo-key', data.prospeo_api_key_set, 'Free tier — prospeo.io', data.prospeo_api_key_hint);
+  savedPh('apollo-key', data.apollo_api_key_set, 'Free plan, work email — apollo.io', data.apollo_api_key_hint);
+  tag('prospeo-status', data.prospeo_api_key_set, 'set');
+  tag('apollo-status', data.apollo_api_key_set, 'set');
+  const finders = document.getElementById('email-finders');
+  if (finders) finders.value = data.email_finders || '';
 }
 
 function saveGmail() {
@@ -1326,6 +1332,15 @@ function saveVerifiers() {
   if (h) payload.HUNTER_API_KEY = h;
   if (!Object.keys(payload).length) { showToast('Enter at least one key first.', 'error'); return; }
   saveEnv(payload, 'Verification keys saved.').then(loadSettings);
+}
+
+function saveFinders() {
+  const payload = {EMAIL_FINDERS: document.getElementById('email-finders').value.trim()};
+  const p = document.getElementById('prospeo-key').value;
+  const a = document.getElementById('apollo-key').value;
+  if (p) payload.PROSPEO_API_KEY = p;
+  if (a) payload.APOLLO_API_KEY = a;
+  saveEnv(payload, 'Email finders saved. Restart Harvey to use them.').then(loadSettings);
 }
 
 async function saveEnv(payload, okMsg) {
