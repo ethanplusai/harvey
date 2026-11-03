@@ -857,7 +857,7 @@ class SetupWizard:
     See the "Legal & Deliverability" section of the README.
 """)
         _print_sellbird("I'm ready. Run 'sellbird run' and I'll start closing.")
-        _print_sellbird("Always be closing.\n")
+        _print_sellbird("Make the first move.\n")
 
 
 async def run_setup():

@@ -1,11 +1,29 @@
 # Changelog
 
-Notable changes to Harvey. Dates are release dates; the format follows
+Notable changes to Sellbird, called Harvey until 0.4.0. Dates are release dates; the format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) loosely and versions
 follow [semver](https://semver.org/), with the caveat that Harvey is pre-1.0 and
 minor versions can still change behaviour.
 
 ## [Unreleased]
+
+### Changed
+
+- **Harvey is now Sellbird.** The package, the `sellbird` command,
+  `sellbird.yaml` and `sellbird.local.yaml`, `data/sellbird.db`, `SELLBIRD_*`
+  settings and the Docker service all carry the new name. An existing clone
+  upgrades with `git pull && pip install -e .`. On first run Sellbird moves
+  `harvey.local.yaml` and `data/harvey.*` to the new names. It never
+  overwrites, and waits while a Harvey process is still running.
+  `HARVEY_*` settings still apply. `harvey` and `python -m harvey` keep
+  working for now and say they moved. See "Upgrading from Harvey" in the
+  README.
+- **The agent no longer calls itself by the product's name.** The prompts
+  described the model as Harvey ("like Harvey Specter"), and the default and
+  trained sender was Harvey at harvey@your-domain. The default sender is now
+  Alex. Messages saved before the rename still count as ours in reply
+  history.
+- **Logo.** The dashboard shows the Sellbird swallow and favicon.
 
 ### Added
 

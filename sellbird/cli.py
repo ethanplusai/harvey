@@ -991,7 +991,7 @@ def main():
 
     parser = argparse.ArgumentParser(
         prog="sellbird",
-        description="Sellbird — Autonomous AI Sales Agent. Always Be Closing.",
+        description="Sellbird — the open-source outreach platform. Make the first move.",
     )
     subparsers = parser.add_subparsers(dest="command")
 

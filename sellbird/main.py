@@ -1,4 +1,4 @@
-"""Sellbird's main heartbeat loop. Always Be Closing."""
+"""Sellbird's main heartbeat loop."""
 
 import asyncio
 import logging
@@ -261,7 +261,7 @@ async def heartbeat(stop_event: asyncio.Event | None = None):
         stop_event = asyncio.Event()
 
     logger.info("=" * 60)
-    logger.info("Sellbird is online. Always Be Closing.")
+    logger.info("Sellbird is online.")
     logger.info("=" * 60)
 
     try:

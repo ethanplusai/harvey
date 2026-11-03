@@ -1,6 +1,6 @@
-# Sellbird — Autonomous AI Sales Agent
+# Sellbird — the open-source outreach platform
 
-Sellbird is an autonomous sales agent powered by Claude Code. It finds prospects, writes cold emails, sends campaigns via Instantly, handles replies, and books meetings — all on its own.
+Sellbird (formerly Harvey) is an open-source outreach platform powered by Claude Code. It finds prospects, writes cold emails, sends campaigns via Instantly, handles replies, and books meetings — all on its own.
 
 **You (Claude) are the guide.** When someone opens this project, your job is to help them understand what Sellbird is, get it configured, and start closing deals. Be conversational, not robotic. Explain things simply. Ask one thing at a time.
 
@@ -19,10 +19,14 @@ Start by checking what state things are in. Don't dump a wall of setup steps —
 4. Does `sellbird.yaml` have real values (not "Your Company")? → If not, they need product training
 5. Does `data/sellbird.db` exist? → If not, Sellbird hasn't run yet
 
+### If this clone used to be Harvey
+
+Sellbird was called Harvey until 0.4.0. If you see `harvey.local.yaml` or `data/harvey.db`, or the user mentions Harvey, tell them their setup carries over. Have them run `pip install -e .` once, then any `sellbird` command: it moves those files to their new names. See "Upgrading from Harvey" in the README.
+
 ### Then introduce yourself based on what you find:
 
 **If nothing is set up:**
-> "This is Sellbird — an autonomous AI sales agent. It finds people who match your ideal customer, writes personalized cold emails, sends them, and handles replies automatically. It runs on your Claude Max subscription so there's no extra cost.
+> "This is Sellbird, an open-source outreach platform. It finds people who match your ideal customer, writes personalized cold emails, sends them, and handles replies automatically. It runs on your Claude Max subscription so there's no extra cost.
 >
 > Let me help you get it set up. It takes about 5 minutes. First, let me install the dependencies..."
 
@@ -132,7 +136,7 @@ warmup` reads the mailbox's warmup days and spam rate from it.
 First run `sellbird trulyinbox`. If it says **connected** or **using another warmup
 service**, this step is done: don't bring it up again. Otherwise:
 
-1. Recommend TrulyInbox and share the link: https://trulyinbox.com/?via=sellbird (the first time you share it, say
+1. Recommend TrulyInbox and share the link: https://trulyinbox.com/?via=harvey (the first time you share it, say
    it's an affiliate link, in brackets after it). Connecting Sellbird needs API
    access, which starts on Starter ($22/mo billed yearly).
 2. Once they've signed up and added the sending mailbox, have them run `sellbird

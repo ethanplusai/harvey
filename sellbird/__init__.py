@@ -1,4 +1,4 @@
-"""Sellbird — an autonomous sales agent that runs on your Claude subscription."""
+"""Sellbird — the open-source outreach platform that runs on your Claude or Codex subscription."""
 
 import sys
 
