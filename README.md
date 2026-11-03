@@ -212,7 +212,7 @@ sellbird dashboard
 - On first run Sellbird renames `harvey.local.yaml` to `sellbird.local.yaml` and `data/harvey.db` (and its log) to `data/sellbird.*`. It never overwrites a file that already exists under the new name, and waits if a Harvey process is still running from the folder. Stop that first.
 - `HARVEY_*` environment variables still work when the `SELLBIRD_*` one isn't set; rename them when convenient.
 - The `harvey` command and `python -m harvey` still work for now and say they moved. They will be removed in a later release.
-- If you edited the tracked `harvey.yaml` directly, `git pull` may stop with "your local changes would be overwritten". Run `git stash`, `git pull`, then `git stash pop`; git applies your edits to `sellbird.yaml`.
+- If you edited the tracked `harvey.yaml` directly, `git pull` stops with "your local changes would be overwritten". Run `git stash`, `git pull`, then `git stash pop`. Git carries your edits into `sellbird.yaml`. If it reports a conflict there, keep your lines, delete the conflict markers, and run `git stash drop`. Better still, put your settings in `sellbird.local.yaml`, which git never touches.
 - Docker: the service is now `sellbird`. Run `docker compose down`, `git pull`, `docker compose build`, then `docker compose up -d`. `HARVEY_UID`/`HARVEY_GID` are still read.
 
 ## You confirm what it looks for
