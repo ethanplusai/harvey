@@ -395,6 +395,25 @@
     </div>
   </div>
 
+  <div class="card">
+    <div class="settings-row">
+      <div>
+        <h3>Email finders <span class="hint">Optional</span></h3>
+        <p class="desc">When a company's address format doesn't work for someone (an owner on a different alias), Harvey can ask these services for that person's own address, and, when a company's site names nobody reachable, who else there has one of your target titles. Every address is still verified before use, and none of them charge when they find nobody. Off until you list them below. Restart Harvey after changing these.</p>
+      </div>
+      <div class="fields">
+        <div class="form-group"><label class="form-label" for="email-finders">Ask, in this order</label>
+          <input type="text" class="form-input" id="email-finders" placeholder="prospeo, apollo, hunter" autocomplete="off"></div>
+        <div class="form-group"><label class="form-label" for="prospeo-key">Prospeo API key <span id="prospeo-status" class="email-tag"></span></label>
+          <input type="password" class="form-input" id="prospeo-key" placeholder="Free tier — prospeo.io" autocomplete="off"></div>
+        <div class="form-group"><label class="form-label" for="apollo-key">Apollo API key <span id="apollo-status" class="email-tag"></span></label>
+          <input type="password" class="form-input" id="apollo-key" placeholder="Free plan, work email — apollo.io" autocomplete="off"></div>
+        <p class="desc">Hunter uses the Hunter key above.</p>
+        <button class="btn btn-primary btn-sm" onclick="saveFinders()">Save email finders</button>
+      </div>
+    </div>
+  </div>
+
   <div class="subhead">Optional</div>
   <div class="card">
     <div class="settings-row">

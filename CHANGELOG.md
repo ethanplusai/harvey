@@ -24,7 +24,9 @@ minor versions can still change behaviour.
   address looked up and graded, and up to `EMAIL_FINDER_COMPANY_CONTACTS` (2)
   become contacts. Never where anyone has been emailed, replied or opted out,
   never on the do-not-contact list, at most once per company every 90 days.
-  Off unless `EMAIL_FINDERS` is set, so existing installs spend nothing new.
+  Keys and order go in `.env` (`EMAIL_FINDERS`, `PROSPEO_API_KEY`,
+  `APOLLO_API_KEY`) or on Settings → Email finders. Off unless
+  `EMAIL_FINDERS` is set, so existing installs spend nothing new.
 
 - **Company fit and the company register.** The Companies tab now sorts by a
   0-100 fit score worked out from what Harvey already holds: the ICP sector

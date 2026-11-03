@@ -1280,6 +1280,12 @@ async function loadSettings() {
   tag('reoon-status', data.reoon_api_key_set, 'set');
   tag('zerobounce-status', data.zerobounce_api_key_set, 'set');
   tag('hunter-status', data.hunter_api_key_set, 'set');
+  savedPh('prospeo-key', data.prospeo_api_key_set, 'Free tier — prospeo.io');
+  savedPh('apollo-key', data.apollo_api_key_set, 'Free plan, work email — apollo.io');
+  tag('prospeo-status', data.prospeo_api_key_set, 'set');
+  tag('apollo-status', data.apollo_api_key_set, 'set');
+  const finders = document.getElementById('email-finders');
+  if (finders) finders.value = data.email_finders || '';
 }
 
 function saveGmail() {
@@ -1326,6 +1332,15 @@ function saveVerifiers() {
   if (h) payload.HUNTER_API_KEY = h;
   if (!Object.keys(payload).length) { showToast('Enter at least one key first.', 'error'); return; }
   saveEnv(payload, 'Verification keys saved.').then(loadSettings);
+}
+
+function saveFinders() {
+  const payload = {EMAIL_FINDERS: document.getElementById('email-finders').value.trim()};
+  const p = document.getElementById('prospeo-key').value;
+  const a = document.getElementById('apollo-key').value;
+  if (p) payload.PROSPEO_API_KEY = p;
+  if (a) payload.APOLLO_API_KEY = a;
+  saveEnv(payload, 'Email finders saved. Restart Harvey to use them.').then(loadSettings);
 }
 
 async function saveEnv(payload, okMsg) {

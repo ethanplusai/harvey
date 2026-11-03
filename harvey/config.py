@@ -742,6 +742,10 @@ class EnvConfig(BaseModel):
     tinyfish_api_key: str = ""
     reoon_api_key: str = ""
     zerobounce_api_key: str = ""
+    # Email finders (opt-in by email_finders): see harvey/integrations/email_finders.py
+    prospeo_api_key: str = ""
+    apollo_api_key: str = ""
+    email_finders: str = ""
     # Native mail providers (channels.email.provider: gmail | smtp)
     gmail_client_id: str = ""
     gmail_client_secret: str = ""
@@ -860,6 +864,9 @@ def load_env() -> EnvConfig:
         tinyfish_api_key=os.getenv("TINYFISH_API_KEY", "").strip(),
         reoon_api_key=os.getenv("REOON_API_KEY", "").strip(),
         zerobounce_api_key=os.getenv("ZEROBOUNCE_API_KEY", "").strip(),
+        prospeo_api_key=os.getenv("PROSPEO_API_KEY", "").strip(),
+        apollo_api_key=os.getenv("APOLLO_API_KEY", "").strip(),
+        email_finders=os.getenv("EMAIL_FINDERS", "").strip(),
         gmail_client_id=os.getenv("GMAIL_CLIENT_ID", "").strip(),
         gmail_client_secret=os.getenv("GMAIL_CLIENT_SECRET", "").strip(),
         smtp_host=os.getenv("SMTP_HOST", "").strip(),
