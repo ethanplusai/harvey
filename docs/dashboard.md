@@ -37,7 +37,7 @@ The sidebar is grouped by what you're doing: **Work** (what needs you), **Pipeli
 
 | Outbox | Conversations |
 |---|---|
-| <picture><source media="(prefers-color-scheme: dark)" srcset="screenshots/outbox-dark.png"><img alt="The outbox decisions desk: a drafted reply to an objection, with the company, contact, verification and signals beside it" src="screenshots/outbox-light.png"></picture> | <picture><source media="(prefers-color-scheme: dark)" srcset="screenshots/conversations-dark.png"><img alt="A conversation Sellbird handed back: the two emails sent, the prospect asking for a contract, and the Hand back to Sellbird and Close buttons" src="screenshots/conversations-light.png"></picture> |
+| <picture><source media="(prefers-color-scheme: dark)" srcset="screenshots/outbox-dark.png"><img alt="The outbox decisions desk: a drafted reply to an objection, with the company, contact, verification and signals beside it" src="screenshots/outbox-light.png"></picture> | <picture><source media="(prefers-color-scheme: dark)" srcset="screenshots/conversations-dark.png"><img alt="A conversation that needs you: the two emails Sellbird sent and the prospect's reply, marked Objection and Needs you" src="screenshots/conversations-light.png"></picture> |
 
 Colour is kept for meaning. The chrome is neutral and a single blue marks what you can act on. Status (waiting on you, done, failed, running) uses the same small set of tones in every tab, so "waiting on you" looks the same wherever it shows up. Figures are tabular, so columns line up and a changing number doesn't shift the layout.
 
