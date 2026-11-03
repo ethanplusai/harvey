@@ -1,7 +1,7 @@
-"""Tests for the optional Precleared step in `harvey setup`: off unless the
+"""Tests for the optional Precleared step in `sellbird setup`: off unless the
 user says yes, saved answers are the defaults when setup is re-run, the key is
 read with hidden input and never printed, and other settings are kept. No
-network: the step only writes harvey.yaml and .env."""
+network: the step only writes sellbird.yaml and .env."""
 
 import os
 import shutil
@@ -10,19 +10,19 @@ from types import SimpleNamespace
 import pytest
 import yaml
 
-import harvey.setup as setup
-from harvey.config import load_config
-from harvey.integrations.precleared import PreclearedClient
-from harvey.paths import PROJECT_ROOT
+import sellbird.setup as setup
+from sellbird.config import load_config
+from sellbird.integrations.precleared import PreclearedClient
+from sellbird.paths import PROJECT_ROOT
 
 FAKE_KEY = "pc_live_example_not_a_real_key"
 
 
 @pytest.fixture
 def files(tmp_path, monkeypatch):
-    """A copy of the shipped harvey.yaml and an empty .env, in a temp folder."""
-    config = tmp_path / "harvey.yaml"
-    shutil.copy(PROJECT_ROOT / "harvey.yaml", config)
+    """A copy of the shipped sellbird.yaml and an empty .env, in a temp folder."""
+    config = tmp_path / "sellbird.yaml"
+    shutil.copy(PROJECT_ROOT / "sellbird.yaml", config)
     env = tmp_path / ".env"
     monkeypatch.setattr(setup, "CONFIG_FILE", config)
     monkeypatch.setattr(setup, "ENV_FILE", env)
@@ -63,7 +63,7 @@ def saved(path) -> dict:
 
 
 def finish(wizard):
-    """Write .env and harvey.yaml the way the end of `harvey setup` does."""
+    """Write .env and sellbird.yaml the way the end of `sellbird setup` does."""
     if not wizard.config:
         wizard.config = {"channels": {"email": {"max_daily_sends": 50}}}
     wizard._write_env()
@@ -201,7 +201,7 @@ def test_turning_it_on_without_a_key_leaves_a_placeholder(files, monkeypatch, ca
 
 
 def test_a_new_config_file_gets_the_check(tmp_path, monkeypatch):
-    config = tmp_path / "harvey.yaml"  # not created yet
+    config = tmp_path / "sellbird.yaml"  # not created yet
     monkeypatch.setattr(setup, "CONFIG_FILE", config)
     monkeypatch.setattr(setup, "ENV_FILE", tmp_path / ".env")
     monkeypatch.delenv("PRECLEARED_API_KEY", raising=False)
@@ -262,19 +262,19 @@ def test_saving_the_key_keeps_other_env_lines_and_stays_private(files, monkeypat
     assert FAKE_KEY not in caplog.text
 
 
-# ── setup saves to the file Harvey reads, and says when it couldn't ──
+# ── setup saves to the file Sellbird reads, and says when it couldn't ──
 
 @pytest.fixture
 def trained(files):
-    """`harvey train` wrote harvey.local.yaml, which wins over harvey.yaml."""
-    local = files.config.with_name("harvey.local.yaml")
+    """`sellbird train` wrote sellbird.local.yaml, which wins over sellbird.yaml."""
+    local = files.config.with_name("sellbird.local.yaml")
     shutil.copy(files.config, local)
     files.local = local
     files.template = files.config.read_bytes()
     return files
 
 
-def test_after_harvey_train_setup_saves_to_harvey_local_yaml(trained, monkeypatch):
+def test_after_sellbird_train_setup_saves_to_sellbird_local_yaml(trained, monkeypatch):
     script(monkeypatch, yes_no=[True], answers=["GB", "", ""])
     wizard = setup.SetupWizard()
     wizard._setup_compliance()
@@ -284,7 +284,7 @@ def test_after_harvey_train_setup_saves_to_harvey_local_yaml(trained, monkeypatc
     assert trained.config.read_bytes() == trained.template  # template untouched
 
 
-def test_rerunning_setup_after_harvey_train_offers_the_saved_answers(trained, monkeypatch):
+def test_rerunning_setup_after_sellbird_train_offers_the_saved_answers(trained, monkeypatch):
     set_precleared(trained.local, enabled=True, sender_country="US")
     asked = script(monkeypatch, yes_no=[None], answers=["", "", ""])
     wizard = setup.SetupWizard()
@@ -296,9 +296,9 @@ def test_rerunning_setup_after_harvey_train_offers_the_saved_answers(trained, mo
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize("has_local", [False, True])
-async def test_setup_trains_into_the_file_harvey_reads(files, monkeypatch, has_local):
+async def test_setup_trains_into_the_file_sellbird_reads(files, monkeypatch, has_local):
     if has_local:
-        shutil.copy(files.config, files.config.with_name("harvey.local.yaml"))
+        shutil.copy(files.config, files.config.with_name("sellbird.local.yaml"))
     outputs = []
 
     class FakeTrainer:
@@ -309,11 +309,11 @@ async def test_setup_trains_into_the_file_harvey_reads(files, monkeypatch, has_l
             outputs.append(output_path)
             return {"persona": {}}
 
-    monkeypatch.setattr("harvey.trainer.Trainer", FakeTrainer)
+    monkeypatch.setattr("sellbird.trainer.Trainer", FakeTrainer)
     script(monkeypatch, yes_no=[], answers=["url", "https://example.test"])
     await setup.SetupWizard()._setup_product()
 
-    name = "harvey.local.yaml" if has_local else "harvey.yaml"
+    name = "sellbird.local.yaml" if has_local else "sellbird.yaml"
     assert outputs == [str(files.config.with_name(name))]
 
 

@@ -25,7 +25,7 @@ Not every interested prospect gets the same offer. Match the offer to their leve
 
 ## Crafting Offers from Product Knowledge
 
-When Harvey learns about a product (via website crawl or manual training), it should identify:
+When Sellbird learns about a product (via website crawl or manual training), it should identify:
 
 1. **Primary offer**: What's the main thing we're selling? (e.g., software subscription, service engagement, audit/assessment)
 2. **Entry offers**: Lower-commitment ways to start (e.g., free trial, pilot program, free audit, strategy session)
@@ -91,9 +91,9 @@ Best when: Product sells itself, prospect just needs access.
 - For self-serve products with free trials
 - Skip the call if the product can speak for itself
 
-## What Harvey Should Confirm with the User
+## What Sellbird Should Confirm with the User
 
-During setup or training, Harvey needs to know:
+During setup or training, Sellbird needs to know:
 
 1. **What's the primary offer?** (subscription, service, trial, audit, etc.)
 2. **Is there an entry offer?** (free trial, free audit, sample, etc.)
@@ -102,10 +102,10 @@ During setup or training, Harvey needs to know:
    - Calendar link (provide URL)
    - Suggest times
    - Ask for their preference
-5. **Who takes the meeting?** (the user, a sales team member, Harvey books and someone else shows up)
+5. **Who takes the meeting?** (the user, a sales team member, Sellbird books and someone else shows up)
 6. **Any qualification before booking?** (company size, budget, specific need)
 
-These answers go into `harvey.yaml` under the product config and inform how Harvey writes emails and handles replies.
+These answers go into `sellbird.yaml` under the product config and inform how Sellbird writes emails and handles replies.
 
 ## Offer Timing in the Sequence
 

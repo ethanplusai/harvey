@@ -33,9 +33,9 @@ from urllib.parse import urlparse
 
 import httpx
 
-from harvey.models import Company
+from sellbird.models import Company
 
-logger = logging.getLogger("harvey.collectors.discover")
+logger = logging.getLogger("sellbird.collectors.discover")
 
 TIMEOUT = httpx.Timeout(connect=10.0, read=45.0, write=10.0, pool=10.0)
 
@@ -277,7 +277,7 @@ def is_junk(domain: str, name: str = "") -> bool:
 # the settings table: a given city is looked up once, ever.
 
 NOMINATIM = "https://nominatim.openstreetmap.org/search"
-GEOCODE_UA = "Harvey/0.1 (open-source sales agent; github.com/ethanplusai/harvey)"
+GEOCODE_UA = "Sellbird/0.1 (open-source sales agent; github.com/ethanplusai/sellbird)"
 
 
 async def geocode_city(state, city: str, radius_km: int = 40,
@@ -390,7 +390,7 @@ class DiscoveryQuery:
 
 
 # DataForSEO names places "Denver,Colorado,United States" — full state name,
-# no spaces after commas. Harvey's geography is written the way people write
+# no spaces after commas. Sellbird's geography is written the way people write
 # it ("Denver, CO"), so US state abbreviations are expanded here. Anything
 # else passes through with its commas tightened; a name DataForSEO doesn't
 # know comes back as a task error, which the run reports.
@@ -539,7 +539,7 @@ class DataForSEOListings(DiscoveryProvider):
     free_tier = "$1 signup credit; $50 minimum deposit to go live"
     signup_url = "https://app.dataforseo.com/api-access"
     env_keys = ("dataforseo_login", "dataforseo_password")
-    caveat = "No email addresses — Harvey resolves those in a later stage."
+    caveat = "No email addresses — Sellbird resolves those in a later stage."
 
     TASK_COST = 0.012
     ITEM_COST = 0.00036
@@ -731,7 +731,7 @@ class DataForSEOMaps(DataForSEOSerp):
              "business's map position, rating, category and claimed status — "
              "including businesses with no website at all.")
     cost_note = "$0.002 per search of up to 100 results (Live)"
-    caveat = ("Map rank depends heavily on where the searcher stands; Harvey "
+    caveat = ("Map rank depends heavily on where the searcher stands; Sellbird "
               "searches from the city centre at city zoom. Treat it as 'when we "
               "searched from downtown', not an absolute position.")
 
@@ -868,7 +868,7 @@ class TinyFish(DiscoveryProvider):
     free_tier = "free with a key, no card: 30 searches a minute, 500 an hour"
     signup_url = "https://agent.tinyfish.ai/api-keys"
     env_keys = ("tinyfish_api_key",)
-    caveat = ("Needs TINYFISH_API_KEY in .env. Harvey paces itself to 30 searches "
+    caveat = ("Needs TINYFISH_API_KEY in .env. Sellbird paces itself to 30 searches "
               "a minute; a depth-30 phrase is 3 searches, so about 160 phrases an "
               "hour fit in the 500. No SERP_RANK: use Serper or DataForSEO SERP "
               "for rank signals.")
@@ -1154,8 +1154,8 @@ class OpenStreetMap(DiscoveryProvider):
         # out readily under load. Walk the mirrors, then RAISE: returning []
         # would make a throttled run look exactly like a market with no
         # businesses in it.
-        headers = {"User-Agent": "Harvey/0.1 (open-source sales agent; "
-                                 "github.com/ethanplusai/harvey)"}
+        headers = {"User-Agent": "Sellbird/0.1 (open-source sales agent; "
+                                 "github.com/ethanplusai/sellbird)"}
         r = None
         for i, endpoint in enumerate(self.ENDPOINTS):
             if i:
@@ -1641,9 +1641,9 @@ def preset_problem(preset: str, provider_key: str, config=None) -> str | None:
         return (f"The {spec['label']} preset is a web search, so it needs a search "
                 f"provider ({names}), not {provider_key}.")
     if any("{role}" in tpl for tpl in preset_templates(spec)) and config is not None:
-        from harvey.collectors.ats import role_keywords
+        from sellbird.collectors.ats import role_keywords
         if not role_keywords(getattr(config, "icp", None)):
-            return (f"The {spec['label']} preset searches for roles, and harvey.yaml has "
+            return (f"The {spec['label']} preset searches for roles, and sellbird.yaml has "
                     "none: set icp.hiring_signals (or icp.titles).")
     return None
 
@@ -1663,7 +1663,7 @@ def build_queries(config, cities: list[str] | None = None,
     if spec:
         templates = preset_templates(spec)
         since = (date.today() - timedelta(days=FUNDING_LOOKBACK_DAYS)).isoformat()
-        from harvey.collectors.ats import role_keywords
+        from sellbird.collectors.ats import role_keywords
         roles = role_keywords(icp) if any("{role}" in tpl for tpl in templates) else [""]
         terms = [tpl.format(industry=t, role=r, since=since)
                  for r in roles for t in terms for tpl in templates]
@@ -1706,9 +1706,9 @@ async def run_discovery(
     every time: the first small trial is what exposes the data-quality
     problems that would otherwise poison every market you scale to.
     """
-    from harvey.config import live_do_not_contact, load_env
-    from harvey.gate import do_not_contact_domain_match
-    from harvey.signals import seed_signal_catalog
+    from sellbird.config import live_do_not_contact, load_env
+    from sellbird.gate import do_not_contact_domain_match
+    from sellbird.signals import seed_signal_catalog
 
     provider = PROVIDERS.get(provider_key)
     if provider is None:
@@ -1745,7 +1745,7 @@ async def run_discovery(
     if not confirmed:
         report.errors.append(
             "no signals confirmed — confirm signals first (dashboard → Signals, "
-            "or `harvey signals --confirm free`) or discovery has nothing to record")
+            "or `sellbird signals --confirm free`) or discovery has nothing to record")
         report.stopped = "no confirmed signals"
         return report
 
@@ -1993,7 +1993,7 @@ def provider_menu(env: dict | None = None) -> list[dict]:
     "needs setup" even with a working key in .env.
     """
     if env is None:
-        from harvey.config import load_env
+        from sellbird.config import load_env
         env = load_env().model_dump()
     return [
         {

@@ -1,7 +1,7 @@
-"""Who may use the dashboard API (harvey/dashboard_auth.py).
+"""Who may use the dashboard API (sellbird/dashboard_auth.py).
 
 Everything here runs against throwaway paths: the token, .env, database and
-PID/log files are all redirected into tmp_path, and starting Harvey is
+PID/log files are all redirected into tmp_path, and starting Sellbird is
 stubbed. Covers: every route needs the token (enumerated, so a new route
 can't slip through), the public shell carries no data, Host/Origin/fetch
 metadata checks, cross-site "simple" requests, token storage, .env
@@ -27,8 +27,8 @@ import pytest
 from fastapi.testclient import TestClient
 from starlette.routing import Route
 
-import harvey.dashboard as dash
-from harvey import dashboard_auth as auth
+import sellbird.dashboard as dash
+from sellbird import dashboard_auth as auth
 
 POSIX = pytest.mark.skipif(os.name == "nt", reason="POSIX file modes (Windows uses ACLs)")
 ORIGIN = "http://127.0.0.1:5555"
@@ -41,16 +41,16 @@ def env(tmp_path, monkeypatch):
     """Every path the dashboard writes, redirected; Popen stubbed."""
     (tmp_path / "data").mkdir()
     monkeypatch.setattr(dash, "ENV_FILE", tmp_path / ".env")
-    monkeypatch.setattr(dash, "DB_PATH", tmp_path / "data" / "harvey.db")
-    monkeypatch.setattr(dash, "PID_FILE", tmp_path / "data" / "harvey.pid")
-    monkeypatch.setattr(dash, "LOG_FILE", tmp_path / "data" / "harvey.log")
+    monkeypatch.setattr(dash, "DB_PATH", tmp_path / "data" / "sellbird.db")
+    monkeypatch.setattr(dash, "PID_FILE", tmp_path / "data" / "sellbird.pid")
+    monkeypatch.setattr(dash, "LOG_FILE", tmp_path / "data" / "sellbird.log")
     dash.token_store.configure(tmp_path / "data" / "dashboard-token")
     spawned = []
 
     class NoPopen:
         def __init__(self, *a, **k):
             spawned.append(a)
-            raise AssertionError("Harvey must not be started by this request")
+            raise AssertionError("Sellbird must not be started by this request")
 
     monkeypatch.setattr(dash.subprocess, "Popen", NoPopen)
     return {"dir": tmp_path, "spawned": spawned, "token": dash.token_store.get()}
@@ -118,7 +118,7 @@ def test_token_in_query_or_cookie_is_ignored(anon, env):
     tok = env["token"]
     for params in ({"token": tok}, {"t": tok}, {"access_token": tok}):
         assert anon.get("/api/companies", params=params).status_code == 401
-    for cookie in (f"token={tok}", f"harvey_token={tok}", f"Authorization=Bearer {tok}"):
+    for cookie in (f"token={tok}", f"sellbird_token={tok}", f"Authorization=Bearer {tok}"):
         assert anon.get("/api/companies", headers={"Cookie": cookie}).status_code == 401
 
 
@@ -189,7 +189,7 @@ def test_only_get_and_head_of_the_shell_are_public(anon):
     "127.0.0.1:abc", "127.0.0.1:99999", "127.0.0.1:", "[::1", "::1", "[127.0.0.1]",
     "127.1", "0.0.0.0", "0x7f000001", "2130706433", "192.168.1.10", "localhost:5555:1",
     "localhost:5555 ", "local%68ost", "[::1]x", "[fe80::1%25lo0]:5555",
-    # Zone IDs on loopback: ipaddress calls "::1%lo0" loopback, Harvey doesn't.
+    # Zone IDs on loopback: ipaddress calls "::1%lo0" loopback, Sellbird doesn't.
     "[::1%lo0]:5555", "[::1%lo0]", "[::1%25lo0]:5555", "[::1%1]", "[0:0:0:0:0:0:0:1%lo0]",
 ])
 def test_non_loopback_or_malformed_hosts_are_refused(env, host):
@@ -309,7 +309,7 @@ def test_cross_site_simple_requests_change_nothing(env, content_type):
     form: no custom headers, a CORS-safelisted content type."""
     body = json.dumps({"SMTP_HOST": "relay.example.test"})
     with TestClient(dash.app, base_url=ORIGIN) as c:
-        for path in ("/api/settings/env", "/api/harvey/start", "/api/outbox/approve-all",
+        for path in ("/api/settings/env", "/api/sellbird/start", "/api/outbox/approve-all",
                      "/api/sending/resume", "/api/signals/status"):
             r = c.post(path, content=body, headers={**CROSS_SITE, "Content-Type": content_type})
             assert r.status_code == 403
@@ -367,7 +367,7 @@ def test_imap_and_microsoft_settings_round_trip(authed):
     assert data["m365_authorized"] in (True, False)
 
 
-def test_a_port_harvey_cannot_parse_is_refused(authed):
+def test_a_port_sellbird_cannot_parse_is_refused(authed):
     r = authed.post("/api/settings/env", json={"IMAP_PORT": "993 SSL"})
     assert r.status_code == 400 and not dash.ENV_FILE.exists()
     assert authed.post("/api/settings/env", json={"IMAP_PORT": ""}).json()["success"]   # blank = default
@@ -396,7 +396,7 @@ def test_new_env_file_is_owner_only_whatever_the_umask(authed):
 
 @POSIX
 def test_existing_env_file_is_tightened_and_its_other_lines_kept(authed, env):
-    original = ("# Harvey settings\n"
+    original = ("# Sellbird settings\n"
                 "INSTANTLY_API_KEY=keep-me\n"
                 "\n"
                 "export SMTP_HOST=old.example.test\n"
@@ -407,7 +407,7 @@ def test_existing_env_file_is_tightened_and_its_other_lines_kept(authed, env):
     assert authed.post("/api/settings/env",
                        json={"SMTP_HOST": "new.example.test", "SMTP_PORT": 587}).json()["success"]
     text = dash.ENV_FILE.read_text()
-    assert text == ("# Harvey settings\n"
+    assert text == ("# Sellbird settings\n"
                     "INSTANTLY_API_KEY=keep-me\n"
                     "\n"
                     "SMTP_HOST=new.example.test\n"
@@ -697,7 +697,7 @@ def test_startup_fails_closed_without_a_usable_token(env, monkeypatch):
 
 
 def test_cli_dashboard_refuses_and_prints_links(env, monkeypatch, capsys):
-    import harvey.cli as cli
+    import sellbird.cli as cli
     import uvicorn
     monkeypatch.setattr(uvicorn, "run", lambda *a, **k: pytest.fail("must not start"))
     args = type("A", (), {"host": "0.0.0.0", "port": 5555, "url": False})()
@@ -721,21 +721,21 @@ def _free_port():
 START = """
 import sys
 from pathlib import Path
-import harvey.dashboard as dash
+import sellbird.dashboard as dash
 work = Path(sys.argv[1])
 dash.ENV_FILE = work / ".env"
-dash.DB_PATH = work / "data" / "harvey.db"
-dash.PID_FILE = work / "data" / "harvey.pid"
-dash.LOG_FILE = work / "data" / "harvey.log"
+dash.DB_PATH = work / "data" / "sellbird.db"
+dash.PID_FILE = work / "data" / "sellbird.pid"
+dash.LOG_FILE = work / "data" / "sellbird.log"
 dash.token_store.configure(work / "data" / "dashboard-token")
-from harvey.cli import main
-sys.argv = ["harvey", "dashboard", "--port", sys.argv[2]]
+from sellbird.cli import main
+sys.argv = ["sellbird", "dashboard", "--port", sys.argv[2]]
 main()
 """
 
 
 def test_real_server_started_like_the_cli(tmp_path):
-    """uvicorn on a real loopback socket, started through `harvey dashboard`."""
+    """uvicorn on a real loopback socket, started through `sellbird dashboard`."""
     port = _free_port()
     script = tmp_path / "start.py"
     script.write_text(START)
@@ -869,6 +869,6 @@ def test_app_js_only_talks_to_the_api_through_authfetch():
     app = (WEB / "app.js").read_text(encoding="utf-8")
     assert re.findall(r"(?<![A-Za-z])fetch\(", app) == []
     assert "authFetch(" in app
-    assert "localStorage.setItem('harvey-dashboard" not in app
+    assert "localStorage.setItem('sellbird-dashboard" not in app
     html = (WEB / "index.html").read_text(encoding="utf-8")
     assert "downloadCsv('/api/export/prospects.csv'" in html

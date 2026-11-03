@@ -6,8 +6,8 @@ import tempfile
 import pytest
 import pytest_asyncio
 
-from harvey.state import StateManager
-from harvey.models.prospect import Prospect
+from sellbird.state import StateManager
+from sellbird.models.prospect import Prospect
 
 
 @pytest_asyncio.fixture
@@ -102,7 +102,7 @@ class _Cfg:
 
 @pytest.mark.asyncio
 async def test_sender_only_sends_verified(state, monkeypatch):
-    from harvey.agents.sender import Sender
+    from sellbird.agents.sender import Sender
 
     # Three prospects: verified, guess, risky
     ids = {}
@@ -119,7 +119,7 @@ async def test_sender_only_sends_verified(state, monkeypatch):
     sender = Sender(brain=None, state=state, config=_Cfg(), env=Env())
 
     # Filter logic mirrors _deploy_campaign's lead selection.
-    from harvey.agents.sender import (
+    from sellbird.agents.sender import (
         SENDABLE_EMAIL_STATUSES, SENDABLE_EMAIL_STATUSES_WITH_RISKY,
     )
     allowed = SENDABLE_EMAIL_STATUSES

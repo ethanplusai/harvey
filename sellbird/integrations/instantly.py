@@ -7,7 +7,7 @@ from typing import Any
 
 import httpx
 
-logger = logging.getLogger("harvey.instantly")
+logger = logging.getLogger("sellbird.instantly")
 
 BASE_URL = "https://api.instantly.ai/api/v2"
 
@@ -152,7 +152,7 @@ class InstantlyClient:
     async def create_campaign(self, name: str) -> dict | None:
         """Create a new campaign. Returns campaign data with id."""
         # stop_for_company: a reply from anyone at a company stops the
-        # sequence to everyone there, as on Harvey's own providers.
+        # sequence to everyone there, as on Sellbird's own providers.
         result = await self._request("POST", "/campaigns",
                                      {"name": name, "stop_for_company": True})
         if isinstance(result, dict):

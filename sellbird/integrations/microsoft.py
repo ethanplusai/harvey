@@ -5,18 +5,18 @@ the SMTP+IMAP provider can't read an M365 inbox. This one uses OAuth:
 
 Setup (one-time):
 1. https://entra.microsoft.com → App registrations → New registration.
-   Name "Harvey", "Accounts in this organizational directory only".
+   Name "Sellbird", "Accounts in this organizational directory only".
    Redirect URI: platform "Public client/native (mobile & desktop)",
    value http://localhost:8766
 2. Copy the Application (client) ID and Directory (tenant) ID into .env as
-   M365_CLIENT_ID / M365_TENANT_ID. No client secret: Harvey is a public
+   M365_CLIENT_ID / M365_TENANT_ID. No client secret: Sellbird is a public
    client and signs in with PKCE.
-3. Run ``harvey microsoft auth`` — opens a browser, you sign in and accept
+3. Run ``sellbird microsoft auth`` — opens a browser, you sign in and accept
    Mail.ReadWrite + Mail.Send, and the refresh token is stored in
    data/m365_token.json (mode 600). Revoke it any time at
    https://myaccount.microsoft.com → Apps.
 
-Harvey never marks your mail read or moves it: it reads the last 7 days of
+Sellbird never marks your mail read or moves it: it reads the last 7 days of
 the inbox and remembers what it has handled. Mail is sent as the signed-in
 mailbox, under its own display name.
 """
@@ -35,16 +35,16 @@ from datetime import datetime, timedelta, timezone
 
 import httpx
 
-from harvey.paths import PROJECT_ROOT
-from harvey.integrations.mail_provider import (
+from sellbird.paths import PROJECT_ROOT
+from sellbird.integrations.mail_provider import (
     InboundMessage,
     MailProvider,
     SendResult,
     looks_like_bounce,
 )
-from harvey.integrations.signature import SignatureError, load_signature, render_html
+from sellbird.integrations.signature import SignatureError, load_signature, render_html
 
-logger = logging.getLogger("harvey.microsoft")
+logger = logging.getLogger("sellbird.microsoft")
 
 TOKEN_FILE = PROJECT_ROOT / "data" / "m365_token.json"
 GRAPH = "https://graph.microsoft.com/v1.0"
@@ -131,7 +131,7 @@ class MicrosoftProvider(MailProvider):
             return self._access_token
         stored = _load_token()
         if not stored:
-            raise GraphError("not authorized. Run 'harvey microsoft auth'.")
+            raise GraphError("not authorized. Run 'sellbird microsoft auth'.")
         try:
             async with self._client() as client:
                 resp = await client.post(_token_url(self.tenant), data={
@@ -145,7 +145,7 @@ class MicrosoftProvider(MailProvider):
         if resp.status_code != 200:
             raise GraphError(
                 f"token refresh rejected ({resp.status_code}): {resp.text[:200]}. "
-                "Re-run 'harvey microsoft auth'."
+                "Re-run 'sellbird microsoft auth'."
             )
         data = resp.json()
         if data.get("refresh_token"):
@@ -217,7 +217,7 @@ class MicrosoftProvider(MailProvider):
         if expected and me != expected:
             raise GraphError(
                 f"signed in as {me}, but persona.email is {expected}. Run "
-                f"'harvey microsoft auth' again and sign in as {expected}."
+                f"'sellbird microsoft auth' again and sign in as {expected}."
             )
         return me
 
@@ -383,7 +383,7 @@ class MicrosoftProvider(MailProvider):
         if not self.client_id:
             return False, "M365_CLIENT_ID missing from .env"
         if not _load_token():
-            return False, "Not authorized yet — run 'harvey microsoft auth'"
+            return False, "Not authorized yet — run 'sellbird microsoft auth'"
         try:
             me = await self._check_identity()
             await self._request(
@@ -480,7 +480,7 @@ def run_auth_flow(client_id: str, tenant: str = "") -> bool:
             self.send_header("Content-Type", "text/html")
             self.end_headers()
             self.wfile.write(
-                b"<h2>Harvey is connected to Microsoft 365.</h2>You can close this tab.")
+                b"<h2>Sellbird is connected to Microsoft 365.</h2>You can close this tab.")
             done.set()
 
         def log_message(self, *args):

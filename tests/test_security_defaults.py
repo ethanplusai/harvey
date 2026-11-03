@@ -7,14 +7,14 @@ import pytest
 import pytest_asyncio
 import yaml
 
-from harvey.agents.handler import Handler
-from harvey.agents.sender import Sender
-from harvey.config import BrainConfig, EnvConfig, LinkedInChannelConfig
-from harvey.models.campaign import Campaign, EmailStep
-from harvey.models.prospect import Prospect
-from harvey.paths import PROJECT_ROOT
-from harvey.state import StateManager
-from harvey.trainer import Trainer
+from sellbird.agents.handler import Handler
+from sellbird.agents.sender import Sender
+from sellbird.config import BrainConfig, EnvConfig, LinkedInChannelConfig
+from sellbird.models.campaign import Campaign, EmailStep
+from sellbird.models.prospect import Prospect
+from sellbird.paths import PROJECT_ROOT
+from sellbird.state import StateManager
+from sellbird.trainer import Trainer
 
 
 @pytest_asyncio.fixture
@@ -29,7 +29,7 @@ def legacy_config(require_approval=True):
         channels=SimpleNamespace(email=SimpleNamespace(
             enabled=True, provider="instantly", require_approval=require_approval,
             max_daily_sends=50, send_to_risky=False)),
-        persona=SimpleNamespace(name="Harvey", role="BDR", company="Acme", tone="direct"),
+        persona=SimpleNamespace(name="Sellbird", role="BDR", company="Acme", tone="direct"),
         product=SimpleNamespace(name="Widget", description="A widget", objection_responses={}),
     )
 
@@ -86,7 +86,7 @@ async def test_legacy_opt_out_is_honored_even_when_approval_blocks_sending(state
 
 def test_linkedin_is_disabled_in_model_and_shipped_template():
     assert LinkedInChannelConfig().enabled is False
-    template = yaml.safe_load((PROJECT_ROOT / "harvey.yaml").read_text())
+    template = yaml.safe_load((PROJECT_ROOT / "sellbird.yaml").read_text())
     assert template["channels"]["linkedin"]["enabled"] is False
     assert LinkedInChannelConfig(enabled=True).enabled is True
 
@@ -100,8 +100,8 @@ def test_product_training_does_not_enable_linkedin():
 
 @pytest.mark.parametrize("enabled", [False, True])
 def test_setup_saves_explicit_linkedin_choice_for_existing_config(tmp_path, monkeypatch, enabled):
-    from harvey import setup
-    path = tmp_path / "harvey.yaml"
+    from sellbird import setup
+    path = tmp_path / "sellbird.yaml"
     path.write_text(yaml.safe_dump({"channels": {"linkedin": {"enabled": not enabled}}}))
     monkeypatch.setattr(setup, "CONFIG_FILE", path)
     wizard = setup.SetupWizard()
@@ -132,14 +132,14 @@ async def test_held_instantly_reply_spends_no_model_call(state):
 async def test_held_drafts_do_not_block_writing_or_prospecting(new, expected):
     # A held Instantly draft must not win "send_campaign" every cycle and
     # starve the writer and scout forever.
-    from harvey.main import decide_next_action
+    from sellbird.main import decide_next_action
     summary = {"prospects": {"new": new}, "draft_campaigns": 1, "open_conversations": 0}
     assert await decide_next_action(None, None, legacy_config(), summary=summary) == expected
 
 
 @pytest.mark.asyncio
 async def test_drafts_still_deploy_on_instantly_autopilot_and_native_providers():
-    from harvey.main import decide_next_action
+    from sellbird.main import decide_next_action
     summary = {"prospects": {"new": 30}, "draft_campaigns": 1, "open_conversations": 0}
     assert await decide_next_action(None, None, legacy_config(False), summary=summary) == "send_campaign"
     native = legacy_config()
@@ -148,7 +148,7 @@ async def test_drafts_still_deploy_on_instantly_autopilot_and_native_providers()
 
 
 def test_held_instantly_is_announced_plainly():
-    from harvey.config import legacy_sending_held, sending_notice
+    from sellbird.config import legacy_sending_held, sending_notice
     assert legacy_sending_held(legacy_config()) is True
     assert legacy_sending_held(legacy_config(False)) is False
     notice = sending_notice(legacy_config())
@@ -161,30 +161,30 @@ def test_held_instantly_is_announced_plainly():
 
 @pytest.mark.asyncio
 async def test_training_on_a_local_url_says_why_it_was_refused():
-    from harvey.trainer import FallbackCrawler
+    from sellbird.trainer import FallbackCrawler
     crawler = FallbackCrawler()
     assert await crawler.crawl("http://localhost:3000", max_pages=3) == {}
     assert crawler.blocked is True
 
 
 def test_status_still_works_when_the_config_is_invalid(tmp_path, monkeypatch, capsys):
-    # `harvey status` is what people run when something's wrong, so an
-    # invalid harvey.yaml must not crash the sending-hold check.
-    import harvey.config
-    import harvey.state
-    from harvey.cli import cmd_status
-    from harvey.config import HarveyConfig
+    # `sellbird status` is what people run when something's wrong, so an
+    # invalid sellbird.yaml must not crash the sending-hold check.
+    import sellbird.config
+    import sellbird.state
+    from sellbird.cli import cmd_status
+    from sellbird.config import SellbirdConfig
     from pydantic import ValidationError
 
     def invalid():
-        HarveyConfig(channels={"email": {"max_daily_sends": "lots"}})
+        SellbirdConfig(channels={"email": {"max_daily_sends": "lots"}})
 
     try:
         invalid()
     except ValidationError:
         pass
-    real_state = harvey.state.StateManager
-    monkeypatch.setattr(harvey.state, "StateManager", lambda: real_state(str(tmp_path / "s.db")))
-    monkeypatch.setattr(harvey.config, "load_config", invalid)
+    real_state = sellbird.state.StateManager
+    monkeypatch.setattr(sellbird.state, "StateManager", lambda: real_state(str(tmp_path / "s.db")))
+    monkeypatch.setattr(sellbird.config, "load_config", invalid)
     cmd_status(SimpleNamespace(check=False))
     assert "Prospects:" in capsys.readouterr().out

@@ -1,5 +1,5 @@
 /* ══════════════════════════════════════════════════════════════
-   Harvey — dashboard styles
+   Sellbird — dashboard styles
 
    The rules this sheet follows:
 
@@ -240,7 +240,7 @@ nav button.active .icon { color: var(--accent); }
   margin-top: auto; display: flex; flex-direction: column; gap: var(--sp-2);
   padding: var(--sp-3) 6px 0; border-top: 1px solid var(--line);
 }
-.harvey-status { display: flex; align-items: center; gap: 8px; font-size: var(--fs-ui); color: var(--text-2); }
+.sellbird-status { display: flex; align-items: center; gap: 8px; font-size: var(--fs-ui); color: var(--text-2); }
 .status-dot { width: 7px; height: 7px; border-radius: 50%; flex: none; background: var(--text-3); }
 .status-dot.running { background: var(--good); box-shadow: 0 0 0 3px var(--good-bg); }
 .status-dot.offline { background: var(--bad); box-shadow: 0 0 0 3px var(--bad-bg); }

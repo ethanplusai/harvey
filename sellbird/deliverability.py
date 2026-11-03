@@ -1,7 +1,7 @@
 """Deliverability readiness - is this sending domain safe to cold email from?
 
 Everything here is free and read-only: public DNS, RDAP, DNS blocklists, and
-Harvey's own send history. None of it can measure inbox reputation directly
+Sellbird's own send history. None of it can measure inbox reputation directly
 (only mailbox providers know that), so the report also points at the two
 things that can: Google Postmaster Tools and an inbox-placement test.
 """
@@ -219,7 +219,7 @@ def check_ip_blocklists(smtp_host: str) -> list[Check]:
 def check_warmup(warmup, ceiling: int, today: date | None = None,
                  provider: str = "") -> Check:
     if provider == "instantly":
-        return Check("Warmup", INFO, "Harvey's ramp doesn't apply to Instantly: use Instantly's "
+        return Check("Warmup", INFO, "Sellbird's ramp doesn't apply to Instantly: use Instantly's "
                      "own warmup and per-account daily limit.")
     days = warmup.days_in(today)
     if days is None:
@@ -242,7 +242,7 @@ def check_warmup(warmup, ceiling: int, today: date | None = None,
         full_on = warmup.min_days + -(-(ceiling - warmup.start_sends) // warmup.daily_increase)
         ramp = f"reaches {ceiling}/day on day {full_on}"
     return Check("Warmup", OK, f"Day {days}: today's cap is {cap}/day ({ramp}). "
-                 "Keep the warmup service running alongside Harvey.")
+                 "Keep the warmup service running alongside Sellbird.")
 
 
 # Warmup spam at or above this, over enough mail to judge, means the mailbox
@@ -254,17 +254,17 @@ MIN_WARMUP_SAMPLE = 20
 def check_warmup_service(health, warmup=None, *, error: str = "", other_service: bool = False,
                          today: date | None = None) -> Check:
     """Is the sending mailbox actually warmed? Read from TrulyInbox when it's connected."""
-    from harvey.integrations.trulyinbox import AFFILIATE_TAG, AFFILIATE_URL
+    from sellbird.integrations.trulyinbox import AFFILIATE_TAG, AFFILIATE_URL
     if error:
         return Check("Warmup service", WARN, f"Couldn't read TrulyInbox: {error}")
     if health is None:
         if other_service:
             return Check("Warmup service", INFO, "Using another warmup service: check its "
                          "dashboard for the inbox rate before cold email.")
-        return Check("Warmup service", INFO, "Not connected, so Harvey can't see whether this "
+        return Check("Warmup service", INFO, "Not connected, so Sellbird can't see whether this "
                      "mailbox is warmed. We recommend TrulyInbox: it warms the mailbox, keeps "
-                     f"it healthy, and Harvey reads its inbox rate here. {AFFILIATE_URL} "
-                     f"{AFFILIATE_TAG} Then run: harvey trulyinbox connect")
+                     f"it healthy, and Sellbird reads its inbox rate here. {AFFILIATE_URL} "
+                     f"{AFFILIATE_TAG} Then run: sellbird trulyinbox connect")
     if not health.found:
         return Check("Warmup service", FAIL, f"{health.address} isn't in your TrulyInbox "
                      "account yet. Add it in TrulyInbox to start its warmup.")
@@ -280,7 +280,7 @@ def check_warmup_service(health, warmup=None, *, error: str = "", other_service:
     hint = ""
     if health.started_on and warmup is not None and not warmup.start_date:
         hint = (f" Set channels.email.warmup.start_date: {health.started_on.isoformat()} "
-                "so Harvey ramps cold email from it.")
+                "so Sellbird ramps cold email from it.")
     rate = health.spam_rate
     if rate is not None and health.sent >= MIN_WARMUP_SAMPLE and rate >= MAX_WARMUP_SPAM:
         return Check("Warmup service", FAIL, f"{round(rate * 100)}% spam in warmup over the "
@@ -296,7 +296,7 @@ def check_warmup_service(health, warmup=None, *, error: str = "", other_service:
         return Check("Warmup service", FAIL, f"TrulyInbox: {shown}{inbox}. Keep warming "
                      "before cold email." + hint)
     return Check("Warmup service", OK, f"TrulyInbox: warmed, day {days}{inbox}. "
-                 "Keep it running alongside Harvey." + hint)
+                 "Keep it running alongside Sellbird." + hint)
 
 
 def check_send_history(total_sent: int, bounces: int) -> Check:

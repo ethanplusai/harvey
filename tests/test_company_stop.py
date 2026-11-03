@@ -2,14 +2,14 @@
 
 Stop-on-reply used to be per person: the owner wrote back "not interested"
 and the office manager got the follow-up the next morning. Colleagues are
-the same company (company_id), or, for people Harvey has no company for,
+the same company (company_id), or, for people Sellbird has no company for,
 the same email domain, never a shared free-mail one.
 """
 
 import pytest
 
-from harvey.agents.sender import COLLEAGUE_REPLIED
-from harvey.state import Company, Prospect
+from sellbird.agents.sender import COLLEAGUE_REPLIED
+from sellbird.state import Company, Prospect
 from tests.test_outbox_native import (  # noqa: F401  (fixture)
     FakeProvider, InboundMessage, _now_iso, make_handler, make_sender,
     seed_campaign, state,
@@ -228,7 +228,7 @@ async def test_the_writer_skips_and_doesn_t_count_people_whose_company_answered(
 
 @pytest.mark.asyncio
 async def test_instantly_campaigns_stop_for_the_whole_company():
-    from harvey.integrations.instantly import InstantlyClient
+    from sellbird.integrations.instantly import InstantlyClient
     client = InstantlyClient.__new__(InstantlyClient)
     sent = {}
 

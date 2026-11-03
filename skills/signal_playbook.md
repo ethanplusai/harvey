@@ -89,7 +89,7 @@ Denver, CO"). For a local business owner, "where do I show up when someone
 nearby searches for what I do" is a question they already care about.
 
 - **Always say where you searched from.** Google ranks differently for
-  every searcher's location, device and history, and Harvey searched once,
+  every searcher's location, device and history, and Sellbird searched once,
   from the city centre. So the wording is "when we searched 'roofer Denver'
   from downtown Denver, you came up 14th" — never "you rank #14" or "you're
   on page 2", which they can disprove from their own office in ten seconds.

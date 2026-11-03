@@ -1,7 +1,7 @@
 """Tech-stack detection — what tools a company's website reveals.
 
 A curated subset of Wappalyzer-style fingerprints matched against HTML
-Harvey already downloads while researching a company. Zero extra network
+Sellbird already downloads while researching a company. Zero extra network
 requests, zero dependencies. Knowing a prospect runs Shopify / HubSpot /
 Intercom (or conspicuously lacks something) is a concrete, verifiable
 personalization hook — the kind that actually earns replies.

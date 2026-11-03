@@ -1,6 +1,6 @@
-"""Mail provider abstraction — Harvey owns its sending, Instantly optional.
+"""Mail provider abstraction — Sellbird owns its sending, Instantly optional.
 
-A MailProvider gives Harvey full inbox control: send, read replies,
+A MailProvider gives Sellbird full inbox control: send, read replies,
 thread. Two native providers ship:
 
 - ``gmail``  — a Google Workspace / Gmail mailbox via the Gmail REST API
@@ -20,7 +20,7 @@ import re
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 
-logger = logging.getLogger("harvey.mail")
+logger = logging.getLogger("sellbird.mail")
 
 NATIVE_PROVIDERS = ("gmail", "smtp", "microsoft")
 
@@ -87,7 +87,7 @@ def strip_quoted_reply(body: str) -> str:
     below it is ">"-marked (inline answers); when it isn't, everything from
     it on is the quote. An Outlook From:/Sent: block cuts the rest. Never
     returns nothing for a non-empty reply. The Handler also drops any line
-    that repeats what Harvey sent, which catches quotes no header marks.
+    that repeats what Sellbird sent, which catches quotes no header marks.
     """
     text = (body or "").replace("\r\n", "\n")
     cut = len(text)
@@ -114,7 +114,7 @@ def looks_like_bounce(from_email: str, subject: str) -> bool:
 
 
 class MailProvider(ABC):
-    """A mailbox Harvey can send from and read replies out of."""
+    """A mailbox Sellbird can send from and read replies out of."""
 
     name: str = "base"
 
@@ -151,12 +151,12 @@ def get_mail_provider(config, env) -> MailProvider | None:
     """Build the configured native provider, or None for instantly/unknown."""
     provider = (config.channels.email.provider or "").strip().lower()
     if provider == "gmail":
-        from harvey.integrations.gmail import GmailProvider
+        from sellbird.integrations.gmail import GmailProvider
         return GmailProvider(config, env)
     if provider == "smtp":
-        from harvey.integrations.smtp_mail import SmtpImapProvider
+        from sellbird.integrations.smtp_mail import SmtpImapProvider
         return SmtpImapProvider(config, env)
     if provider == "microsoft":
-        from harvey.integrations.microsoft import MicrosoftProvider
+        from sellbird.integrations.microsoft import MicrosoftProvider
         return MicrosoftProvider(config, env)
     return None

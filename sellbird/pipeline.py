@@ -18,7 +18,7 @@ not every row you hold.
 import logging
 from dataclasses import dataclass, field
 
-logger = logging.getLogger("harvey.pipeline")
+logger = logging.getLogger("sellbird.pipeline")
 
 # How long a profile observation stays fresh. Re-reading a site every quarter
 # is what makes "they dropped their agency" a visible event.
@@ -69,7 +69,7 @@ async def run_profile_stage(
     heartbeat without touching the Claude budget. ``config`` says which open
     roles count as hiring intent (``icp.hiring_signals``, else ``icp.titles``).
     """
-    from harvey.collectors.profile import profile_companies
+    from sellbird.collectors.profile import profile_companies
 
     pending = await state.companies_needing_profile(limit=limit,
                                                     stale_days=stale_days)
@@ -97,7 +97,7 @@ async def run_prospecting(
     queries the database for what needs attention, so it also sweeps up
     anything an earlier run left unfinished.
     """
-    from harvey.collectors.discover import DEFAULT_PROVIDER, run_discovery
+    from sellbird.collectors.discover import DEFAULT_PROVIDER, run_discovery
 
     report = PipelineReport()
 

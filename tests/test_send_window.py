@@ -2,7 +2,7 @@
 recipient's zone, the window maths (DST, weekends, windows that cross UTC
 midnight), staging and draining through the outbox, Precleared's country
 filling a gap, and quiet hours that no longer hold due mail. Also the
-country Harvey works out the same way and gives Precleared, when it is sure.
+country Sellbird works out the same way and gives Precleared, when it is sure.
 
 No network and no real clock where it matters: the sender's clock is pinned
 with monkeypatch, and Precleared calls go to an httpx.MockTransport.
@@ -23,16 +23,16 @@ import pytest_asyncio
 import pytz
 from pydantic import ValidationError
 
-import harvey.agents.sender as sender_mod
-from harvey.config import EmailChannelConfig, HarveyConfig, SendWindowConfig
-from harvey.integrations.precleared import SETTINGS_PREFIX, PreclearedClient
-from harvey.models.company import Company
-from harvey.models.prospect import Prospect
-from harvey.send_window import (
+import sellbird.agents.sender as sender_mod
+from sellbird.config import EmailChannelConfig, SellbirdConfig, SendWindowConfig
+from sellbird.integrations.precleared import SETTINGS_PREFIX, PreclearedClient
+from sellbird.models.company import Company
+from sellbird.models.prospect import Prospect
+from sellbird.send_window import (
     START_SPREAD, country_for, icp_country, in_window, next_send_time, recipient_country,
     recipient_zone, zone_country, zone_for,
 )
-from harvey.state import MIGRATIONS, StateManager
+from sellbird.state import MIGRATIONS, StateManager
 from tests.test_outbox_native import FakeProvider, make_sender, seed_campaign
 
 BASE = {
@@ -280,7 +280,7 @@ def test_icp_country():
     # "CO" is Colombia's code too: a guess unless the coordinates settle it.
     assert icp_country(_icp(["Denver, CO"])) == ""
     assert icp_country(_icp(["Denver, CO"], {"Denver, CO": "39.7392,-104.9903,50"})) == "US"
-    assert icp_country(HarveyConfig(**{**BASE, "icp": {**BASE["icp"], "geography": ["Oslo, Norway"]}})) == "NO"
+    assert icp_country(SellbirdConfig(**{**BASE, "icp": {**BASE["icp"], "geography": ["Oslo, Norway"]}})) == "NO"
 
 
 @pytest.mark.asyncio
@@ -421,7 +421,7 @@ def test_window_that_crosses_utc_midnight():
 
 def test_window_is_off_unless_configured():
     assert EmailChannelConfig().send_window is None
-    assert HarveyConfig(**BASE).channels.email.send_window is None
+    assert SellbirdConfig(**BASE).channels.email.send_window is None
 
 
 def test_window_settings():
@@ -433,16 +433,16 @@ def test_window_settings():
         SendWindowConfig(start="8am")
     with pytest.raises(ValidationError):
         SendWindowConfig(start="17:00", end="08:00")  # can't run past midnight
-    cfg = HarveyConfig(**BASE, channels={"email": {
+    cfg = SellbirdConfig(**BASE, channels={"email": {
         "provider": "gmail", "send_window": {"start": "09:00", "end": "16:30"}}})
     assert cfg.channels.email.send_window.end == "16:30"
 
 
 def test_which_configs_send_through_quiet_hours():
-    from harvey.main import sends_through_quiet_hours
+    from sellbird.main import sends_through_quiet_hours
 
     def cfg(**email):
-        return HarveyConfig(**BASE, channels={"email": {"provider": "gmail", **email}})
+        return SellbirdConfig(**BASE, channels={"email": {"provider": "gmail", **email}})
     assert sends_through_quiet_hours(cfg(send_window={}))
     assert not sends_through_quiet_hours(cfg())
     assert not sends_through_quiet_hours(cfg(send_window={"recipient_timezone": False}))
@@ -590,7 +590,7 @@ async def test_precleared_country_wins_over_the_configured_prospect_country(stat
     # prospect_country is the fallback for when nothing else places the
     # recipient: once Precleared says Germany, the window is Berlin's, not
     # the London one the configured default gave before the check ran.
-    from harvey.config import ComplianceConfig
+    from sellbird.config import ComplianceConfig
     pid = await seed_at(state, "", "lena@de-acme.example")
     item = await approved(state, pid, "lena@de-acme.example")
     calls = []
@@ -660,7 +660,7 @@ async def test_precleared_keeps_the_country_with_the_cached_verdict(state):
     assert (await odd.clear("x@y.co.uk", state)).country == ""
 
 
-# ── The country Harvey gives Precleared ──
+# ── The country Sellbird gives Precleared ──
 
 def checked_sender(state, provider, calls, body=OK_GB, **client):
     """A sender without a window, so only the check matters, on a mocked Precleared."""
@@ -675,7 +675,7 @@ async def test_sender_passes_the_company_country_to_precleared(state):
     await approved(state, pid, "jane@tx-acme.com")
     calls, provider = [], FakeProvider()
     ok_us = {**OK_GB, "facts": {"recipient_country": "US"}}
-    # Even with a default configured, a country Harvey is sure of goes instead.
+    # Even with a default configured, a country Sellbird is sure of goes instead.
     await checked_sender(state, provider, calls, ok_us, prospect_country="GB")._drain_due()
     assert [m["to"] for m in provider.sent] == ["jane@tx-acme.com"]
     assert calls[0]["recipient_country"] == "US"
@@ -748,11 +748,11 @@ class _Brain:
 
 
 def _patch_heartbeat(monkeypatch, cfg, state, calls, stop):
-    import harvey.agents.analyst
-    import harvey.agents.handler
-    import harvey.agents.scout
-    import harvey.agents.writer
-    import harvey.main as main_mod
+    import sellbird.agents.analyst
+    import sellbird.agents.handler
+    import sellbird.agents.scout
+    import sellbird.agents.writer
+    import sellbird.main as main_mod
 
     def agent(name):
         class Agent:
@@ -781,17 +781,17 @@ def _patch_heartbeat(monkeypatch, cfg, state, calls, stop):
     monkeypatch.setattr(main_mod, "Brain", _Brain)
     monkeypatch.setattr(main_mod, "in_quiet_hours", lambda c: True)
     monkeypatch.setattr(main_mod, "_interruptible_sleep", stop_instead_of_sleeping)
-    monkeypatch.setattr(harvey.agents.scout, "Scout", agent("prospect"))
-    monkeypatch.setattr(harvey.agents.writer, "Writer", agent("write"))
+    monkeypatch.setattr(sellbird.agents.scout, "Scout", agent("prospect"))
+    monkeypatch.setattr(sellbird.agents.writer, "Writer", agent("write"))
     monkeypatch.setattr(sender_mod, "Sender", agent("send"))
-    monkeypatch.setattr(harvey.agents.handler, "Handler", agent("replies"))
-    monkeypatch.setattr(harvey.agents.analyst, "Analyst", agent("analyze"))
+    monkeypatch.setattr(sellbird.agents.handler, "Handler", agent("replies"))
+    monkeypatch.setattr(sellbird.agents.analyst, "Analyst", agent("analyze"))
     return main_mod
 
 
 @pytest.mark.asyncio
 async def test_quiet_hours_read_replies_then_send_what_is_due(state, monkeypatch):
-    cfg = HarveyConfig(**BASE, channels={"email": {"provider": "gmail", "send_window": {}}})
+    cfg = SellbirdConfig(**BASE, channels={"email": {"provider": "gmail", "send_window": {}}})
     pid = await seed_at(state, "Tokyo, Japan", "aiko@tokyo-acme.jp")
     await approved(state, pid, "aiko@tokyo-acme.jp")
     calls, stop = [], asyncio.Event()
@@ -802,7 +802,7 @@ async def test_quiet_hours_read_replies_then_send_what_is_due(state, monkeypatch
 
 @pytest.mark.asyncio
 async def test_quiet_hours_with_nothing_due_do_nothing(state, monkeypatch):
-    cfg = HarveyConfig(**BASE, channels={"email": {"provider": "gmail", "send_window": {}}})
+    cfg = SellbirdConfig(**BASE, channels={"email": {"provider": "gmail", "send_window": {}}})
     calls, stop = [], asyncio.Event()
     main_mod = _patch_heartbeat(monkeypatch, cfg, state, calls, stop)
     await asyncio.wait_for(main_mod.heartbeat(stop), timeout=30)
@@ -811,7 +811,7 @@ async def test_quiet_hours_with_nothing_due_do_nothing(state, monkeypatch):
 
 @pytest.mark.asyncio
 async def test_without_recipient_zones_quiet_hours_hold_everything(state, monkeypatch):
-    cfg = HarveyConfig(**BASE, channels={"email": {"provider": "gmail"}})
+    cfg = SellbirdConfig(**BASE, channels={"email": {"provider": "gmail"}})
     pid = await seed_at(state, "Tokyo, Japan", "aiko@tokyo-acme.jp")
     await approved(state, pid, "aiko@tokyo-acme.jp")
     calls, stop = [], asyncio.Event()
@@ -832,7 +832,7 @@ def _patch_heartbeat_real_sender(monkeypatch, cfg, state, calls, stop, provider)
 
 
 def _quiet_cfg(**email):
-    return HarveyConfig(**BASE, channels={"email": {
+    return SellbirdConfig(**BASE, channels={"email": {
         "provider": "gmail", "require_approval": False, "send_window": {}, **email}})
 
 
@@ -931,7 +931,7 @@ async def test_quiet_hours_send_cold_email_queued_behind_many_replies(state, mon
 
 @pytest.mark.asyncio
 async def test_quiet_hours_dont_wake_under_the_warmup_cap(state, monkeypatch):
-    from harvey.config import WarmupConfig
+    from sellbird.config import WarmupConfig
     pid = await seed_at(state, "Tokyo, Japan", "aiko@tokyo.example")
     await approved(state, pid, "aiko@tokyo.example")
     sender = window_sender(state, FakeProvider(), monkeypatch)

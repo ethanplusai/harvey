@@ -7,8 +7,8 @@ Windows asks the kernel instead (OpenProcess + GetExitCodeProcess).
 
 A PID file can outlive its loop (a crash, a reboot) and name whatever process
 later got that number, so the running loop also holds an OS lock on
-data/harvey.lock. The OS drops the lock when the loop dies, however it dies:
-a live PID with nobody holding the lock is not Harvey, and is never signalled.
+data/sellbird.lock. The OS drops the lock when the loop dies, however it dies:
+a live PID with nobody holding the lock is not Sellbird, and is never signalled.
 """
 
 import logging
@@ -17,12 +17,12 @@ import sys
 import time
 from pathlib import Path
 
-from harvey.paths import PROJECT_ROOT
+from sellbird.paths import PROJECT_ROOT
 
-logger = logging.getLogger("harvey.pidfile")
+logger = logging.getLogger("sellbird.pidfile")
 
-PID_FILE = PROJECT_ROOT / "data" / "harvey.pid"
-LOCK_FILE = PROJECT_ROOT / "data" / "harvey.lock"
+PID_FILE = PROJECT_ROOT / "data" / "sellbird.pid"
+LOCK_FILE = PROJECT_ROOT / "data" / "sellbird.lock"
 
 _PROCESS_QUERY_LIMITED_INFORMATION = 0x1000
 _STILL_ACTIVE = 259
@@ -155,7 +155,7 @@ def release_loop_lock(handle) -> None:
 
 
 def loop_lock_held(path: Path | None = None) -> bool:
-    """True while some Harvey loop holds the lock. Probing never keeps it."""
+    """True while some Sellbird loop holds the lock. Probing never keeps it."""
     path = path or LOCK_FILE
     if not path.exists():
         return False

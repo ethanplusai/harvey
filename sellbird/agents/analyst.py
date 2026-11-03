@@ -5,9 +5,9 @@ import logging
 from datetime import datetime
 from pathlib import Path
 
-from harvey.state import StateManager
+from sellbird.state import StateManager
 
-logger = logging.getLogger("harvey.analyst")
+logger = logging.getLogger("sellbird.analyst")
 
 
 class Analyst:
@@ -82,7 +82,7 @@ class Analyst:
         """Derive actionable insights from the data.
 
         Every insight names the metric, the threshold it crossed, and the
-        specific file or config to change — so a human (or Harvey itself)
+        specific file or config to change — so a human (or Sellbird itself)
         can act on it without further analysis.
         """
         insights = []
@@ -122,7 +122,7 @@ class Analyst:
             if optout_rate > 2:
                 insights.append(
                     f"URGENT: Opt-out rate is {optout_rate:.1f}% (>2% risks blacklisting). "
-                    "Pause sending, tighten ICP targeting in harvey.yaml, and reduce "
+                    "Pause sending, tighten ICP targeting in sellbird.yaml, and reduce "
                     "max_daily_sends until the list quality improves."
                 )
 
@@ -140,7 +140,7 @@ class Analyst:
             if objection_pct > 40:
                 insights.append(
                     f"ACTION: {objection_pct:.0f}% of replies are objections. Add the "
-                    "recurring objections to objection_responses in harvey.yaml and "
+                    "recurring objections to objection_responses in sellbird.yaml and "
                     "skills/objection_handling.md, or narrow targeting to better-fit accounts."
                 )
 
@@ -178,7 +178,7 @@ class Analyst:
         if total_new < 10 and total_queued == 0:
             insights.append(
                 f"ACTION: Prospect pool is nearly empty ({total_new} new). Scout should run "
-                "next cycle; if it keeps coming up dry, broaden the ICP in harvey.yaml."
+                "next cycle; if it keeps coming up dry, broaden the ICP in sellbird.yaml."
             )
 
         if not insights:

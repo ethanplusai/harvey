@@ -15,11 +15,11 @@ import pytest
 import pytest_asyncio
 from pydantic import ValidationError
 
-from harvey.config import PreclearedConfig
-from harvey.integrations.precleared import SETTINGS_PREFIX, PreclearedClient
-from harvey.models.company import Company
-from harvey.models.prospect import COMPANY_INBOX_SOURCE, Prospect
-from harvey.state import StateManager
+from sellbird.config import PreclearedConfig
+from sellbird.integrations.precleared import SETTINGS_PREFIX, PreclearedClient
+from sellbird.models.company import Company
+from sellbird.models.prospect import COMPANY_INBOX_SOURCE, Prospect
+from sellbird.state import StateManager
 from tests.test_outbox_native import (
     Cfg,
     Env,
@@ -216,12 +216,12 @@ async def test_setting_prospect_country_forces_a_fresh_check_then_caches(state):
     assert calls[1]["json"]["default_recipient_country"] == "US"
 
 
-def test_prospect_country_loads_from_harvey_yaml(tmp_path):
+def test_prospect_country_loads_from_sellbird_yaml(tmp_path):
     import yaml
 
-    from harvey.config import load_config
+    from sellbird.config import load_config
 
-    path = tmp_path / "harvey.yaml"
+    path = tmp_path / "sellbird.yaml"
     path.write_text(yaml.safe_dump({
         "persona": {"name": "H", "company": "A", "role": "B",
                     "email": "h@a.com", "linkedin": "", "tone": "casual"},
@@ -335,8 +335,8 @@ async def test_a_new_confident_country_forces_one_fresh_check_then_caches(state)
 
 @pytest.mark.asyncio
 async def test_a_verdict_precleared_decided_for_the_same_country_is_kept(state):
-    # Cached before Harvey sent countries, with the one Precleared found
-    # itself: Harvey now knowing the same one asks the same question.
+    # Cached before Sellbird sent countries, with the one Precleared found
+    # itself: Sellbird now knowing the same one asks the same question.
     calls = []
     client = PreclearedClient("US", transport=mock_precleared(calls, FOUND_GB))
     await client.clear("jane@acme.com", state)
@@ -375,7 +375,7 @@ async def test_bad_country_values_are_dropped_not_raised(state, bad):
 
 
 @pytest.mark.asyncio
-async def test_names_are_sent_when_harvey_has_them(state):
+async def test_names_are_sent_when_sellbird_has_them(state):
     calls = []
     client = PreclearedClient("GB", transport=mock_precleared(calls, OK_BODY))
     await client.clear("jane@acme.com", state, company="Acme Widgets Ltd", name="Jane Doe")
@@ -450,7 +450,7 @@ async def test_a_verdict_with_names_keeps_the_country_precleared_found(state):
     client = PreclearedClient("GB", transport=mock_precleared(calls, FOUND_GB))
     await client.clear("jane@acme.com", state, company="Acme", name="Jane Doe")
     assert await client.known_country("jane@acme.com", state, company="Acme", name="Jane Doe") == "GB"
-    # Harvey later sure of the same country: the same question, still cached.
+    # Sellbird later sure of the same country: the same question, still cached.
     again = await client.clear("jane@acme.com", state, country="GB", company="Acme", name="Jane Doe")
     assert again.cached and len(calls) == 1
 
@@ -793,7 +793,7 @@ async def test_key_out_of_checks_points_to_its_checkout_link_not_a_free_key(stat
     assert "pack" in result.reason
     assert f"({checkout})" in result.reason
     assert "add PRECLEARED_API_KEY" not in result.reason
-    # Harvey's own wording, not the API's free text.
+    # Sellbird's own wording, not the API's free text.
     assert "Buy a pack to continue" not in result.reason
     # Nothing cached, so the next cycle asks again.
     assert await state.get_setting(SETTINGS_PREFIX + "person@example.com") == ""

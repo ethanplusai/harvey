@@ -1,13 +1,13 @@
 """Opt-in: the installed Claude CLI, driven by Brain, against a localhost
 stand-in for the API. No credentials, no network.
 
-    HARVEY_CLAUDE_CLI_TESTS=1 pytest tests/test_claude_cli_isolation.py
+    SELLBIRD_CLAUDE_CLI_TESTS=1 pytest tests/test_claude_cli_isolation.py
 
 Plants instruction files everywhere Claude Code looks (user CLAUDE.md, user
 skill, user and project SessionStart hooks, project CLAUDE.md and
-CLAUDE.local.md, an ancestor CLAUDE.md, and a CLAUDE.md above Harvey's own
+CLAUDE.local.md, an ancestor CLAUDE.md, and a CLAUDE.md above Sellbird's own
 temporary directory), each carrying a codeword, then checks what actually
-reaches the API. Control runs with Harvey's previous argv must leak the
+reaches the API. Control runs with Sellbird's previous argv must leak the
 CLAUDE.md files and run the hooks, which proves the harness can see a leak;
 Brain's call must not. (The skill is a regression guard only: with tools
 off, even the previous argv didn't send skill descriptions.)
@@ -19,7 +19,7 @@ stand-in records header names only, never values.
 
 What this does NOT cover: a real subscription (OAuth/keychain) login, which
 would need a real account. The CLI documents that --safe-mode keeps login
-working, and Harvey doesn't use --bare, which wouldn't.
+working, and Sellbird doesn't use --bare, which wouldn't.
 """
 
 import asyncio
@@ -35,14 +35,14 @@ from pathlib import Path
 
 import pytest
 
-from harvey import claude_runtime
-from harvey.brain import Brain
-from harvey.state import StateManager
+from sellbird import claude_runtime
+from sellbird.brain import Brain
+from sellbird.state import StateManager
 
 pytestmark = [
     pytest.mark.real_claude_cli,
-    pytest.mark.skipif(os.environ.get("HARVEY_CLAUDE_CLI_TESTS") != "1",
-                       reason="set HARVEY_CLAUDE_CLI_TESTS=1 (runs the installed Claude CLI "
+    pytest.mark.skipif(os.environ.get("SELLBIRD_CLAUDE_CLI_TESTS") != "1",
+                       reason="set SELLBIRD_CLAUDE_CLI_TESTS=1 (runs the installed Claude CLI "
                               "against a localhost stand-in; no credentials or network)"),
 ]
 
@@ -55,7 +55,7 @@ CODEWORDS = {
     "project CLAUDE.local.md": "LOCALMD-4410",
     "CLAUDE.md above the temp dir": "TMPMD-3307",
 }
-# What the previous Harvey argv ran with (no isolation beyond tools/MCP).
+# What the previous Sellbird argv ran with (no isolation beyond tools/MCP).
 LEGACY_ARGV = ["-p", "--output-format", "json", "--tools", "", "--strict-mcp-config"]
 
 
@@ -85,11 +85,11 @@ def world(tmp_path, monkeypatch):
     config, home = w / "config", w / "home"
     project = w / "ancestor" / "project"
     tmpbase = w / "tmpbase"
-    for d in (config / "skills" / "harvey-probe", home, project / ".claude", tmpbase):
+    for d in (config / "skills" / "sellbird-probe", home, project / ".claude", tmpbase):
         d.mkdir(parents=True)
     (config / "CLAUDE.md").write_text(_instruction(CODEWORDS["user CLAUDE.md"]))
-    (config / "skills" / "harvey-probe" / "SKILL.md").write_text(
-        f"---\nname: harvey-probe\ndescription: {_instruction(CODEWORDS['user skill'])}---\n"
+    (config / "skills" / "sellbird-probe" / "SKILL.md").write_text(
+        f"---\nname: sellbird-probe\ndescription: {_instruction(CODEWORDS['user skill'])}---\n"
         "Probe.\n")
     (config / "settings.json").write_text(_hook(w / "USER_HOOK_RAN"))
     (w / "ancestor" / "CLAUDE.md").write_text(_instruction(CODEWORDS["ancestor CLAUDE.md"]))
@@ -191,9 +191,9 @@ def test_brain_calls_reach_the_api_with_none_of_the_operators_setup(world):
     assert _leaks(world) == []
     assert _hooks_ran(world) == []
     assert _transcripts(world) == []
-    # The prompt arrived (via stdin), and Harvey's temp dir was cleaned up.
+    # The prompt arrived (via stdin), and Sellbird's temp dir was cleaned up.
     assert any("Say hi" in json.dumps(r["body"]) for r in requests)
-    assert list(Path(tempfile.tempdir).glob("harvey-claude-*")) == []
+    assert list(Path(tempfile.tempdir).glob("sellbird-claude-*")) == []
 
 
 def test_installed_cli_passes_the_capability_check(world):

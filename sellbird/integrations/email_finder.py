@@ -32,7 +32,7 @@ import dns.resolver
 import aiosmtplib
 import httpx
 
-logger = logging.getLogger("harvey.email_finder")
+logger = logging.getLogger("sellbird.email_finder")
 
 # Cache MX host + type per domain to avoid repeated lookups.
 _mx_cache: dict[str, Optional[str]] = {}
@@ -362,7 +362,7 @@ def _hunter_api_key() -> str:
 # Hunter's free tier is 25 domain-searches/month for the whole account, and
 # every call spends one no matter how many people it returns. Paid plans set
 # HUNTER_MONTHLY_SEARCHES to their own allowance. Every domain-search call in
-# Harvey draws from this one counter, so the pattern lookup and Scout's
+# Sellbird draws from this one counter, so the pattern lookup and Scout's
 # named-contact strategy can't each assume they have the full quota.
 HUNTER_FREE_MONTHLY_SEARCHES = 25
 

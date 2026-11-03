@@ -2,7 +2,7 @@
 
 Usage: python fake_codex.py <scenario> <log_path> <codex args...>
 
-Speaks just enough of the app-server stdio protocol for Harvey's adapter and
+Speaks just enough of the app-server stdio protocol for Sellbird's adapter and
 logs every request it receives (method + params) to <log_path>, one JSON
 object per line, so tests can assert exactly what was — and wasn't — sent.
 """
@@ -134,11 +134,11 @@ def effective_config():
 
 
 def answer_for(prompt):
-    """Scenario "smart": a plausible answer per Harvey prompt type, so whole
+    """Scenario "smart": a plausible answer per Sellbird prompt type, so whole
     agent flows can run through the real adapter."""
     low = prompt.lower()
-    if "respond with exactly: harvey_ready" in low:
-        return "HARVEY_READY"
+    if "respond with exactly: sellbird_ready" in low:
+        return "SELLBIRD_READY"
     if "classify this email reply" in low:
         if "remove me" in low:
             return "unsubscribe"
@@ -253,7 +253,7 @@ for line in sys.stdin:
     result = {}
     if method == "initialize":
         agent_version = "0.160.0" if SCENARIO == "server_version_mismatch" else VERSION
-        result = {"userAgent": f"harvey/{agent_version} (fake)",
+        result = {"userAgent": f"sellbird/{agent_version} (fake)",
                   "codexHome": os.environ.get("CODEX_HOME")}
         send({"method": "remoteControl/status/changed", "params": {"status": "disabled"}})
     elif method == "account/read":

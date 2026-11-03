@@ -3,7 +3,7 @@
 Reads the real 5-hour-window and weekly utilization the same way Claude
 Code's own /usage command does: GET api.anthropic.com/api/oauth/usage with
 the locally-stored OAuth token. The endpoint is undocumented, so every
-failure degrades to None and callers fall back to Harvey's own call
+failure degrades to None and callers fall back to Sellbird's own call
 counting. Responses are cached in-memory to stay polite.
 """
 
@@ -18,9 +18,9 @@ from typing import Optional
 
 import httpx
 
-from harvey.usage import claude_config_dir
+from sellbird.usage import claude_config_dir
 
-logger = logging.getLogger("harvey.quota")
+logger = logging.getLogger("sellbird.quota")
 
 USAGE_URL = "https://api.anthropic.com/api/oauth/usage"
 OAUTH_BETA_HEADER = "oauth-2025-04-20"

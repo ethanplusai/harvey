@@ -1,6 +1,6 @@
-"""The signal vocabulary Harvey proposes, and the user confirms.
+"""The signal vocabulary Sellbird proposes, and the user confirms.
 
-Harvey never decides on its own what makes a good prospect. It proposes a
+Sellbird never decides on its own what makes a good prospect. It proposes a
 catalog of signals it knows how to collect — each with a plain-language
 description, what it costs, and why it might matter — and the user confirms,
 edits, or rejects them in the dashboard before any collection runs.
@@ -70,7 +70,7 @@ SIGNAL_CATALOG: list[dict] = [
     {
         "code": "FOUND_IN_SERP",
         "label": "Discovered via search",
-        "description": "The business appeared in a target-market search — how Harvey found it at all.",
+        "description": "The business appeared in a target-market search — how Sellbird found it at all.",
         "category": "discovery",
         "value_type": "text",
         "collector": "discover",
@@ -134,7 +134,7 @@ SIGNAL_CATALOG: list[dict] = [
         "confidence_floor": 0.0,
     },
 
-    # ── Profile: what they are (free — HTML Harvey already fetches) ──
+    # ── Profile: what they are (free — HTML Sellbird already fetches) ──
     {
         "code": "INCUMBENT_AGENCY",
         "label": "Has a marketing/web agency",

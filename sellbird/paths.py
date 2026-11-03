@@ -1,10 +1,10 @@
-"""Canonical filesystem locations for the Harvey checkout.
+"""Canonical filesystem locations for the Sellbird checkout.
 
-Harvey is repo-centric: config (harvey.yaml, .env), knowledge (prompts/,
+Sellbird is repo-centric: config (sellbird.yaml, .env), knowledge (prompts/,
 skills/), and state (data/) all live next to the package. ``resolve()``
 matters — when the package is reached through a symlink (some editable
 installs), a bare ``Path(__file__).parent`` would point into
-site-packages and Harvey would silently read/write the wrong files.
+site-packages and Sellbird would silently read/write the wrong files.
 """
 
 from pathlib import Path

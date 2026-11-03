@@ -1,7 +1,7 @@
 """What a failed Precleared check holds back, and what still goes out.
 
 A check that fails because of Precleared itself (no connection, a busy
-server, the daily allowance, the rate limit, the key, an answer Harvey can't
+server, the daily allowance, the rate limit, the key, an answer Sellbird can't
 read) pauses fresh checks for the rest of the cycle, but a stored verdict is
 still used, so email to people already checked carries on. A failure that
 may be about one address moves just that email back and the rest carry on;
@@ -21,14 +21,14 @@ import httpx
 import pytest
 import pytest_asyncio
 
-from harvey.integrations.precleared import (
+from sellbird.integrations.precleared import (
     BUY_URL,
     STATUS_KEY,
     PreclearedClient,
     hold_message,
 )
-from harvey.state import RECHECK_PREFIX, StateManager
-from harvey.agents.sender import ADDRESS_RETRY_AFTER, DOMAINS_FAILING_TO_PAUSE
+from sellbird.state import RECHECK_PREFIX, StateManager
+from sellbird.agents.sender import ADDRESS_RETRY_AFTER, DOMAINS_FAILING_TO_PAUSE
 from tests.test_outbox_native import FakeProvider, make_sender, seed_prospect
 from tests.test_send_window import WED_0200, approved, pin_now, seed_at, window_sender
 from tests.test_precleared import (
@@ -324,7 +324,7 @@ async def test_a_stored_verdict_between_two_failures_does_not_reset_the_count(st
 
 @pytest.mark.asyncio
 async def test_checking_stops_once_the_cycles_checking_time_is_used(state, monkeypatch):
-    import harvey.agents.sender as sender_module
+    import sellbird.agents.sender as sender_module
 
     monkeypatch.setattr(sender_module, "CHECK_SECONDS_PER_CYCLE", 0.05)
     await people(state, [JANE, SAM])
@@ -400,7 +400,7 @@ async def test_a_failure_not_about_the_address_stops_checks_for_the_cycle(
     json.dumps({"verdict": "ok_with_conditions"}).encode(),
     b"[" * 100_000 + b"]" * 100_000,
 ], ids=["not-json", "not-an-object", "unknown-verdict", "deeply-nested"])
-async def test_an_answer_harvey_cant_read_stops_checks_for_the_cycle(state, content):
+async def test_an_answer_sellbird_cant_read_stops_checks_for_the_cycle(state, content):
     await people(state, [JANE, SAM])
     calls = []
 
@@ -564,7 +564,7 @@ async def test_follow_ups_behind_a_page_of_waiting_first_emails_still_go(state):
 
 @pytest.mark.asyncio
 async def test_an_answer_that_never_finishes_holds_cold_email(state, monkeypatch):
-    import harvey.integrations.precleared as precleared
+    import sellbird.integrations.precleared as precleared
 
     monkeypatch.setattr(precleared, "TOTAL_TIMEOUT", 0.05)
 
@@ -724,7 +724,7 @@ async def test_quiet_hours_still_wake_for_someone_cleared_after_a_hold(state, mo
 
 @pytest.mark.asyncio
 async def test_quiet_hours_find_cleared_follow_up_beyond_first_page(state, monkeypatch):
-    import harvey.agents.sender as sender_module
+    import sellbird.agents.sender as sender_module
 
     monkeypatch.setattr(sender_module, "QUIET_HOURS_SCAN", 2)
     for email in (JANE, ANN):
@@ -924,12 +924,12 @@ async def test_a_rate_limit_is_recorded_as_its_own_hold(state):
 
     hold = await stored_hold(state)
     assert hold["kind"] == "rate_limited" and hold["waiting"] == 2
-    assert hold_message(hold)["title"] == "Precleared is limiting how fast Harvey can check"
+    assert hold_message(hold)["title"] == "Precleared is limiting how fast Sellbird can check"
 
 
 def test_the_rate_limit_hold_says_what_happens_next():
     message = hold_message({"kind": "rate_limited", "waiting": 2})
-    assert message["title"] == "Precleared is limiting how fast Harvey can check"
+    assert message["title"] == "Precleared is limiting how fast Sellbird can check"
     assert message["detail"].startswith("2 cold emails are waiting.")
     assert "next cycle" in message["detail"]
     assert "free key" not in message["detail"]

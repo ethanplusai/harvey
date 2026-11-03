@@ -5,12 +5,12 @@ Setup (one-time):
 2. OAuth consent screen (internal or testing) → create an OAuth client of
    type "Desktop app". Put its id/secret in .env as GMAIL_CLIENT_ID /
    GMAIL_CLIENT_SECRET.
-3. Run ``harvey gmail auth`` — opens a browser, stores the refresh token
-   in data/gmail_token.json. Done: Harvey can send and read.
+3. Run ``sellbird gmail auth`` — opens a browser, stores the refresh token
+   in data/gmail_token.json. Done: Sellbird can send and read.
 
 Deliverability notes: use a mailbox on a dedicated SECONDARY domain (never
 your main one), configure SPF/DKIM/DMARC, ramp volume slowly, and watch
-Google Postmaster Tools. Harvey's outbox pacing + kill switches handle the
+Google Postmaster Tools. Sellbird's outbox pacing + kill switches handle the
 rest.
 """
 
@@ -25,16 +25,16 @@ from email.utils import parseaddr
 
 import httpx
 
-from harvey.paths import PROJECT_ROOT
-from harvey.integrations.mail_provider import (
+from sellbird.paths import PROJECT_ROOT
+from sellbird.integrations.mail_provider import (
     InboundMessage,
     MailProvider,
     SendResult,
     looks_like_bounce,
 )
-from harvey.integrations.signature import SignatureError, load_signature, set_body
+from sellbird.integrations.signature import SignatureError, load_signature, set_body
 
-logger = logging.getLogger("harvey.gmail")
+logger = logging.getLogger("sellbird.gmail")
 
 TOKEN_FILE = PROJECT_ROOT / "data" / "gmail_token.json"
 API_BASE = "https://gmail.googleapis.com/gmail/v1/users/me"
@@ -120,12 +120,12 @@ class GmailProvider(MailProvider):
             return self._access_token
         stored = _load_token()
         if not stored:
-            self._token_problem = "not signed in to Gmail. Run 'harvey gmail auth'."
+            self._token_problem = "not signed in to Gmail. Run 'sellbird gmail auth'."
             logger.error("Gmail: " + self._token_problem)
             return None
         # Why there's no token, for whoever asked (get_replies says it).
         unreachable = ("couldn't reach Google to refresh the Gmail sign-in{}; "
-                       "Harvey tries again next cycle.")
+                       "Sellbird tries again next cycle.")
         try:
             async with httpx.AsyncClient(timeout=TIMEOUT) as client:
                 resp = await client.post(TOKEN_URL, data={
@@ -140,9 +140,9 @@ class GmailProvider(MailProvider):
             return None
         if resp.status_code in (400, 401, 403):
             self._token_problem = (f"Google rejected the saved Gmail sign-in ({resp.status_code}). "
-                                   "Run 'harvey gmail auth'.")
+                                   "Run 'sellbird gmail auth'.")
             logger.error(f"Gmail token refresh rejected ({resp.status_code}). "
-                         "Re-run 'harvey gmail auth'.")
+                         "Re-run 'sellbird gmail auth'.")
             return None
         if resp.status_code != 200:
             self._token_problem = unreachable.format(f" (HTTP {resp.status_code})")
@@ -278,7 +278,7 @@ class GmailProvider(MailProvider):
         """
         if not await self._token():
             raise GmailError(self._token_problem
-                             or "not signed in to Gmail. Run 'harvey gmail auth'.")
+                             or "not signed in to Gmail. Run 'sellbird gmail auth'.")
         self._pending = None
         recent_full = (self._last_full_read
                        and time.time() - self._last_full_read < FULL_READ_EVERY_SECONDS)
@@ -403,7 +403,7 @@ class GmailProvider(MailProvider):
             if got is _GONE:
                 continue
             msg, labels = got
-            # Harvey's own mail and drafts aren't replies; a message added
+            # Sellbird's own mail and drafts aren't replies; a message added
             # outside the inbox counts once it's moved in (labelsAdded).
             if labels & _NOT_REPLIES or (not moved_in and "INBOX" not in labels):
                 continue
@@ -516,7 +516,7 @@ class GmailProvider(MailProvider):
                     charset = "utf-8"
             except (LookupError, ValueError, TypeError):   # unknown, or a null in the name
                 charset = "utf-8"
-            # Harvey keeps 5,000 characters of a body; decode no further than
+            # Sellbird keeps 5,000 characters of a body; decode no further than
             # that could need.
             raw = raw[:MAX_DECODE_BYTES]
             try:
@@ -541,7 +541,7 @@ class GmailProvider(MailProvider):
         if not self.client_id or not self.client_secret:
             return False, "GMAIL_CLIENT_ID / GMAIL_CLIENT_SECRET missing from .env"
         if not _load_token():
-            return False, "Not authorized yet — run 'harvey gmail auth'"
+            return False, "Not authorized yet — run 'sellbird gmail auth'"
         data = await self._request("GET", "/profile")
         if data and data.get("emailAddress"):
             return True, f"Connected as {data['emailAddress']}"
@@ -588,7 +588,7 @@ def run_auth_flow(client_id: str, client_secret: str) -> bool:
             self.send_header("Content-Type", "text/html")
             self.end_headers()
             self.wfile.write(
-                b"<h2>Harvey is connected to Gmail.</h2>You can close this tab.")
+                b"<h2>Sellbird is connected to Gmail.</h2>You can close this tab.")
             done.set()
 
         def log_message(self, *args):
@@ -622,7 +622,7 @@ def run_auth_flow(client_id: str, client_secret: str) -> bool:
         return False
     data = resp.json()
     if not data.get("refresh_token"):
-        print("  Google returned no refresh token. Remove Harvey from your"
+        print("  Google returned no refresh token. Remove Sellbird from your"
               " account's third-party access list and retry.")
         return False
     _save_token({

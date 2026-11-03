@@ -36,23 +36,23 @@ from urllib.parse import parse_qs, quote_plus, urlparse
 import httpx
 from bs4 import BeautifulSoup
 
-from harvey.brain import Brain
-from harvey.collectors import people as people_mod
-from harvey.collectors.discover import site_name_from_html
-from harvey.collectors.profile import _reads_like_title, looks_like_challenge
-from harvey.config import HarveyConfig, EnvConfig
-from harvey.integrations.email_finder import (
+from sellbird.brain import Brain
+from sellbird.collectors import people as people_mod
+from sellbird.collectors.discover import site_name_from_html
+from sellbird.collectors.profile import _reads_like_title, looks_like_challenge
+from sellbird.config import SellbirdConfig, EnvConfig
+from sellbird.integrations.email_finder import (
     DEFAULT_PATTERN, SMALL_BUSINESS_PATTERN, find_email, site_email_evidence,
     verify_published_address,
 )
-from harvey.integrations.linkedin import LinkedInAutomation
-from harvey.models.company import Company
-from harvey.models.prospect import COMPANY_INBOX_SOURCE, Prospect
-from harvey.public_http import public_http_client
-from harvey.state import StateManager
-from harvey.untrusted import UNTRUSTED_RULE, fence
+from sellbird.integrations.linkedin import LinkedInAutomation
+from sellbird.models.company import Company
+from sellbird.models.prospect import COMPANY_INBOX_SOURCE, Prospect
+from sellbird.public_http import public_http_client
+from sellbird.state import StateManager
+from sellbird.untrusted import UNTRUSTED_RULE, fence
 
-logger = logging.getLogger("harvey.scout")
+logger = logging.getLogger("sellbird.scout")
 
 # Max queries per cycle to avoid rate limits
 MAX_QUERIES_PER_CYCLE = 3
@@ -92,7 +92,7 @@ LOCAL_BUSINESS_SOURCES = ("discover:osm", "discover:dataforseo_listings")
 # Company-inbox fallback: pages that publish a general address, and the
 # only mailboxes it will use, most likely read by the owner first. An
 # allowlist, not a blocklist: a personal address (jane.doe@) on a contact
-# page is a person Harvey chose not to target, never "the team".
+# page is a person Sellbird chose not to target, never "the team".
 INBOX_PAGES = ("/contact", "/contact-us")
 INBOX_PREFERRED = ("owner", "office", "info", "contact", "contactus", "hello",
                    "team", "service", "sales", "estimates", "quotes",
@@ -133,7 +133,7 @@ class Scout:
         self,
         brain: Brain,
         state: StateManager,
-        config: HarveyConfig,
+        config: SellbirdConfig,
         env: EnvConfig,
     ):
         self.brain = brain
@@ -172,7 +172,7 @@ class Scout:
         # monthly budget (HUNTER_MONTHLY_SEARCHES, 25 by default) is small —
         # self-skips once it's spent.
         strategies.append(("hunter", self._prospect_via_hunter))
-        # Backfill next: companies already on file (e.g. from `harvey
+        # Backfill next: companies already on file (e.g. from `sellbird
         # discover`) but with zero prospects. Scrapes each company's own
         # site directly, so it costs no search-query budget and isn't at
         # the mercy of Serper/Bing flakiness — cheapest, most reliable win
@@ -184,7 +184,7 @@ class Scout:
         # strategy self-skips when python-jobspy isn't installed.
         strategies.append(("hiring_boards", self._prospect_via_hiring_boards))
         # Web search for LinkedIn profiles yields names without a company or
-        # email, which Harvey can't verify; it rides the same switch as the
+        # email, which Sellbird can't verify; it rides the same switch as the
         # LinkedIn channel (and its login) so it is off unless LinkedIn
         # prospecting is wanted, and doesn't spend the cycle's query budget.
         if self.config.channels.linkedin.enabled and self.env.linkedin_email:
@@ -259,7 +259,7 @@ class Scout:
     def _looks_blocked(text: str, status: int = 200) -> bool:
         """A challenge or block page — not a real page that happens to load
         reCAPTCHA for its contact form (which used to read as "blocked" and
-        cost Harvey the whole site)."""
+        cost Sellbird the whole site)."""
         return looks_like_challenge(text, status)
 
     @staticmethod
@@ -571,7 +571,7 @@ class Scout:
         if not api_key:
             return 0
 
-        from harvey.integrations.email_finder import (
+        from sellbird.integrations.email_finder import (
             hunter_domain_people, hunter_searches_remaining, record_hunter_search,
         )
 
@@ -655,7 +655,7 @@ class Scout:
     async def _prospect_via_known_companies(self) -> int:
         """Scrape team pages for companies already on file with no contacts.
 
-        Company-only sources (`harvey discover`, directory scraping, etc.)
+        Company-only sources (`sellbird discover`, directory scraping, etc.)
         add rows to `companies` without ever finding a named person there.
         Left alone, those companies never get a contacts pass — every other
         strategy here skips a domain the moment it recognizes it, since
@@ -1238,7 +1238,7 @@ Respond ONLY with the JSON array."""
 
         try:
             result = await self.brain.think_json(
-                prompt, session_id="harvey-scout-score",
+                prompt, session_id="sellbird-scout-score",
                 agent="scout", task="score_contacts",
             )
         except Exception as e:
@@ -1658,7 +1658,7 @@ Respond ONLY with the JSON array."""
             if owner:
                 await self._observe_likely_owner(company_id, member)
 
-        # The inbox is the fallback for a company Harvey can't otherwise
+        # The inbox is the fallback for a company Sellbird can't otherwise
         # reach: nobody named on its site, or a named owner whose address is
         # only a guess (never sent). A named person found here who is
         # already a prospect (a revisit), or anyone already on file from
@@ -1896,7 +1896,7 @@ Respond ONLY with the JSON array."""
                 logger.debug(f"update_company_signals failed: {e}")
 
             signal_note = f"Signal: hiring {job_title} (posted on job board)"
-            from harvey.integrations.tech_detect import detect_tech
+            from sellbird.integrations.tech_detect import detect_tech
             tech = detect_tech(info.get("_homepage_html", ""))
             if tech:
                 await self.state.update_company_signals(company_id, tech_stack=tech)
@@ -1933,7 +1933,7 @@ Respond ONLY with the JSON array."""
 
     def _signal_role_keywords(self) -> list[str]:
         """Role keywords that indicate in-market intent (config or ICP titles)."""
-        from harvey.collectors.ats import role_keywords
+        from sellbird.collectors.ats import role_keywords
         return role_keywords(self.config.icp)
 
     async def _enrich_company_signals(
@@ -1944,7 +1944,7 @@ Respond ONLY with the JSON array."""
         The returned note seeds prospects' personalization_notes so the
         Writer references something true and current instead of flattery.
         """
-        from harvey.integrations.tech_detect import detect_tech
+        from sellbird.integrations.tech_detect import detect_tech
 
         if not homepage_html:
             resp = await self._fetch(

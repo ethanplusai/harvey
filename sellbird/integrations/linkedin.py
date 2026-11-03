@@ -14,9 +14,9 @@ from pathlib import Path
 from typing import Optional
 from urllib.parse import quote_plus
 
-logger = logging.getLogger("harvey.linkedin")
+logger = logging.getLogger("sellbird.linkedin")
 
-from harvey.paths import PROJECT_ROOT
+from sellbird.paths import PROJECT_ROOT
 
 DATA_DIR = PROJECT_ROOT / "data"
 COOKIES_PATH = DATA_DIR / "linkedin_cookies.json"

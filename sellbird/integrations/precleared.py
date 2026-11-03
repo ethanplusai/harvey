@@ -15,14 +15,14 @@ is reused only while those facts are unchanged, so a three-step sequence costs
 one check but a config change forces a fresh one. Replies are never checked.
 Precleared receives the recipient's address, your sender country, the address
 source you configure, your product description (used to judge relevance under
-CASL and French rules) and the recipient's country when Harvey is sure of it
+CASL and French rules) and the recipient's country when Sellbird is sure of it
 from the company's location (``send_window.recipient_country``), which
 Precleared takes as settled. Otherwise it receives, if there is one, your
 prospects' country (the configured ``prospect_country``, or the one country
 every ``icp.geography`` entry is in), which it uses only when it can't work out
 the recipient's country from the address, company records or the company's
 website. It also receives the company's name and the person's full name when
-Harvey has them (a company inbox has no person, so no name). For a UK
+Sellbird has them (a company inbox has no person, so no name). For a UK
 recipient Precleared uses them to find the company on the Companies House
 register when the domain alone doesn't, and it doesn't store the person's
 name.
@@ -31,7 +31,7 @@ A response Precleared can't vouch for (network trouble, daily allowance used
 up, a bad key, or a malformed body) holds cold email for a later cycle instead
 of failing it. When the failure is about Precleared rather than the address
 (no connection or no answer in time, a busy server, the allowance or the rate
-limit, the key, an answer Harvey can't read), no more fresh checks are made
+limit, the key, an answer Sellbird can't read), no more fresh checks are made
 that cycle, but a stored verdict is still used, so email to people already
 cleared carries on. Any other failure moves just that address's email back
 (see the sender's ADDRESS_RETRY_AFTER) and the rest of the cycle carries on,
@@ -47,7 +47,7 @@ Beyond that, a key draws on a prepaid pack. When a key runs out, the held
 reason gives the checkout link from Precleared's answer.
 
 A hold is also recorded under STATUS_KEY, so the dashboard's Today page and
-`harvey status` say that cold email is waiting and how to fix it (a free
+`sellbird status` say that cold email is waiting and how to fix it (a free
 key, a pack, or nothing but time). The next fresh answer clears it.
 """
 
@@ -64,10 +64,10 @@ from urllib.parse import unquote, urlsplit
 
 import httpx
 
-from harvey.config import normalize_prospect_country
-from harvey.send_window import icp_country
+from sellbird.config import normalize_prospect_country
+from sellbird.send_window import icp_country
 
-logger = logging.getLogger("harvey.precleared")
+logger = logging.getLogger("sellbird.precleared")
 
 API_URL = "https://precleared.dev/api/v1/check"
 # Precleared answers within 25 seconds (with verdict "unknown" if a register
@@ -93,12 +93,12 @@ MAX_RECIPIENT_NAME = 120
 BUY_URL = "https://precleared.dev/buy"
 GET_KEY_URL = "https://precleared.dev/get-key"
 MAX_BUY_URL = 2048
-# What `harvey status` and the dashboard's Today page read about the check:
+# What `sellbird status` and the dashboard's Today page read about the check:
 # {"status": "held", "kind", "reason", "url", "waiting", "since", "at"}, or
 # "" when the last fresh call got an answer. Written by the sender.
 STATUS_KEY = "precleared_status"
 # Precleared's allowance resets daily, so a hold not seen for this long is
-# stale: Harvey stopped running, or the check was switched off.
+# stale: Sellbird stopped running, or the check was switched off.
 STATUS_MAX_AGE = timedelta(hours=26)
 HOLD_KINDS = ("keyless_limit", "out_of_checks", "key_rejected", "rate_limited", "unavailable")
 # A 402's checkout link is only followed to Precleared itself or its card
@@ -193,7 +193,7 @@ class PreclearedClient:
 
         These are exactly the fields _check sends with the address, so a
         cached verdict is only reused for the same question. ``country`` is
-        the recipient's country when Harvey is sure of it, and ``company``
+        the recipient's country when Sellbird is sure of it, and ``company``
         and ``name`` the company's and person's names, as for _check.
         """
         facts = {
@@ -216,7 +216,7 @@ class PreclearedClient:
             # does, for the same reason.
             facts["icp_country"] = self.default_country
         if company:
-            # Only when Harvey has them, so a verdict cached without the names
+            # Only when Sellbird has them, so a verdict cached without the names
             # still matches while an address has none (and see _cached once
             # it has).
             facts["company_name"] = company
@@ -322,7 +322,7 @@ class PreclearedClient:
         if self.pitch:
             payload["pitch"] = self.pitch
         if country:
-            # Harvey is sure of it from the company's location, and Precleared
+            # Sellbird is sure of it from the company's location, and Precleared
             # takes it as settled; so never a guess, and never both fields.
             payload["recipient_country"] = country
         elif self.default_country:
@@ -341,7 +341,7 @@ class PreclearedClient:
             payload["recipient_name"] = name
         headers = {
             "Content-Type": "application/json",
-            "User-Agent": "harvey (+https://github.com/ethanplusai/harvey)",
+            "User-Agent": "sellbird (+https://github.com/ethanplusai/sellbird)",
         }
         if self.api_key:
             if not re.fullmatch(r"[!-~]+", self.api_key):
@@ -420,7 +420,7 @@ class PreclearedClient:
         # Only a JSON object with a known verdict counts as an answer.
         # Anything else is treated like an unavailable check, so cold email
         # is held, not failed. A 200 means the check was made (and counted),
-        # and an answer Harvey can't read is about the API, not the address,
+        # and an answer Sellbird can't read is about the API, not the address,
         # so no more checks are spent on it this cycle.
         if not isinstance(data, dict):
             return Clearance(allowed=False, held=True, pause_checks=True, retry_address=True,
@@ -609,7 +609,7 @@ def _utcnow() -> datetime:
     return datetime.now(timezone.utc)
 
 
-# ── Holds: what `harvey status` and the Today page show ──
+# ── Holds: what `sellbird status` and the Today page show ──
 
 
 def parse_status(raw: str) -> dict:
@@ -656,7 +656,7 @@ async def clear_hold(state) -> None:
 
 def hold_applies(config) -> bool:
     """Whether the check is on for this config: enabled, on a native provider."""
-    from harvey.integrations.mail_provider import NATIVE_PROVIDERS
+    from sellbird.integrations.mail_provider import NATIVE_PROVIDERS
 
     settings = getattr(getattr(config, "compliance", None), "precleared", None)
     provider = getattr(getattr(getattr(config, "channels", None), "email", None),
@@ -690,7 +690,7 @@ async def current_hold(state, config=None) -> dict:
 def hold_message(hold: dict) -> dict:
     """Title, detail, tone and link for a recorded hold, in plain words.
 
-    Shared by the Today page and `harvey status`, so both say the same thing.
+    Shared by the Today page and `sellbird status`, so both say the same thing.
     """
     kind = hold.get("kind")
     url = _text(hold.get("url"))
@@ -707,7 +707,7 @@ def hold_message(hold: dict) -> dict:
             "tone": "warn", "url": url or GET_KEY_URL, "url_label": "Get a free key",
             "title": "Precleared's free checks for today are used up",
             "detail": (f"{emails}. Without a key, Precleared allows 10 checks a day. "
-                       f"A free key gives Harvey its own 25 a day: get one at {url or GET_KEY_URL} "
+                       f"A free key gives Sellbird its own 25 a day: get one at {url or GET_KEY_URL} "
                        "and put it in .env as PRECLEARED_API_KEY. Otherwise the waiting "
                        f"emails go out after the checks reset at midnight UK time. {replies}"),
         }
@@ -732,14 +732,14 @@ def hold_message(hold: dict) -> dict:
     if kind == "rate_limited":
         return {
             "tone": "warn", "url": "", "url_label": "",
-            "title": "Precleared is limiting how fast Harvey can check",
+            "title": "Precleared is limiting how fast Sellbird can check",
             "detail": (f"{emails}. Precleared allows a set number of checks a minute, "
-                       f"and Harvey asks again next cycle. {replies}"),
+                       f"and Sellbird asks again next cycle. {replies}"),
         }
     reason = _text(_clean(_text(hold.get("reason")))) or "no answer"
     return {
         "tone": "warn", "url": "", "url_label": "",
         "title": "Precleared can't be reached right now",
-        "detail": (f"{emails} until it answers ({reason}). Harvey asks again every "
+        "detail": (f"{emails} until it answers ({reason}). Sellbird asks again every "
                    f"cycle. {replies}"),
     }

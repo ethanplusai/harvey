@@ -5,7 +5,7 @@ from unittest.mock import AsyncMock
 
 import pytest
 
-from harvey.integrations.gmail import GmailProvider
+from sellbird.integrations.gmail import GmailProvider
 
 
 def message(message_id, sender='person@example.test', body='Hello'):
@@ -60,17 +60,17 @@ async def test_heartbeat_does_not_send_until_gmail_recovers(monkeypatch, tmp_pat
     # The shared harness routes Claude to a canned local Python response,
     # not a model/CLI service. Its mail send only appends to an in-memory list.
     from tests.test_codex_e2e import Harness, _approved_item
-    harvey = Harness(monkeypatch, tmp_path, provider='claude', model='')
-    await harvey.state.init_db()
-    await _approved_item(harvey.state)
+    sellbird = Harness(monkeypatch, tmp_path, provider='claude', model='')
+    await sellbird.state.init_db()
+    await _approved_item(sellbird.state)
     gmail = provider([None, {'resultSizeEstimate': 0}])
-    harvey.mail.get_replies = gmail.get_replies
+    sellbird.mail.get_replies = gmail.get_replies
     seen = {}
     def after_failure():
-        seen['sent'] = list(harvey.mail.sent)
-    await harvey.run_cycles(2, between={1: after_failure})
+        seen['sent'] = list(sellbird.mail.sent)
+    await sellbird.run_cycles(2, between={1: after_failure})
     assert seen['sent'] == []
-    assert [m['to'] for m in harvey.mail.sent] == ['bob@beta.com']
+    assert [m['to'] for m in sellbird.mail.sent] == ['bob@beta.com']
 
 
 @pytest.mark.asyncio
@@ -93,7 +93,7 @@ async def test_repeated_page_token_fails_closed():
 
 @pytest.mark.asyncio
 async def test_page_bound_does_not_return_a_partial_inbox(monkeypatch):
-    import harvey.integrations.gmail as gmail
+    import sellbird.integrations.gmail as gmail
     monkeypatch.setattr(gmail, 'MAX_INBOX_PAGES', 2, raising=False)
     with pytest.raises(RuntimeError, match='partial'):
         await provider([{'nextPageToken': 'one'}, {'nextPageToken': 'two'}]).get_replies()
@@ -113,7 +113,7 @@ async def test_message_repeated_across_pages_is_read_once():
 @pytest.mark.parametrize('status,body', [(503, '{}'), (200, 'not json'), (200, 'null')])
 async def test_http_failures_do_not_become_an_empty_inbox(monkeypatch, status, body):
     import httpx
-    import harvey.integrations.gmail as gmail
+    import sellbird.integrations.gmail as gmail
     client = httpx.AsyncClient
     transport = httpx.MockTransport(lambda request: httpx.Response(status, text=body))
     monkeypatch.setattr(gmail.httpx, 'AsyncClient',
@@ -127,20 +127,20 @@ async def test_http_failures_do_not_become_an_empty_inbox(monkeypatch, status, b
 @pytest.mark.asyncio
 async def test_second_page_opt_out_cancels_approved_send(monkeypatch, tmp_path):
     from tests.test_codex_e2e import Harness, _approved_item
-    harvey = Harness(monkeypatch, tmp_path, provider='claude', model='')
-    await harvey.state.init_db()
-    await _approved_item(harvey.state)
+    sellbird = Harness(monkeypatch, tmp_path, provider='claude', model='')
+    await sellbird.state.init_db()
+    await _approved_item(sellbird.state)
     gmail = provider([
         {'messages': [{'id': 'old'}], 'nextPageToken': 'next'}, message('old'),
         {'messages': [{'id': 'stop'}]}, message('stop', 'bob@beta.com', 'unsubscribe'),
     ])
     # Already handled newest mail must not hide an older opt-out forever.
-    await harvey.state.mark_reply_processed('old')
-    harvey.mail.get_replies = gmail.get_replies
-    await harvey.run_cycles(1)
-    assert harvey.mail.sent == []
-    assert await harvey.state.is_reply_processed('stop')
-    assert len(await harvey.state.get_outbox(status='cancelled')) == 1
+    await sellbird.state.mark_reply_processed('old')
+    sellbird.mail.get_replies = gmail.get_replies
+    await sellbird.run_cycles(1)
+    assert sellbird.mail.sent == []
+    assert await sellbird.state.is_reply_processed('stop')
+    assert len(await sellbird.state.get_outbox(status='cancelled')) == 1
 
 
 @pytest.mark.asyncio
@@ -188,7 +188,7 @@ async def test_a_garbled_token_answer_is_no_token_not_a_crash(monkeypatch, expir
     """It raised out of the send, so the sender recorded 'maybe sent' for an
     email that never left."""
     import httpx
-    import harvey.integrations.gmail as gmail
+    import sellbird.integrations.gmail as gmail
     body = 'not json' if expires_in == '3600' else {'access_token': 't', 'expires_in': expires_in}
     transport = httpx.MockTransport(lambda r: httpx.Response(200, **(
         {'text': body} if isinstance(body, str) else {'json': body})))

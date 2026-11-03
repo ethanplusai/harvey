@@ -1,4 +1,4 @@
-"""Harvey's main heartbeat loop. Always Be Closing."""
+"""Sellbird's main heartbeat loop. Always Be Closing."""
 
 import asyncio
 import logging
@@ -8,25 +8,25 @@ from datetime import datetime, time, timedelta
 
 import pytz
 
-from harvey.brain import Brain
-from harvey.sending_mode import sync_sending_mode
-from harvey.config import (
-    ConfigError, load_config, load_env, HarveyConfig, legacy_sending_held, sending_notice,
+from sellbird.brain import Brain
+from sellbird.sending_mode import sync_sending_mode
+from sellbird.config import (
+    ConfigError, load_config, load_env, SellbirdConfig, legacy_sending_held, sending_notice,
     compliance_notice, send_window_of,
 )
-from harvey.integrations.mail_provider import NATIVE_PROVIDERS
-from harvey.pidfile import (
+from sellbird.integrations.mail_provider import NATIVE_PROVIDERS
+from sellbird.pidfile import (
     LOCK_FILE, hold_loop_lock, read_pid, release_loop_lock, remove_pid_file, write_pid_file,
 )
-from harvey.pipeline import run_profile_stage
-from harvey.state import StateManager
+from sellbird.pipeline import run_profile_stage
+from sellbird.state import StateManager
 
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s [%(name)s] %(levelname)s: %(message)s",
     datefmt="%Y-%m-%d %H:%M:%S",
 )
-logger = logging.getLogger("harvey")
+logger = logging.getLogger("sellbird")
 
 # Backoff for consecutive failed cycles: 60s, 120s, 240s, ... capped at 15 min
 ERROR_BACKOFF_BASE = 60
@@ -36,13 +36,13 @@ ERROR_BACKOFF_CAP = 900
 # gather() only isolates a task that raises — a task that hangs (a socket or
 # lock that never resolves) blocks gather() forever, taking the whole
 # heartbeat loop down silently with it. This is the only thing standing
-# between one stuck agent and Harvey freezing for hours with no agent
+# between one stuck agent and Sellbird freezing for hours with no agent
 # knowing it's dead — found in production after exactly that happened.
 CYCLE_TIMEOUT_SECONDS = 600
 
 # Cap on a single quiet-hours sleep chunk. See the quiet-hours block in
 # heartbeat() for why this exists — a system sleep/wake cycle during one
-# multi-hour asyncio.wait_for left Harvey silently stalled well past when
+# multi-hour asyncio.wait_for left Sellbird silently stalled well past when
 # quiet hours actually ended.
 QUIET_HOURS_POLL_SECONDS = 300
 
@@ -50,7 +50,7 @@ QUIET_HOURS_POLL_SECONDS = 300
 REPLY_READERS = ("handle_replies", "read_replies")
 
 
-def in_quiet_hours(config: HarveyConfig) -> bool:
+def in_quiet_hours(config: SellbirdConfig) -> bool:
     """Check if we're currently in quiet hours."""
     qh = config.usage.quiet_hours
     tz = pytz.timezone(qh.timezone)
@@ -65,8 +65,8 @@ def in_quiet_hours(config: HarveyConfig) -> bool:
         return now >= start or now <= end
 
 
-def sends_through_quiet_hours(config: HarveyConfig) -> bool:
-    """True when quiet hours pause Harvey's own work but not cold email
+def sends_through_quiet_hours(config: SellbirdConfig) -> bool:
+    """True when quiet hours pause Sellbird's own work but not cold email
     that is due in its recipient's window.
 
     With a send window in each recipient's time zone, the operator's night
@@ -85,7 +85,7 @@ def sends_through_quiet_hours(config: HarveyConfig) -> bool:
                 and email.enabled and email.provider in NATIVE_PROVIDERS)
 
 
-def seconds_until_quiet_hours_end(config: HarveyConfig) -> int:
+def seconds_until_quiet_hours_end(config: SellbirdConfig) -> int:
     """Calculate seconds until quiet hours end."""
     qh = config.usage.quiet_hours
     tz = pytz.timezone(qh.timezone)
@@ -105,7 +105,7 @@ def seconds_until_quiet_hours_end(config: HarveyConfig) -> int:
 # this many unusable prospects (a guessed, invalid or missing email) were
 # found in the last 24 hours. Without a working verifier every address is a
 # guess, and prospecting every cycle would spend search and verifier credits
-# on people Harvey can never email. Nothing re-checks a guess, so the window
+# on people Sellbird can never email. Nothing re-checks a guess, so the window
 # is a day, never all time: an all-time count would stop Scout for good.
 PROSPECT_BACKLOG = 20
 
@@ -120,27 +120,27 @@ def _new_counts(summary: dict) -> tuple[int, int]:
 
 
 def unusable_backlog_notice(summary: dict) -> str:
-    """Why Harvey paused prospecting for the day, or ""."""
+    """Why Sellbird paused prospecting for the day, or ""."""
     _, writable = _new_counts(summary)
     recent = summary.get("recent_unusable_prospects", 0) or 0
     if writable or recent < PROSPECT_BACKLOG:
         return ""
     return (
-        f"Harvey found {recent} prospects in the last day, but none has a verified "
+        f"Sellbird found {recent} prospects in the last day, but none has a verified "
         "or catch-all email, so it paused prospecting for about a day to save search "
         "and verifier credits. Add an email verifier key (REOON_API_KEY, "
         "ZEROBOUNCE_API_KEY or HUNTER_API_KEY in .env) or check it still has credits. "
-        "`harvey export --all` exports the list as it is."
+        "`sellbird export --all` exports the list as it is."
     )
 
 
 async def decide_next_action(
     brain: Brain,
     state: StateManager,
-    config: HarveyConfig,
+    config: SellbirdConfig,
     summary: dict | None = None,
 ) -> str:
-    """Decide what Harvey should do next based on current state.
+    """Decide what Sellbird should do next based on current state.
 
     Uses deterministic priority rules (send_campaign > write_campaign >
     prospect > idle) instead of burning a Claude call on a decision that is
@@ -244,7 +244,7 @@ def send_hold_reason(unread: list, paused: str, read_problem: str) -> str | None
 
 
 async def record_send_phase(state, held_reason: str):
-    """Note why sending was held this cycle (Today and `harvey status` show
+    """Note why sending was held this cycle (Today and `sellbird status` show
     it), or clear the note when sending ran. Never stops the loop."""
     try:
         if held_reason:
@@ -256,12 +256,12 @@ async def record_send_phase(state, held_reason: str):
 
 
 async def heartbeat(stop_event: asyncio.Event | None = None):
-    """Harvey's main loop. Wakes up, decides, acts, sleeps. Repeat."""
+    """Sellbird's main loop. Wakes up, decides, acts, sleeps. Repeat."""
     if stop_event is None:
         stop_event = asyncio.Event()
 
     logger.info("=" * 60)
-    logger.info("Harvey is online. Always Be Closing.")
+    logger.info("Sellbird is online. Always Be Closing.")
     logger.info("=" * 60)
 
     try:
@@ -277,7 +277,7 @@ async def heartbeat(stop_event: asyncio.Event | None = None):
     logger.info(
         f"Thinking with {brain.provider_label}"
         + (f" ({brain.model})" if brain.model else "")
-        + ". Change brain.provider in harvey.yaml to switch."
+        + ". Change brain.provider in sellbird.yaml to switch."
     )
     for notice in (sending_notice(config), compliance_notice(config)):
         if notice:
@@ -289,11 +289,11 @@ async def heartbeat(stop_event: asyncio.Event | None = None):
     logger.info("Database initialized.")
 
     # Import agents here to avoid circular imports
-    from harvey.agents.scout import Scout
-    from harvey.agents.writer import Writer
-    from harvey.agents.sender import Sender
-    from harvey.agents.handler import Handler
-    from harvey.agents.analyst import Analyst
+    from sellbird.agents.scout import Scout
+    from sellbird.agents.writer import Writer
+    from sellbird.agents.sender import Sender
+    from sellbird.agents.handler import Handler
+    from sellbird.agents.analyst import Analyst
 
     scout = Scout(brain, state, config, env)
     writer = Writer(brain, state, config, env)
@@ -308,7 +308,7 @@ async def heartbeat(stop_event: asyncio.Event | None = None):
     while not stop_event.is_set():
         try:
             # 0. Approval or autopilot, as the config file says now: the
-            # dashboard can switch it while Harvey runs.
+            # dashboard can switch it while Sellbird runs.
             await sync_sending_mode(config, state)
 
             # 1. Check quiet hours. With send windows in recipients' own time
@@ -355,7 +355,7 @@ async def heartbeat(stop_event: asyncio.Event | None = None):
             problem = await brain.preflight()
             if problem:
                 logger.error(
-                    f"Harvey is paused: {problem} Nothing was sent or changed. "
+                    f"Sellbird is paused: {problem} Nothing was sent or changed. "
                     f"Re-checking in {config.usage.heartbeat_interval_minutes} minutes."
                 )
                 if await _interruptible_sleep(interval, stop_event):
@@ -363,7 +363,7 @@ async def heartbeat(stop_event: asyncio.Event | None = None):
                 continue
 
             # 3. Check usage budget (real subscription quota when readable,
-            # else Harvey's own call counter)
+            # else Sellbird's own call counter)
             if not await brain.is_within_budget(
                 max_calls, max_percent=config.usage.max_daily_claude_percent
             ):
@@ -479,13 +479,13 @@ async def heartbeat(stop_event: asyncio.Event | None = None):
             if await _interruptible_sleep(backoff, stop_event):
                 break
 
-    logger.info("Harvey shutting down. Deals don't close themselves, but I need a break.")
+    logger.info("Sellbird shutting down. Deals don't close themselves, but I need a break.")
 
 
 def _needs_setup() -> bool:
-    """Check if Harvey needs first-time setup."""
-    from harvey.paths import PROJECT_ROOT
-    from harvey.config import _find_config_file, ConfigFileNotFoundError
+    """Check if Sellbird needs first-time setup."""
+    from sellbird.paths import PROJECT_ROOT
+    from sellbird.config import _find_config_file, ConfigFileNotFoundError
 
     env_file = PROJECT_ROOT / ".env"
 
@@ -493,7 +493,7 @@ def _needs_setup() -> bool:
     if not env_file.exists():
         return True
 
-    # harvey.local.yaml wins over the tracked harvey.yaml template, same
+    # sellbird.local.yaml wins over the tracked sellbird.yaml template, same
     # resolution order the real config loader uses (see config.py).
     try:
         config_file = _find_config_file()
@@ -502,7 +502,7 @@ def _needs_setup() -> bool:
 
     try:
         import yaml
-        from harvey.textio import read_user_text
+        from sellbird.textio import read_user_text
         config = yaml.safe_load(read_user_text(config_file))
         if not isinstance(config, dict):
             return True
@@ -543,10 +543,10 @@ def main():
     if _needs_setup():
         if not sys.stdin.isatty():
             # Started by the dashboard or a service: nobody can answer the wizard.
-            print("Harvey isn't set up yet. Run `harvey setup` in a terminal first.")
+            print("Sellbird isn't set up yet. Run `sellbird setup` in a terminal first.")
             sys.exit(1)
-        print("\n  First time running Harvey? Let's get you set up.\n")
-        from harvey.setup import run_setup
+        print("\n  First time running Sellbird? Let's get you set up.\n")
+        from sellbird.setup import run_setup
         asyncio.run(run_setup())
         return
 
@@ -555,7 +555,7 @@ def main():
     lock = hold_loop_lock(LOCK_FILE)
     if lock is None:
         running = read_pid()
-        print(f"Harvey is already running{f' (pid {running})' if running else ''}. "
+        print(f"Sellbird is already running{f' (pid {running})' if running else ''}. "
               "Stop it first, from the dashboard or with Ctrl+C in its terminal.")
         sys.exit(1)
     write_pid_file()
@@ -569,6 +569,6 @@ def main():
 
 
 if __name__ == "__main__":
-    from harvey.textio import utf8_stdio
+    from sellbird.textio import utf8_stdio
     utf8_stdio()
     main()

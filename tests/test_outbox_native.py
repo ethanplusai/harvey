@@ -9,11 +9,11 @@ from datetime import datetime, timedelta, timezone
 import pytest
 import pytest_asyncio
 
-from harvey.gate import pre_send_check
-from harvey.models.campaign import Campaign, EmailStep
-from harvey.models.prospect import Prospect
-from harvey.state import StateManager
-from harvey.integrations.mail_provider import (
+from sellbird.gate import pre_send_check
+from sellbird.models.campaign import Campaign, EmailStep
+from sellbird.models.prospect import Prospect
+from sellbird.state import StateManager
+from sellbird.integrations.mail_provider import (
     InboundMessage,
     MailProvider,
     SendResult,
@@ -61,7 +61,7 @@ class FakeProvider(MailProvider):
 
 class Cfg:
     class persona:
-        name = "Harvey"; email = "harvey@x.co"; company = "X"; role = "BD"; tone = "direct"
+        name = "Sellbird"; email = "sellbird@x.co"; company = "X"; role = "BD"; tone = "direct"
 
     class product:
         name = "P"; description = "d"; pricing = "$"; key_benefits = ["b"]
@@ -85,7 +85,7 @@ class Env:
 
 
 def make_sender(state, provider, require_approval=True):
-    from harvey.agents.sender import Sender
+    from sellbird.agents.sender import Sender
     cfg = Cfg()
     cfg.channels.email.require_approval = require_approval
     sender = Sender(brain=None, state=state, config=cfg, env=Env())
@@ -111,7 +111,7 @@ class StubBrain:
 
 
 def make_handler(state, provider, intent="question"):
-    from harvey.agents.handler import Handler
+    from sellbird.agents.handler import Handler
     handler = Handler(brain=StubBrain(intent=intent), state=state, config=Cfg(), env=Env())
     handler.provider = provider
     return handler
@@ -302,7 +302,7 @@ async def test_reply_cancels_pending_outbox(state):
     assert prospect.status == "opted_out"   # opt-out keywords honored
 
     # Taking the list to another sequencer must not undo the handled opt-out.
-    from harvey.export import collect_prospects
+    from sellbird.export import collect_prospects
     assert await collect_prospects(state) == []
 
 
@@ -370,7 +370,7 @@ async def test_reply_after_opt_out_keeps_them_opted_out(state, body):
 
     assert (await state.get_prospect(pid)).status == "opted_out"
     assert await state.get_outbox() == []
-    from harvey.export import collect_prospects
+    from sellbird.export import collect_prospects
     assert await collect_prospects(state) == []
     # Their message is still kept where a human can read it.
     convos = await state.get_conversations_by_status("closed")
@@ -503,7 +503,7 @@ async def test_on_autopilot_the_first_reply_after_an_undo_still_waits(state, mon
 
 @pytest.mark.asyncio
 async def test_on_instantly_the_first_reply_after_an_undo_goes_to_you(state, monkeypatch):
-    import harvey.agents.handler as handler_mod
+    import sellbird.agents.handler as handler_mod
     monkeypatch.setattr(handler_mod, "legacy_sending_held", lambda cfg: False)
     pid = await seed_prospect(state, status="opted_out")
     assert await state.undo_opt_out(pid) is True

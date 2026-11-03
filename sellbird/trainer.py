@@ -1,4 +1,4 @@
-"""Trainer — give Harvey a URL and it learns everything about the product.
+"""Trainer — give Sellbird a URL and it learns everything about the product.
 
 Uses Cloudflare Browser Rendering /crawl API for deep site crawling.
 Falls back to manual scraping if no Cloudflare credentials are configured.
@@ -18,15 +18,15 @@ import yaml
 from bs4 import BeautifulSoup
 from dotenv import load_dotenv
 
-from harvey.brain import Brain
-from harvey.config import BrainConfig, load_brain_config
-from harvey.public_http import UnsafeURLError, public_http_client
-from harvey.state import StateManager
+from sellbird.brain import Brain
+from sellbird.config import BrainConfig, load_brain_config
+from sellbird.public_http import UnsafeURLError, public_http_client
+from sellbird.state import StateManager
 
-logger = logging.getLogger("harvey.trainer")
+logger = logging.getLogger("sellbird.trainer")
 
-from harvey.paths import PROJECT_ROOT
-from harvey.textio import read_user_text
+from sellbird.paths import PROJECT_ROOT
+from sellbird.textio import read_user_text
 
 
 def _normalize_start_url(url: str) -> str:
@@ -399,14 +399,14 @@ def write_trained_config(learned: dict, path: Path) -> dict:
     """Write a trained config to ``path`` without losing the operator's settings.
 
     The base is ``path`` itself when it exists. On a first training it is the
-    harvey.yaml next to it (the template Harvey ships, with the provider and
+    sellbird.yaml next to it (the template Sellbird ships, with the provider and
     compliance blocks), never a config found elsewhere on disk. A base that
     has content but can't be read as YAML is backed up before it is
     replaced. The new file is swapped in whole, so a failed write never
     leaves a half-written config. Returns what was written.
     """
     path = Path(path)
-    source = path if path.exists() else path.with_name("harvey.yaml")
+    source = path if path.exists() else path.with_name("sellbird.yaml")
     existing = None
     if source.exists():
         raw = read_user_text(source)
@@ -446,10 +446,10 @@ class Trainer:
     async def train(
         self,
         url: str,
-        output_path: str = "harvey.local.yaml",
+        output_path: str = "sellbird.local.yaml",
         max_pages: int = 100,
     ):
-        """Train Harvey on a product website.
+        """Train Sellbird on a product website.
 
         1. Deep crawl the site (Cloudflare /crawl or fallback)
         2. Analyze all content with the configured brain
@@ -468,9 +468,9 @@ class Trainer:
             return None
         base_url = f"{parsed.scheme}://{domain}"
 
-        logger.info(f"Training Harvey on {base_url}...")
+        logger.info(f"Training Sellbird on {base_url}...")
         print(f"\n{'='*60}")
-        print(f"  Harvey Training Mode")
+        print(f"  Sellbird Training Mode")
         print(f"  Learning from: {base_url}")
         print(f"{'='*60}\n")
 
@@ -492,7 +492,7 @@ class Trainer:
 
         if not self.scraped_pages:
             if getattr(crawler, "blocked", False):
-                print(f"\nERROR: {base_url} points to a local or private address. Harvey only")
+                print(f"\nERROR: {base_url} points to a local or private address. Sellbird only")
                 print("learns from public websites, so it never reaches into your own network.")
                 print("Train on the live public site instead.")
             else:
@@ -562,7 +562,7 @@ class Trainer:
         else:
             print(f"\n  Review {config_path} and adjust as needed. Emails still go out as")
             print(f"  {config['persona'].get('name', '')} <{config['persona']['email']}>.")
-        print(f"  Then run: harvey run\n")
+        print(f"  Then run: sellbird run\n")
 
         return config
 
@@ -607,7 +607,7 @@ Extract the following and return as JSON:
 
 Be thorough — you have access to the full website. Extract everything relevant."""
 
-        result = await self.brain.think_json(prompt, session_id="harvey-trainer")
+        result = await self.brain.think_json(prompt, session_id="sellbird-trainer")
         return result if isinstance(result, dict) else {}
 
     async def _extract_icp(self) -> dict:
@@ -643,7 +643,7 @@ resolves to the wrong place on Earth instead of failing loudly.
 "titles" MUST be literal job titles exactly as they'd appear on a business
 card or LinkedIn profile ("Owner", "CEO", "President", "Plant Manager",
 "Practice Manager") — never a customer-segment or persona label ("Business
-Owner Segment", "Decision Maker", "Healthcare Professional"). Harvey matches
+Owner Segment", "Decision Maker", "Healthcare Professional"). Sellbird matches
 a found contact's title against this list by substring, so a descriptive
 label instead of a real title means every real contact silently fails to
 match and gets discarded. If the buyer is an INDIVIDUAL bought into by
@@ -658,7 +658,7 @@ an extra one costs nothing.
 
 Be specific — don't guess generically. Base this on what the website actually says about their customers."""
 
-        result = await self.brain.think_json(prompt, session_id="harvey-trainer")
+        result = await self.brain.think_json(prompt, session_id="sellbird-trainer")
         return result if isinstance(result, dict) else {
             "industries": ["Technology"],
             "company_size": "10-200 employees",
@@ -697,7 +697,7 @@ Return as JSON:
 
 If the website doesn't mention specific competitors, infer the most likely ones based on the product category."""
 
-        result = await self.brain.think_json(prompt, session_id="harvey-trainer")
+        result = await self.brain.think_json(prompt, session_id="sellbird-trainer")
         return result if isinstance(result, dict) else {"competitors": []}
 
     async def _generate_objections(self, product_info: dict, competitive_intel: dict) -> dict:
@@ -728,7 +728,7 @@ a question or redirect that keeps the conversation going.
 
 Return as a JSON object where keys are the objection and values are the response."""
 
-        result = await self.brain.think_json(prompt, session_id="harvey-trainer")
+        result = await self.brain.think_json(prompt, session_id="sellbird-trainer")
         return result if isinstance(result, dict) else {}
 
     async def _generate_product_knowledge(
@@ -849,20 +849,20 @@ What prospects do instead of buying a solution like ours:
         objections: dict,
         domain: str,
     ) -> dict:
-        """Build the complete harvey.yaml config."""
+        """Build the complete sellbird.yaml config."""
         company = product_info.get("company_name", "Your Company")
         product = product_info.get("product_name", "Your Product")
         tone = product_info.get("tone", "professional, consultative, confident")
-        # "www.acme.com" should yield harvey@acme.com, not harvey@www.acme.com
+        # "www.acme.com" should yield sellbird@acme.com, not sellbird@www.acme.com
         email_domain = domain.removeprefix("www.")
 
         return {
             "persona": {
-                "name": "Harvey",
+                "name": "Sellbird",
                 "company": company,
                 "role": "Business Development",
-                "email": f"harvey@{email_domain}",
-                "linkedin": f"linkedin.com/in/harvey-{email_domain.replace('.', '-')}",
+                "email": f"sellbird@{email_domain}",
+                "linkedin": f"linkedin.com/in/sellbird-{email_domain.replace('.', '-')}",
                 "tone": tone,
             },
             "product": {
@@ -905,7 +905,7 @@ What prospects do instead of buying a solution like ours:
         }
 
 
-async def run_training(url: str, output: str = "harvey.local.yaml", max_pages: int = 100):
+async def run_training(url: str, output: str = "sellbird.local.yaml", max_pages: int = 100):
     """Entry point for training."""
     trainer = Trainer()
     await trainer.train(url, output, max_pages=max_pages)
@@ -916,17 +916,17 @@ def main():
     import sys
 
     if len(sys.argv) < 2:
-        print("Usage: python -m harvey.trainer <website-url> [max-pages]")
+        print("Usage: python -m sellbird.trainer <website-url> [max-pages]")
         print("")
         print("Examples:")
-        print("  python -m harvey.trainer https://acmecorp.com")
-        print("  python -m harvey.trainer https://acmecorp.com 200")
+        print("  python -m sellbird.trainer https://acmecorp.com")
+        print("  python -m sellbird.trainer https://acmecorp.com 200")
         print("")
         print("For deep JS-rendered crawling, add to .env:")
         print("  CLOUDFLARE_ACCOUNT_ID=your_account_id")
         print("  CLOUDFLARE_API_TOKEN=your_api_token")
         print("")
-        print("Without Cloudflare credentials, Harvey will use basic HTTP")
+        print("Without Cloudflare credentials, Sellbird will use basic HTTP")
         print("scraping (no JavaScript rendering, limited page discovery).")
         sys.exit(1)
 
@@ -944,6 +944,6 @@ def main():
 
 
 if __name__ == "__main__":
-    from harvey.textio import utf8_stdio
+    from sellbird.textio import utf8_stdio
     utf8_stdio()
     main()

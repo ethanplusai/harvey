@@ -6,11 +6,11 @@ import json
 import pytest
 import pytest_asyncio
 
-from harvey.state import StateManager
-from harvey.models.company import Company
-from harvey.models.prospect import Prospect
-from harvey.models.campaign import Campaign, EmailStep
-from harvey.models.conversation import Conversation, Message
+from sellbird.state import StateManager
+from sellbird.models.company import Company
+from sellbird.models.prospect import Prospect
+from sellbird.models.campaign import Campaign, EmailStep
+from sellbird.models.conversation import Conversation, Message
 
 
 @pytest_asyncio.fixture
@@ -187,7 +187,7 @@ async def test_update_campaign_fields(state):
 async def test_conversation_add_and_fetch(state):
     convo = Conversation(
         id="", prospect_id="p1", campaign_id="c1",
-        thread=[Message(sender="harvey", content="Hi")],
+        thread=[Message(sender="sellbird", content="Hi")],
         intent="interested",
     )
     vid = await state.add_conversation(convo)

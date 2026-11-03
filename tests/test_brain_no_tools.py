@@ -2,7 +2,7 @@
 
 Prompts carry untrusted text (prospect replies, scraped pages). If Claude had
 tools, an instruction hidden in that text could run commands or reach the
-operator's connectors. Harvey only needs text back, so it gets none. And the
+operator's connectors. Sellbird only needs text back, so it gets none. And the
 output is an email to a third party, so the operator's CLAUDE.md, hooks,
 skills, plugins and settings must not load into the call either.
 """
@@ -16,11 +16,11 @@ from pathlib import Path
 import pytest
 import pytest_asyncio
 
-import harvey.brain as brain_mod
-from harvey import claude_runtime
-from harvey.brain import Brain
-from harvey.paths import PROJECT_ROOT
-from harvey.state import StateManager
+import sellbird.brain as brain_mod
+from sellbird import claude_runtime
+from sellbird.brain import Brain
+from sellbird.paths import PROJECT_ROOT
+from sellbird.state import StateManager
 
 # The real probe, before conftest swaps in a stand-in for each test.
 _REAL_PROBE_HELP = claude_runtime._probe_help

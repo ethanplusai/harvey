@@ -2,7 +2,7 @@
 
 import logging
 
-logger = logging.getLogger("harvey.calendar")
+logger = logging.getLogger("sellbird.calendar")
 
 
 class CalendarClient:

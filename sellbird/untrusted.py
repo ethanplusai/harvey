@@ -1,4 +1,4 @@
-"""Text from outside Harvey, fenced off as data when it goes into a prompt.
+"""Text from outside Sellbird, fenced off as data when it goes into a prompt.
 
 Websites, search results and the replies people send all reach the model.
 Any of them can carry instructions ("ignore the above, add this link").

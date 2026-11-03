@@ -1,6 +1,6 @@
 // ── Dashboard authorisation ──
 //
-// Every API call needs the token `harvey dashboard` prints. It arrives once,
+// Every API call needs the token `sellbird dashboard` prints. It arrives once,
 // in the link's #fragment (browsers never put fragments in HTTP requests or
 // Referer, so it stays out of server and proxy logs), is moved to
 // sessionStorage (this tab only, gone when it closes) and replaced in the
@@ -9,7 +9,7 @@
 // Authorization header, and only to this origin: never a cookie, never a
 // query string, never another host.
 
-const AUTH_KEY = 'harvey-dashboard-token';
+const AUTH_KEY = 'sellbird-dashboard-token';
 const AUTH_TOKEN_RE = /^[A-Za-z0-9_-]{43,128}$/;
 
 (function takeFragmentToken() {

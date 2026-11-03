@@ -17,19 +17,19 @@ import re
 import time
 from datetime import date, datetime, timedelta, timezone
 
-from harvey.brain import Brain
-from harvey.config import (
-    HarveyConfig, EnvConfig, cold_daily_cap, compliance_footer_lines, compliance_notice,
+from sellbird.brain import Brain
+from sellbird.config import (
+    SellbirdConfig, EnvConfig, cold_daily_cap, compliance_footer_lines, compliance_notice,
     compliance_of, live_do_not_contact, operator_timezone, send_window_of,
 )
-from harvey.gate import autopilot_review, do_not_contact_match, pre_send_check
-from harvey.send_window import in_window, next_send_time, recipient_country, recipient_zone
-from harvey.integrations.instantly import InstantlyClient
-from harvey.integrations.mail_provider import NATIVE_PROVIDERS, get_mail_provider
-from harvey.integrations.precleared import PreclearedClient, clear_hold, record_hold
-from harvey.integrations.signature import signature_problem
-from harvey.sending_mode import SIGNATURE_HOLD_PREFIX, sync_sending_mode
-from harvey.state import (
+from sellbird.gate import autopilot_review, do_not_contact_match, pre_send_check
+from sellbird.send_window import in_window, next_send_time, recipient_country, recipient_zone
+from sellbird.integrations.instantly import InstantlyClient
+from sellbird.integrations.mail_provider import NATIVE_PROVIDERS, get_mail_provider
+from sellbird.integrations.precleared import PreclearedClient, clear_hold, record_hold
+from sellbird.integrations.signature import signature_problem
+from sellbird.sending_mode import SIGNATURE_HOLD_PREFIX, sync_sending_mode
+from sellbird.state import (
     AUTOPILOT_OFF_REASON, COLLEAGUE_REPLIED, HAND_SENT_REASON, HELD_FOR_REVIEW,
     MANUAL_SEND_KEY, MAYBE_SENT_PREFIX, RECHECK_PREFIX, StateManager,
 )
@@ -38,7 +38,7 @@ from harvey.state import (
 # whatever its schedule says.
 MIN_FOLLOW_UP_GAP = timedelta(days=1)
 
-logger = logging.getLogger("harvey.sender")
+logger = logging.getLogger("sellbird.sender")
 
 # Max sends drained per heartbeat cycle — spreads volume through the day
 # instead of bursting the daily cap in one minute.
@@ -85,7 +85,7 @@ class Sender:
         self,
         brain: Brain,
         state: StateManager,
-        config: HarveyConfig,
+        config: SellbirdConfig,
         env: EnvConfig,
     ):
         self.brain = brain
@@ -120,7 +120,7 @@ class Sender:
         """The time zone this recipient's send window is in: their own when
         it can be told (with recipient_timezone on), otherwise the zone in
         usage.quiet_hours, as before. ``country`` is the recipient's country
-        from Precleared, ``given`` the one Harvey gave the check (see
+        from Precleared, ``given`` the one Sellbird gave the check (see
         _recipient_country) and ``names`` the company and person names it
         gave (see _recipient_names), which a cached verdict is keyed on."""
         window = send_window_of(self.config)
@@ -150,7 +150,7 @@ class Sender:
             return operator_timezone(self.config)
 
     async def _recipient_country(self, prospect) -> str:
-        """The recipient's country when Harvey is sure of it, for the
+        """The recipient's country when Sellbird is sure of it, for the
         compliance check (see send_window.recipient_country). A failure to
         work it out means none for this one email, which Precleared then
         works out itself, instead of stopping the drain."""
@@ -562,7 +562,7 @@ class Sender:
         if paused:
             logger.warning(
                 f"Sender: SENDING PAUSED ({paused}). Resume from the dashboard "
-                "or `harvey sending resume` once the cause is fixed."
+                "or `sellbird sending resume` once the cause is fixed."
             )
             return
 
@@ -763,7 +763,7 @@ class Sender:
             # Stop-on-reply / opt-out: never continue a sequence after contact.
             if prospect.status in STOP_STATUSES:
                 return "cancelled", f"prospect status '{prospect.status}'"
-            # The user already emailed them by hand: whatever Harvey staged
+            # The user already emailed them by hand: whatever Sellbird staged
             # (before, during or after that) would be a second email.
             if await self.state.get_setting(MANUAL_SEND_KEY + prospect.id):
                 return "cancelled", HAND_SENT_REASON
@@ -880,7 +880,7 @@ class Sender:
         # cold emails wait for a later cycle, replies still go out.
         compliance_paused = False
         held_cold = 0
-        # For the Today page and `harvey status`: what held cold email this
+        # For the Today page and `sellbird status`: what held cold email this
         # cycle, how many waited behind it, and whether a fresh call was
         # answered (which clears an earlier hold).
         hold = None
@@ -913,7 +913,7 @@ class Sender:
             if order:
                 await self.state.update_outbox_item(item["id"], status=order[0], error=order[1])
                 continue
-            # The recipient's country when Harvey is sure of it, and the
+            # The recipient's country when Sellbird is sure of it, and the
             # company's and person's names: they go with the compliance
             # check, and a cached verdict is keyed on them.
             country = await self._recipient_country(prospect) if needs_check else ""
@@ -1069,9 +1069,9 @@ class Sender:
                 try:
                     convo = await self.state.get_conversation(item["conversation_id"])
                     if convo:
-                        from harvey.models.conversation import Message
+                        from sellbird.models.conversation import Message
                         convo.thread.append(
-                            Message(sender="harvey", content=item["body"])
+                            Message(sender="sellbird", content=item["body"])
                         )
                         await self.state.update_conversation(
                             convo.id, thread_json=convo.thread_json()
@@ -1120,7 +1120,7 @@ class Sender:
             if days is not None and cold_cap < max_daily:
                 logger.info(
                     f"Sender: warmup day {days}: {held_cold} cold email(s) wait; today's "
-                    f"cold cap is {cold_cap}. Replies still go out. See `harvey warmup`.")
+                    f"cold cap is {cold_cap}. Replies still go out. See `sellbird warmup`.")
             else:
                 logger.info(f"Sender: cold email cap reached for today ({cold_cap}).")
         if sent_cold:

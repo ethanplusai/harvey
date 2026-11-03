@@ -1,4 +1,4 @@
-"""Harvey Dashboard — local web UI to set up, control, and monitor Harvey."""
+"""Sellbird Dashboard — local web UI to set up, control, and monitor Sellbird."""
 
 import asyncio
 import ipaddress
@@ -23,26 +23,26 @@ from fastapi.responses import (
     HTMLResponse, JSONResponse, PlainTextResponse, Response,
 )
 
-logger = logging.getLogger("harvey.dashboard")
+logger = logging.getLogger("sellbird.dashboard")
 
-from harvey import dashboard_auth as auth  # noqa: E402
-from harvey.paths import PROJECT_ROOT  # noqa: E402
-from harvey.pidfile import LOCK_FILE, loop_lock_held, pid_alive  # noqa: E402
-from harvey.textio import read_user_text  # noqa: E402
-DB_PATH = PROJECT_ROOT / "data" / "harvey.db"
+from sellbird import dashboard_auth as auth  # noqa: E402
+from sellbird.paths import PROJECT_ROOT  # noqa: E402
+from sellbird.pidfile import LOCK_FILE, loop_lock_held, pid_alive  # noqa: E402
+from sellbird.textio import read_user_text  # noqa: E402
+DB_PATH = PROJECT_ROOT / "data" / "sellbird.db"
 ENV_FILE = PROJECT_ROOT / ".env"
-CONFIG_FILE = PROJECT_ROOT / "harvey.yaml"
-PID_FILE = PROJECT_ROOT / "data" / "harvey.pid"
-LOG_FILE = PROJECT_ROOT / "data" / "harvey.log"
+CONFIG_FILE = PROJECT_ROOT / "sellbird.yaml"
+PID_FILE = PROJECT_ROOT / "data" / "sellbird.pid"
+LOG_FILE = PROJECT_ROOT / "data" / "sellbird.log"
 TOKEN_FILE = PROJECT_ROOT / "data" / "dashboard-token"
 
 
 def _resolve_config_file() -> Path:
-    """harvey.local.yaml wins when present — same resolution as config.py's
+    """sellbird.local.yaml wins when present — same resolution as config.py's
     loader, so the dashboard doesn't judge setup complete against the
-    tracked harvey.yaml template while the real trained config sits in the
+    tracked sellbird.yaml template while the real trained config sits in the
     gitignored local override."""
-    from harvey.config import _find_config_file, ConfigFileNotFoundError
+    from sellbird.config import _find_config_file, ConfigFileNotFoundError
     try:
         return Path(_find_config_file())
     except ConfigFileNotFoundError:
@@ -50,13 +50,13 @@ def _resolve_config_file() -> Path:
 
 # No /docs, /redoc or /openapi.json: the API is for this UI only, and every
 # route except the static shell needs the token (see dashboard_auth).
-app = FastAPI(title="Harvey Dashboard", docs_url=None, redoc_url=None, openapi_url=None)
+app = FastAPI(title="Sellbird Dashboard", docs_url=None, redoc_url=None, openapi_url=None)
 token_store = auth.TokenStore(TOKEN_FILE)
 app.add_middleware(auth.DashboardGuard, store=token_store)
 
-# Harvey process tracking
-_harvey_process: subprocess.Popen | None = None
-_harvey_started_at: datetime | None = None
+# Sellbird process tracking
+_sellbird_process: subprocess.Popen | None = None
+_sellbird_started_at: datetime | None = None
 _env_lock = asyncio.Lock()
 
 
@@ -158,11 +158,11 @@ def _write_env_file(updates: dict[str, str]):
     load_dotenv(str(ENV_FILE), override=True)
 
 
-def _check_harvey_pid() -> int | None:
-    """Check if there's a running Harvey process from a PID file."""
-    global _harvey_process, _harvey_started_at
-    if _harvey_process and _harvey_process.poll() is None:
-        return _harvey_process.pid
+def _check_sellbird_pid() -> int | None:
+    """Check if there's a running Sellbird process from a PID file."""
+    global _sellbird_process, _sellbird_started_at
+    if _sellbird_process and _sellbird_process.poll() is None:
+        return _sellbird_process.pid
     if PID_FILE.exists():
         try:
             pid = int(PID_FILE.read_text(encoding="utf-8").strip())
@@ -216,12 +216,12 @@ async def get_setup_status():
         provider_done = _has("GMAIL_CLIENT_ID", "GMAIL_CLIENT_SECRET") and \
             (PROJECT_ROOT / "data" / "gmail_token.json").is_file()
         provider_help = ("Set GMAIL_CLIENT_ID/SECRET in Settings, then run "
-                         "'harvey gmail auth' in your terminal.")
+                         "'sellbird gmail auth' in your terminal.")
     elif provider == "microsoft":
         provider_done = _has("M365_CLIENT_ID") and \
             (PROJECT_ROOT / "data" / "m365_token.json").is_file()
         provider_help = ("Set the Microsoft 365 client and tenant IDs in Settings, then run "
-                         "'harvey microsoft auth' in your terminal.")
+                         "'sellbird microsoft auth' in your terminal.")
     elif provider == "smtp":
         provider_done = _has("SMTP_HOST", "SMTP_USERNAME", "SMTP_PASSWORD")
         provider_help = "Enter your SMTP host, username, and password in Settings."
@@ -258,10 +258,10 @@ async def get_setup_status():
         except Exception:
             pass
     checks.append({
-        "id": "config", "label": f"Harvey configured ({config_path.name})",
+        "id": "config", "label": f"Sellbird configured ({config_path.name})",
         "done": config_valid,
         "required": True,
-        "help": "Train Harvey on your product. Use the trainer or set up manually through Claude.",
+        "help": "Train Sellbird on your product. Use the trainer or set up manually through Claude.",
     })
 
     # 6. Product trained
@@ -270,7 +270,7 @@ async def get_setup_status():
         "id": "product_trained", "label": "Product knowledge trained",
         "done": product_trained,
         "required": True,
-        "help": "Run: harvey train https://yourwebsite.com (or set up through Claude).",
+        "help": "Run: sellbird train https://yourwebsite.com (or set up through Claude).",
     })
 
     # 7. LinkedIn (optional)
@@ -294,7 +294,7 @@ async def get_setup_status():
     })
 
     # 9. Warmup service: TrulyInbox connected, or another service the user named
-    from harvey.integrations import trulyinbox as ti
+    from sellbird.integrations import trulyinbox as ti
     try:
         state = _state()
         await state.init_db()
@@ -312,7 +312,7 @@ async def get_setup_status():
         "required": provider != "instantly",
         "help": ("A new mailbox needs 2-4 weeks of warmup before cold email, and warmup "
                  "keeps it out of spam after that. We recommend TrulyInbox: connect it and "
-                 "Harvey shows whether your mailbox is warmed."),
+                 "Sellbird shows whether your mailbox is warmed."),
         "link": ti.AFFILIATE_URL,
     })
 
@@ -359,7 +359,7 @@ async def get_settings():
     def is_set(k):
         return bool((env_vars.get(k) or "").strip())
 
-    # Gmail is authorized once harvey gmail auth has stored a token file.
+    # Gmail is authorized once sellbird gmail auth has stored a token file.
     gmail_token = (PROJECT_ROOT / "data" / "gmail_token.json").is_file()
 
     return {
@@ -382,7 +382,7 @@ async def get_settings():
         "imap_port": env_vars.get("IMAP_PORT", ""),
         "imap_username": env_vars.get("IMAP_USERNAME", ""),
         "imap_password_set": is_set("IMAP_PASSWORD"),
-        # Microsoft 365: ids aren't secret (no client secret: Harvey signs
+        # Microsoft 365: ids aren't secret (no client secret: Sellbird signs
         # in as a public client with PKCE); the token file means signed in.
         "m365_client_id": env_vars.get("M365_CLIENT_ID", ""),
         "m365_tenant_id": env_vars.get("M365_TENANT_ID", ""),
@@ -417,7 +417,7 @@ async def save_env_settings(request: Request):
                     return JSONResponse({"success": False, "message": f"{key} must be text."},
                                         status_code=400)
                 value = str(value)
-                # A port Harvey can't parse would stop it starting at all.
+                # A port Sellbird can't parse would stop it starting at all.
                 if key.endswith("_PORT") and value.strip() and not value.strip().isdigit():
                     return JSONResponse({"success": False, "message": f"{key} must be a number."},
                                         status_code=400)
@@ -438,8 +438,8 @@ async def save_env_settings(request: Request):
 @app.post("/api/trulyinbox/connect")
 async def trulyinbox_connect(request: Request):
     """Check a TrulyInbox key against the sending mailbox, then save it to .env."""
-    from harvey import deliverability as d
-    from harvey.integrations import trulyinbox as ti
+    from sellbird import deliverability as d
+    from sellbird.integrations import trulyinbox as ti
     try:
         data = await request.json()
     except Exception:
@@ -450,7 +450,7 @@ async def trulyinbox_connect(request: Request):
                             status_code=400)
     key = key.strip()
     try:
-        from harvey.config import load_config
+        from sellbird.config import load_config
         config = load_config()
         address, warmup = ti.sending_address(config), config.channels.email.warmup
     except Exception:
@@ -483,7 +483,7 @@ async def trulyinbox_connect(request: Request):
 @app.post("/api/trulyinbox/other")
 async def trulyinbox_other():
     """The user warms their mailbox with another service: stop recommending one."""
-    from harvey.integrations import trulyinbox as ti
+    from sellbird.integrations import trulyinbox as ti
     state = _state()
     await state.init_db()
     await ti.set_choice(state, "other")
@@ -531,8 +531,8 @@ async def get_companies():
         FROM companies c ORDER BY c.created_at DESC
     """)
     try:
-        from harvey.config import load_config
-        from harvey.register import build_register
+        from sellbird.config import load_config
+        from sellbird.register import build_register
         register = {r["id"]: r for r in await build_register(query_db, load_config())}
         for c in rows:
             r = register.get(c["id"])
@@ -549,8 +549,8 @@ async def get_companies():
 @app.get("/api/export/companies.csv")
 async def export_companies():
     """The company register: every company, why it fits, why it wasn't contacted."""
-    from harvey.config import load_config
-    from harvey.register import build_register, to_csv
+    from sellbird.config import load_config
+    from sellbird.register import build_register, to_csv
     try:
         text = to_csv(await build_register(query_db, load_config()))
     except Exception as e:
@@ -566,7 +566,7 @@ async def export_companies():
 @app.get("/api/companies/{company_id}/profile")
 async def get_company_profile(company_id: str):
     """One company's facts for its detail card: the register row plus what
-    Harvey observed on its site (latest value per signal, with the page)."""
+    Sellbird observed on its site (latest value per signal, with the page)."""
     rows = await query_db("SELECT * FROM companies WHERE id = ?", (company_id,))
     if not rows:
         return JSONResponse({"error": "not found"}, status_code=404)
@@ -579,8 +579,8 @@ async def get_company_profile(company_id: str):
     )
     register = {}
     try:
-        from harvey.config import load_config
-        from harvey.register import build_register
+        from sellbird.config import load_config
+        from sellbird.register import build_register
         register = next(iter(await build_register(query_db, load_config(), company_id)), {})
     except Exception as e:
         logger.warning(f"Company profile register unavailable: {e}")
@@ -649,28 +649,28 @@ async def get_feedback(entity_type: str, entity_id: str):
     return rows
 
 
-# ── Harvey Controls ──
+# ── Sellbird Controls ──
 
 
-@app.get("/api/harvey/status")
-async def get_harvey_status():
-    """Check if Harvey is currently running."""
-    pid = _check_harvey_pid()
-    started = _harvey_started_at.isoformat() if _harvey_started_at else None
+@app.get("/api/sellbird/status")
+async def get_sellbird_status():
+    """Check if Sellbird is currently running."""
+    pid = _check_sellbird_pid()
+    started = _sellbird_started_at.isoformat() if _sellbird_started_at else None
     return {"running": pid is not None, "pid": pid, "started_at": started}
 
 
-@app.post("/api/harvey/start")
-async def start_harvey():
-    """Start Harvey's heartbeat loop as a subprocess."""
-    global _harvey_process, _harvey_started_at
+@app.post("/api/sellbird/start")
+async def start_sellbird():
+    """Start Sellbird's heartbeat loop as a subprocess."""
+    global _sellbird_process, _sellbird_started_at
 
-    if _check_harvey_pid():
-        return {"success": False, "message": "Harvey is already running."}
-    from harvey.main import _needs_setup
+    if _check_sellbird_pid():
+        return {"success": False, "message": "Sellbird is already running."}
+    from sellbird.main import _needs_setup
     if _needs_setup():
         return {"success": False,
-                "message": "Harvey isn't set up yet. Run `harvey setup` in a terminal first."}
+                "message": "Sellbird isn't set up yet. Run `sellbird setup` in a terminal first."}
 
     # Ensure data dir exists
     (PROJECT_ROOT / "data").mkdir(parents=True, exist_ok=True)
@@ -685,8 +685,8 @@ async def start_harvey():
     try:
         log_handle = open(LOG_FILE, "a", encoding="utf-8")
         try:
-            _harvey_process = subprocess.Popen(
-                [sys.executable, "-m", "harvey", "run"],
+            _sellbird_process = subprocess.Popen(
+                [sys.executable, "-m", "sellbird", "run"],
                 cwd=str(PROJECT_ROOT),
                 stdin=subprocess.DEVNULL,
                 stdout=log_handle,
@@ -698,25 +698,25 @@ async def start_harvey():
             # Child holds its own copies of the fds; don't leak ours.
             log_handle.close()
     except Exception as e:
-        logger.warning("Failed to start Harvey: %s", e)
-        return {"success": False, "message": f"Failed to start Harvey: {e}"}
-    _harvey_started_at = datetime.now()
+        logger.warning("Failed to start Sellbird: %s", e)
+        return {"success": False, "message": f"Failed to start Sellbird: {e}"}
+    _sellbird_started_at = datetime.now()
     # The loop writes its own PID file once it holds the loop lock. Writing
     # the child's PID here would overwrite a running loop's record if this
     # child then finds the lock taken and exits.
-    return {"success": True, "pid": _harvey_process.pid}
+    return {"success": True, "pid": _sellbird_process.pid}
 
 
-@app.post("/api/harvey/stop")
-async def stop_harvey():
-    """Stop the Harvey subprocess."""
-    global _harvey_process, _harvey_started_at
+@app.post("/api/sellbird/stop")
+async def stop_sellbird():
+    """Stop the Sellbird subprocess."""
+    global _sellbird_process, _sellbird_started_at
 
-    pid = _check_harvey_pid()
+    pid = _check_sellbird_pid()
     if not pid:
-        return {"success": False, "message": "Harvey is not running."}
+        return {"success": False, "message": "Sellbird is not running."}
 
-    own = _harvey_process if _harvey_process and _harvey_process.pid == pid else None
+    own = _sellbird_process if _sellbird_process and _sellbird_process.pid == pid else None
 
     def alive() -> bool:
         # Our own child is reaped by poll(); left unreaped it is a zombie,
@@ -741,22 +741,22 @@ async def stop_harvey():
                 pass
             await asyncio.sleep(0.5)
     except OSError as e:
-        logger.warning("Couldn't signal Harvey (pid %s): %s", pid, e)
+        logger.warning("Couldn't signal Sellbird (pid %s): %s", pid, e)
 
     if alive():
         # Started by another user, or from an elevated terminal on Windows.
         return {"success": False,
-                "message": f"Couldn't stop Harvey (pid {pid}). Stop it where it was started."}
+                "message": f"Couldn't stop Sellbird (pid {pid}). Stop it where it was started."}
 
-    _harvey_process = None
-    _harvey_started_at = None
+    _sellbird_process = None
+    _sellbird_started_at = None
     PID_FILE.unlink(missing_ok=True)
 
     return {"success": True}
 
 
-@app.get("/api/harvey/logs")
-async def get_harvey_logs():
+@app.get("/api/sellbird/logs")
+async def get_sellbird_logs():
     """Get recent log lines."""
     if not LOG_FILE.exists():
         return {"lines": []}
@@ -872,9 +872,9 @@ _quota_clients: dict = {}
 
 
 def _active_brain():
-    """The brain config harvey.yaml selects (None if unreadable)."""
+    """The brain config sellbird.yaml selects (None if unreadable)."""
     try:
-        from harvey.config import load_brain_config
+        from sellbird.config import load_brain_config
         return load_brain_config()
     except Exception:
         return None
@@ -883,7 +883,7 @@ def _active_brain():
 async def _brain_status() -> dict:
     """Last recorded brain health transition ({} if none): lets the
     dashboard say "Codex paused: <why>" instead of looking healthy."""
-    from harvey.brain import BRAIN_STATUS_KEY, active_brain_status
+    from sellbird.brain import BRAIN_STATUS_KEY, active_brain_status
     rows = await query_db("SELECT value FROM settings WHERE key = ?", (BRAIN_STATUS_KEY,))
     # Only the configured provider's health (a stale Codex pause isn't
     # Claude's).
@@ -902,10 +902,10 @@ def _quota_client_for(provider: str, model: str = ""):
     key = (provider, model if provider == "codex" else "")
     if key not in _quota_clients:
         if provider == "codex":
-            from harvey.codex import CodexClient, CodexQuotaClient
+            from sellbird.codex import CodexClient, CodexQuotaClient
             _quota_clients[key] = CodexQuotaClient(CodexClient(model=model))
         elif provider == "claude":
-            from harvey.integrations.quota import QuotaClient
+            from sellbird.integrations.quota import QuotaClient
             _quota_clients[key] = QuotaClient()
         else:
             return None
@@ -981,7 +981,7 @@ async def get_prospects():
 
 
 def _state():
-    from harvey.state import StateManager
+    from sellbird.state import StateManager
     return StateManager(db_path=str(DB_PATH))
 
 
@@ -1072,7 +1072,7 @@ async def get_outbox_api():
     try:
         state = _state()
         await state.init_db()
-        # A send cut off mid-way shows up under Didn't send even when Harvey
+        # A send cut off mid-way shows up under Didn't send even when Sellbird
         # isn't running.
         await state.fail_stale_sending_outbox()
         return {
@@ -1097,8 +1097,8 @@ async def get_outbox_api():
 @app.get("/api/sending-mode")
 async def get_sending_mode():
     """Approval (every email waits for you) or autopilot, and what that means here."""
-    from harvey.config import load_config
-    from harvey.gate import _booking_prefix, allowed_link_domains
+    from sellbird.config import load_config
+    from sellbird.gate import _booking_prefix, allowed_link_domains
     path = _resolve_config_file()
     try:
         config = load_config(str(path))
@@ -1121,7 +1121,7 @@ async def set_sending_mode(request: Request):
     """Switch it. Autopilot needs {"mode": "autopilot", "confirm": "autopilot"};
     {"mode": "approval"} works at once and sends back to the Outbox whatever
     autopilot approved that hasn't gone out."""
-    from harvey.config import ConfigError, set_require_approval
+    from sellbird.config import ConfigError, set_require_approval
     try:
         body = await request.json()
     except ValueError:
@@ -1130,7 +1130,7 @@ async def set_sending_mode(request: Request):
     if mode not in ("approval", "autopilot"):
         return _refuse('expected {"mode": "approval"} or {"mode": "autopilot", "confirm": "autopilot"}', 400)
     if mode == "autopilot" and body.get("confirm") != "autopilot":
-        return _refuse('Type "autopilot" to confirm: Harvey will send email without asking you.', 400)
+        return _refuse('Type "autopilot" to confirm: Sellbird will send email without asking you.', 400)
     path = _resolve_config_file()
     try:
         set_require_approval(mode == "approval", path)
@@ -1202,7 +1202,7 @@ async def outbox_edit(item_id: str, request: Request):
         # would block is refused now, while the reviewer can still fix it,
         # instead of failing quietly at send time. Content rules only: the
         # recipient isn't something an edit can change.
-        from harvey.gate import pre_send_check
+        from sellbird.gate import pre_send_check
         checked = text
         footer = _compliance_view()["footer"]
         if item.get("kind") == "sequence" and footer and not text.rstrip().endswith(footer):
@@ -1226,24 +1226,24 @@ async def outbox_edit(item_id: str, request: Request):
         return JSONResponse({"success": False, "message": str(e)}, status_code=500)
 
 
-# A hand send is only offered to someone Harvey could still email: never to
+# A hand send is only offered to someone Sellbird could still email: never to
 # someone who replied, opted out, bounced or was already contacted.
 HAND_SENDABLE_STATUSES = ("new", "queued")
 HAND_SENDABLE_EMAIL = ("verified", "risky")
 
 
-def _harvey_can_send() -> bool:
-    """Can Harvey send email itself (a connected mailbox, or Instantly)?
+def _sellbird_can_send() -> bool:
+    """Can Sellbird send email itself (a connected mailbox, or Instantly)?
 
     Sending by hand from the dashboard is only offered when it can't: with
     two senders, any timing gap between them emails someone twice. If the
     config can't be read, the answer is yes (the safe side: no hand sends).
     """
     try:
-        from harvey.config import load_config, load_env
-        from harvey.integrations.mail_provider import NATIVE_PROVIDERS, get_mail_provider
+        from sellbird.config import load_config, load_env
+        from sellbird.integrations.mail_provider import NATIVE_PROVIDERS, get_mail_provider
         config, env = load_config(), load_env()
-        from harvey.config import legacy_sending_held
+        from sellbird.config import legacy_sending_held
         email = config.channels.email
         if not email.enabled or legacy_sending_held(config):
             return False
@@ -1256,9 +1256,9 @@ def _harvey_can_send() -> bool:
 
 
 def _send_as() -> str:
-    """The address Harvey sends as, so Gmail opens the right account."""
+    """The address Sellbird sends as, so Gmail opens the right account."""
     try:
-        from harvey.config import load_config
+        from sellbird.config import load_config
         return load_config().persona.email or ""
     except Exception:
         return ""
@@ -1268,7 +1268,7 @@ def _compliance_view() -> dict:
     """What the Sender adds under each cold email, so a reviewer sees the
     email as it will leave, and the warning when the address is missing."""
     try:
-        from harvey.config import compliance_footer_lines, compliance_notice, load_config
+        from sellbird.config import compliance_footer_lines, compliance_notice, load_config
         config = load_config()
         return {"footer": "\n".join(compliance_footer_lines(config)),
                 "compliance_notice": compliance_notice(config)}
@@ -1276,15 +1276,15 @@ def _compliance_view() -> dict:
         return {"footer": "", "compliance_notice": ""}
 
 
-async def _harvey_committed_ids() -> set[str]:
-    """Everyone Harvey has approved or sent mail for (Outbox or Instantly).
+async def _sellbird_committed_ids() -> set[str]:
+    """Everyone Sellbird has approved or sent mail for (Outbox or Instantly).
 
     Approved mail can be going out at this moment, so these people are past
     the point where a hand send can be recorded safely. So is anyone whose
     send was cut off mid-way: it may have reached them. A draft that only
     awaits review isn't: marking the person sent cancels it.
     """
-    from harvey.state import MAYBE_SENT_PREFIX
+    from sellbird.state import MAYBE_SENT_PREFIX
     ids = {r["prospect_id"] for r in await query_db(
         "SELECT DISTINCT prospect_id FROM outbox WHERE status IN ('approved', 'sending', 'sent') "
         "OR (status = 'failed' AND substr(error, 1, ?) = ?)",
@@ -1301,17 +1301,17 @@ async def _harvey_committed_ids() -> set[str]:
 
 
 async def _hand_sent_ids() -> set[str]:
-    from harvey.state import MANUAL_SEND_KEY
+    from sellbird.state import MANUAL_SEND_KEY
     rows = await query_db("SELECT key FROM settings WHERE key LIKE ?", (MANUAL_SEND_KEY + "%",))
     return {r["key"][len(MANUAL_SEND_KEY):] for r in rows}
 
 
-async def _harvey_sent_to(prospect_id: str) -> bool:
-    """Did Harvey itself email this person (native send, or an Instantly campaign)?
+async def _sellbird_sent_to(prospect_id: str) -> bool:
+    """Did Sellbird itself email this person (native send, or an Instantly campaign)?
 
     A send in flight, or cut off mid-way, counts: it may have reached them.
     """
-    from harvey.state import MAYBE_SENT_PREFIX
+    from sellbird.state import MAYBE_SENT_PREFIX
     if await query_db(
             "SELECT 1 FROM outbox WHERE prospect_id = ? AND (status IN ('sending', 'sent') "
             "OR (status = 'failed' AND substr(error, 1, ?) = ?)) LIMIT 1",
@@ -1334,7 +1334,7 @@ def _refuse(message: str, code: int = 409):
 @app.post("/api/prospects/{prospect_id}/sent")
 async def mark_prospect_sent(prospect_id: str, request: Request):
     """The user sent this email by hand (e.g. from Gmail): record it, or undo it."""
-    from harvey.state import HAND_SENT_REASON, MANUAL_SEND_KEY
+    from sellbird.state import HAND_SENT_REASON, MANUAL_SEND_KEY
     try:
         try:
             body = await request.json()
@@ -1359,21 +1359,21 @@ async def mark_prospect_sent(prospect_id: str, request: Request):
                 return {"success": True, "sent": True, "already": True}
             if current not in HAND_SENDABLE_STATUSES:
                 # A reply, opt-out or close is never touched; neither is
-                # someone Harvey already emailed.
+                # someone Sellbird already emailed.
                 return {"success": True, "sent": True, "status": current}
-            # Allowed even when Harvey can send: recording "I already emailed
-            # them" can only ever stop Harvey sending. Not once Harvey has
+            # Allowed even when Sellbird can send: recording "I already emailed
+            # them" can only ever stop Sellbird sending. Not once Sellbird has
             # approved or sent mail to them, though: that may be going out now.
             # The marker goes down FIRST: a drain that checks after this sees
             # it and cancels; one that checked before only holds an approved
             # row, which the check below then sees.
             await state.set_setting(key, current)
-            if prospect_id in await _harvey_committed_ids():
+            if prospect_id in await _sellbird_committed_ids():
                 await state.delete_setting(key)
-                return _refuse("Harvey has already approved or sent an email to this person. "
+                return _refuse("Sellbird has already approved or sent an email to this person. "
                                "Check the Outbox.")
             await state.update_prospect_status(prospect_id, "contacted")
-            # Anything Harvey had queued for them must not go out as well.
+            # Anything Sellbird had queued for them must not go out as well.
             changed = await state.cancel_pending_outbox_for_prospect(
                 prospect_id, reason=HAND_SENT_REASON)
         else:
@@ -1381,7 +1381,7 @@ async def mark_prospect_sent(prospect_id: str, request: Request):
                 if current in HAND_SENDABLE_STATUSES:
                     return {"success": True, "sent": False}
                 if current == "contacted":
-                    # Setting them back would make Harvey write and send again.
+                    # Setting them back would make Sellbird write and send again.
                     return _refuse("This wasn't marked as sent by hand here, so it stays sent.")
                 return {"success": True, "sent": True, "status": current}
             if current != "contacted":
@@ -1395,7 +1395,7 @@ async def mark_prospect_sent(prospect_id: str, request: Request):
             changed = await state.restore_hand_cancelled_outbox(
                 prospect_id, reason=HAND_SENT_REASON)
         if sent:
-            # Open in Gmail adds today's footer; remember it as Harvey's text.
+            # Open in Gmail adds today's footer; remember it as Sellbird's text.
             footer = _compliance_view()["footer"]
             await state.remember_footer_lines(footer.split("\n"))
         await state.log_action(
@@ -1440,8 +1440,8 @@ async def sending_toggle(action: str):
 @app.get("/api/export/prospects.csv")
 async def export_prospects(all: bool = False, min_score: int = 0, email_status: str = ""):
     """Sequencer-ready CSV download of the prospect list."""
-    from harvey.state import StateManager
-    from harvey.export import export_prospects_csv
+    from sellbird.state import StateManager
+    from sellbird.export import export_prospects_csv
 
     state = StateManager(db_path=str(DB_PATH))
     try:
@@ -1463,10 +1463,10 @@ async def export_prospects(all: bool = False, min_score: int = 0, email_status: 
 @app.get("/api/campaigns")
 async def get_campaigns():
     rows = await query_db("SELECT * FROM campaigns ORDER BY created_at DESC LIMIT 100")
-    harvey_sends = _harvey_can_send()
-    send_as = "" if harvey_sends else _send_as()
+    sellbird_sends = _sellbird_can_send()
+    send_as = "" if sellbird_sends else _send_as()
     footer = _compliance_view()["footer"]
-    committed = await _harvey_committed_ids()
+    committed = await _sellbird_committed_ids()
     hand_sent = await _hand_sent_ids()
     for row in rows:
         try:
@@ -1486,18 +1486,18 @@ async def get_campaigns():
             tuple(ids),
         ) if ids else []
         row["send_as"] = send_as
-        # A cold email sent by hand needs the same footer Harvey adds.
+        # A cold email sent by hand needs the same footer Sellbird adds.
         row["footer"] = footer
         for r in row["recipients"]:
             r["sent_by_hand"] = r["id"] in hand_sent
-            # "I already emailed them": always recordable before Harvey commits.
+            # "I already emailed them": always recordable before Sellbird commits.
             r["can_mark_sent"] = (
                 r["id"] not in hand_sent and r["id"] not in committed
                 and (r.get("status") or "new") in HAND_SENDABLE_STATUSES
             )
-            # The Gmail button: only when Harvey can't send itself.
+            # The Gmail button: only when Sellbird can't send itself.
             r["can_send_by_hand"] = (
-                r["can_mark_sent"] and not harvey_sends
+                r["can_mark_sent"] and not sellbird_sends
                 and (r.get("email_status") or "guess") in HAND_SENDABLE_EMAIL
             )
     return rows
@@ -1524,7 +1524,7 @@ async def get_opt_out(prospect_id: str):
                     ("rule", "matched", "why", "message", "conversation_id")})
         out["at"] = last["at"]
     elif status == "opted_out" or history:
-        # Opted out before Harvey kept reasons (and maybe undone since):
+        # Opted out before Sellbird kept reasons (and maybe undone since):
         # show the last thing they wrote.
         for c in await query_db(
                 "SELECT id, thread_json, updated_at FROM conversations "
@@ -1573,7 +1573,7 @@ async def get_conversations(awaiting: bool = False):
         LEFT JOIN prospects p ON c.prospect_id = p.id
         ORDER BY c.updated_at DESC LIMIT 100
     """)
-    # The stored thread holds replies and Harvey's answers; the cold emails
+    # The stored thread holds replies and Sellbird's answers; the cold emails
     # a reply answers live in the Outbox. Attach those (sent ones only) and
     # any answer still waiting for approval, so the page shows the exchange.
     pids = sorted({r["prospect_id"] for r in rows if r.get("prospect_id")})
@@ -1606,7 +1606,7 @@ async def get_conversations(awaiting: bool = False):
 
 
 async def _awaiting_reply() -> list[dict]:
-    """Prospects Harvey emailed who haven't replied yet, shaped like a
+    """Prospects Sellbird emailed who haven't replied yet, shaped like a
     conversation so the tab can show every sent email, not only the ones
     that got an answer. Read-only: no conversation row is created, and the
     card moves to the real conversation the moment a reply arrives."""
@@ -1644,10 +1644,10 @@ async def _awaiting_reply() -> list[dict]:
 
 @app.post("/api/conversations/{convo_id}/status")
 async def set_conversation_status(convo_id: str, request: Request):
-    """Close a conversation, or hand one Harvey escalated back to it.
+    """Close a conversation, or hand one Sellbird escalated back to it.
 
-    Harvey answers new replies only on open conversations, so "open" means
-    "Harvey, carry on" and "closed" means it's done."""
+    Sellbird answers new replies only on open conversations, so "open" means
+    "Sellbird, carry on" and "closed" means it's done."""
     try:
         data = await request.json()
     except Exception:
@@ -1719,7 +1719,7 @@ _discovery_kind = "discover"   # or "profile": reading sites has no stop switch
 
 
 def _discovery_queries(body: dict, config):
-    from harvey.collectors.discover import build_queries, preset_problem
+    from sellbird.collectors.discover import build_queries, preset_problem
 
     preset = str(body.get("preset") or "")
     problem = preset_problem(preset, str(body.get("provider") or ""), config=config)
@@ -1738,8 +1738,8 @@ def _discovery_queries(body: dict, config):
 async def get_discovery_providers():
     """What each source does, what it costs, and whether it's ready to use."""
     try:
-        from harvey.collectors.discover import DEFAULT_PROVIDER, provider_menu
-        from harvey.config import load_env
+        from sellbird.collectors.discover import DEFAULT_PROVIDER, provider_menu
+        from sellbird.config import load_env
 
         state = _state()
         await state.init_db()
@@ -1762,8 +1762,8 @@ async def get_discovery_providers():
 async def estimate_discovery(request: Request):
     """Projected spend and the exact query list, before anything is called."""
     try:
-        from harvey.collectors.discover import PROVIDERS, estimate_cost
-        from harvey.config import load_config
+        from sellbird.collectors.discover import PROVIDERS, estimate_cost
+        from sellbird.config import load_config
 
         body = await request.json()
         provider = body.get("provider") or ""
@@ -1799,9 +1799,9 @@ async def start_discovery(request: Request):
         return JSONResponse({"success": False, "message": "a run is already going"},
                             status_code=409)
     try:
-        from harvey.collectors.discover import PROVIDERS
-        from harvey.config import load_config
-        from harvey.pipeline import run_prospecting
+        from sellbird.collectors.discover import PROVIDERS
+        from sellbird.config import load_config
+        from sellbird.pipeline import run_prospecting
 
         body = await request.json()
         provider = body.get("provider") or ""
@@ -1861,7 +1861,7 @@ async def start_profile():
         return JSONResponse({"success": False, "message": "a run is already going"},
                             status_code=409)
     try:
-        from harvey.pipeline import run_profile_stage
+        from sellbird.pipeline import run_profile_stage
 
         state = _state()
         await state.init_db()
@@ -1873,7 +1873,7 @@ async def start_profile():
             global _discovery_report
             try:
                 try:
-                    from harvey.config import load_config
+                    from sellbird.config import load_config
                     config = load_config()
                 except Exception:
                     config = None   # still profiles; no role is singled out
@@ -1951,7 +1951,7 @@ async def get_live_status():
 
     Built for someone who would otherwise keep asking "what's the status?".
     Everything is derived from the database, so it is true whatever started
-    the work — `harvey run`, a CLI command, or a one-off script. Every total
+    the work — `sellbird run`, a CLI command, or a one-off script. Every total
     counts only what the step can act on (a business with no website is never
     read), so a finished step always reaches 100% instead of sticking.
     """
@@ -1987,13 +1987,13 @@ async def get_live_status():
         if isinstance(ids, list):
             drafted.update(i for i in ids if isinstance(i, str))
     sent = {p["id"] for p in prospects if p.get("status") in SENT_STATUSES}
-    # Who is left for the user to send by hand: only when Harvey can't send
-    # itself, and never someone Harvey has queued, sent to, or can't reach.
-    harvey_sends = _harvey_can_send()
+    # Who is left for the user to send by hand: only when Sellbird can't send
+    # itself, and never someone Sellbird has queued, sent to, or can't reach.
+    sellbird_sends = _sellbird_can_send()
     awaiting_review = await _scalar("SELECT COUNT(*) FROM outbox WHERE status = 'pending_review'")
     by_hand: set[str] = set()
-    if not harvey_sends:
-        skip = await _harvey_committed_ids() | await _hand_sent_ids()
+    if not sellbird_sends:
+        skip = await _sellbird_committed_ids() | await _hand_sent_ids()
         by_hand = {p["id"] for p in prospects
                    if p["id"] in drafted and p["id"] not in skip
                    and (p.get("status") or "new") in HAND_SENDABLE_STATUSES
@@ -2072,12 +2072,12 @@ async def get_live_status():
 
     next_tab = ""   # where the next step is done, when it's done in the dashboard
     if reading or finding:
-        next_up = "Wait — Harvey is working. This page updates by itself."
+        next_up = "Wait — Sellbird is working. This page updates by itself."
     elif finding_emails:
         next_up = "Wait — emails are being found."
     elif stopped:
         next_up, next_tab = "A job stopped before finishing. Run it again.", "discover"
-    elif harvey_sends and awaiting_review:
+    elif sellbird_sends and awaiting_review:
         next_up, next_tab = f"Review the {awaiting_review} draft(s) waiting in the Outbox.", "outbox"
     elif by_hand:
         next_up, next_tab = f"Open Campaigns and send the {len(by_hand)} unsent email(s).", "campaigns"
@@ -2103,7 +2103,7 @@ async def get_live_status():
 
 def _require_approval_now() -> bool:
     try:
-        from harvey.config import load_config
+        from sellbird.config import load_config
         return bool(load_config(str(_resolve_config_file())).channels.email.require_approval)
     except Exception:
         return True
@@ -2120,7 +2120,7 @@ async def get_today():
     items: list[dict] = []
     stats: dict = {}
     try:
-        from harvey.signals import seed_signal_catalog
+        from sellbird.signals import seed_signal_catalog
 
         state = _state()
         await state.init_db()
@@ -2159,33 +2159,33 @@ async def get_today():
             "unprofiled": unprofiled_count,
         }
 
-        # Ordered by how much it blocks Harvey from doing anything at all.
+        # Ordered by how much it blocks Sellbird from doing anything at all.
         brain = await _brain_status()
         if brain.get("status") == "paused":
-            who = "Codex" if brain.get("provider") == "codex" else "Harvey's model"
+            who = "Codex" if brain.get("provider") == "codex" else "Sellbird's model"
             items.append({
                 "key": "brain-paused", "tone": "bad",
-                "title": f"{who} is paused, so Harvey is waiting",
+                "title": f"{who} is paused, so Sellbird is waiting",
                 "detail": (str(brain.get("reason") or "It can't be used right now.")[:300] +
-                           " Replies and queued emails are untouched; Harvey resumes "
-                           "once it's fixed. harvey status --check says what's wrong."),
+                           " Replies and queued emails are untouched; Sellbird resumes "
+                           "once it's fixed. sellbird status --check says what's wrong."),
                 "action": "Open the log", "tab": "controls",
             })
 
-        from harvey.agents.writer import EMAIL_RULES_PROBLEM_KEY
+        from sellbird.agents.writer import EMAIL_RULES_PROBLEM_KEY
         rules_problem = await state.get_setting(EMAIL_RULES_PROBLEM_KEY)
         if rules_problem:
             items.append({
                 "key": "email-rules", "tone": "bad",
-                "title": "Harvey isn't writing emails: your email rules can't be used",
+                "title": "Sellbird isn't writing emails: your email rules can't be used",
                 "detail": (f"{rules_problem}. Fix the file, or clear writer.email_rules "
-                           "to use Harvey's built-in rules."),
+                           "to use Sellbird's built-in rules."),
                 "action": "Open the log", "tab": "controls",
             })
 
         hold = await state.current_sends_held()
         if hold:
-            from harvey.sending_mode import held_message
+            from sellbird.sending_mode import held_message
             title, detail = held_message(hold, waiting=len(approved))
             items.append({
                 "key": "sends-held", "tone": "bad", "title": title, "detail": detail,
@@ -2202,9 +2202,9 @@ async def get_today():
 
         # Cold email waiting on the optional Precleared check: its free
         # checks ran out, the key was rejected, or it couldn't be reached.
-        from harvey.integrations.precleared import current_hold, hold_message
+        from sellbird.integrations.precleared import current_hold, hold_message
         try:
-            from harvey.config import load_config
+            from sellbird.config import load_config
             loaded = load_config(str(_resolve_config_file()))
         except Exception:
             loaded = None  # can't judge: show the hold rather than hide it
@@ -2224,7 +2224,7 @@ async def get_today():
                        if c.get("required") and not c.get("done")]
             items.append({
                 "key": "setup", "tone": "warn",
-                "title": "Finish setting Harvey up",
+                "title": "Finish setting Sellbird up",
                 "detail": ", ".join(missing[:3]) or "Some required steps are incomplete.",
                 "action": "Open setup", "tab": "settings",
             })
@@ -2235,7 +2235,7 @@ async def get_today():
                 "title": (f"{len(proposed)} signal waiting for your confirmation"
                           if len(proposed) == 1
                           else f"{len(proposed)} signals waiting for your confirmation"),
-                "detail": ("Harvey won't collect anything you haven't approved. "
+                "detail": ("Sellbird won't collect anything you haven't approved. "
                            "Confirm which signals define a good prospect for you."),
                 "action": "Review signals", "tab": "signals",
             })
@@ -2272,7 +2272,7 @@ async def get_today():
                 "key": "needs-human", "tone": "bad",
                 "title": (f"{needs_human} conversation needs you" if needs_human == 1
                           else f"{needs_human} conversations need you"),
-                "detail": ("Harvey stopped and handed these over: an escalation, or a "
+                "detail": ("Sellbird stopped and handed these over: an escalation, or a "
                            "reply it had no safe answer for. Reply yourself, then close "
                            "it or hand it back."),
                 "action": "Read them", "tab": "conversations",
@@ -2295,7 +2295,7 @@ async def get_today():
                 "key": "replies", "tone": "good",
                 "title": (f"{open_convos} live conversation" if open_convos == 1
                           else f"{open_convos} live conversations"),
-                "detail": "People replied. Check how Harvey is handling them.",
+                "detail": "People replied. Check how Sellbird is handling them.",
                 "action": "Read conversations", "tab": "conversations",
             })
 
@@ -2305,7 +2305,7 @@ async def get_today():
         return {"items": [], "stats": stats, "error": str(e)}
 
 
-# ── Signals: Harvey proposes, the user confirms ──
+# ── Signals: Sellbird proposes, the user confirms ──
 #
 # Nothing is collected until a human has said yes to it. This is the gate the
 # whole prospecting pipeline hangs off: collectors ask `state.confirmed_signal_codes()`
@@ -2314,7 +2314,7 @@ async def get_today():
 CATEGORY_META = {
     "discovery": {
         "label": "Discovery — who exists",
-        "blurb": "How Harvey finds businesses at all, and how visible they are. "
+        "blurb": "How Sellbird finds businesses at all, and how visible they are. "
                  "This is the only stage that costs money.",
     },
     "profile": {
@@ -2340,7 +2340,7 @@ CATEGORY_ORDER = ["discovery", "profile", "people", "verification"]
 async def get_signals():
     """The signal vocabulary, grouped for review, with live cohort sizes."""
     try:
-        from harvey.signals import seed_signal_catalog
+        from sellbird.signals import seed_signal_catalog
 
         state = _state()
         await state.init_db()
@@ -2400,7 +2400,7 @@ async def set_signals_status(request: Request):
                 {"success": False, "message": "no signal codes given"}, status_code=400
             )
 
-        from harvey.signals import seed_signal_catalog
+        from sellbird.signals import seed_signal_catalog
 
         state = _state()
         await state.init_db()
@@ -2682,7 +2682,7 @@ def start_dashboard(host: str = "127.0.0.1", port: int = 5555):
     except (DashboardSetupError, auth.TokenError) as e:
         raise DashboardSetupError(str(e)) from e
 
-    print(f"\n  Harvey Dashboard running. Open this link to unlock it:\n\n    {url}\n")
+    print(f"\n  Sellbird Dashboard running. Open this link to unlock it:\n\n    {url}\n")
     print(f"  The token is stored in {token_store.path} (owner-only). Keep the link")
     print("  private; anyone with it can use the dashboard. Press Ctrl+C to stop.\n")
     if os.name == "nt":

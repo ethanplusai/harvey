@@ -22,7 +22,7 @@ import json
 import re
 from urllib.parse import unquote, urljoin, urlparse
 
-from harvey.collectors.profile import (
+from sellbird.collectors.profile import (
     NON_NAME_WORDS, ROLE_HINT, _NOUN_SUFFIX, _reads_like_title, _strip_code,
 )
 
@@ -650,7 +650,7 @@ def find_people(pages: list[tuple[str, str]], domain: str, site_name: str = "") 
     ("Founded by Owen Whitlock in the 1970s") when the site also lists a
     current owner.
     """
-    from harvey.collectors.profile import ProfileCollector
+    from sellbird.collectors.profile import ProfileCollector
 
     detect = ProfileCollector(state=None).detect_people
     merged: dict[tuple[str, str], dict] = {}

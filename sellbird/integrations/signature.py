@@ -6,7 +6,7 @@ each email as HTML, with the logo embedded in the message itself (an inline
 ``cid:`` image), so it shows without the recipient allowing remote images.
 Gmail and SMTP also carry the same plain text as the HTML's alternative.
 
-The words are the ones Harvey wrote, unchanged: the HTML is that text,
+The words are the ones Sellbird wrote, unchanged: the HTML is that text,
 escaped, with its paragraphs and line breaks kept and its web addresses made
 clickable. The pre-send gate checks that text, so the only link the HTML adds
 is the logo's own ``link``, which you set.
@@ -23,7 +23,7 @@ from dataclasses import dataclass
 from email.message import EmailMessage
 from pathlib import Path
 
-from harvey.paths import PROJECT_ROOT
+from sellbird.paths import PROJECT_ROOT
 
 # Bigger images hurt deliverability, and a logo never needs more.
 MAX_LOGO_BYTES = 100_000
@@ -111,7 +111,7 @@ def signature_problem(config) -> str:
 
 
 def render_html(body: str, sig: Signature) -> str:
-    """The email as HTML: Harvey's text, then the logo."""
+    """The email as HTML: Sellbird's text, then the logo."""
     paragraphs = [p for p in re.split(r"\n[ \t]*\n", body.replace("\r\n", "\n").strip()) if p.strip()]
     text = "\n".join(
         f'<p style="margin:0 0 1em 0">{_paragraph(p)}</p>' for p in paragraphs

@@ -30,7 +30,7 @@ by this user with no group/other permissions and a well-formed value;
 otherwise the API stays locked (fail closed) and the error says what to do.
 
 On Windows, POSIX permission bits mean nothing: the file gets whatever ACL
-the folder grants, and Harvey doesn't pretend otherwise (see README).
+the folder grants, and Sellbird doesn't pretend otherwise (see README).
 
 This does not protect against code already running as the same OS user,
 which can read the token file (or the database) directly.
@@ -368,8 +368,8 @@ class DashboardGuard:
             return await deny(503, "token_unavailable", str(e))
         if not bearer_ok(headers.get("authorization", []), token):
             return await deny(401, "unauthorized",
-                              "Open the link printed by 'harvey dashboard' to unlock.",
-                              extra=[(b"www-authenticate", b'Bearer realm="harvey"')])
+                              "Open the link printed by 'sellbird dashboard' to unlock.",
+                              extra=[(b"www-authenticate", b'Bearer realm="sellbird"')])
 
         # 4. Mutations carry JSON or nothing.
         if method in _UNSAFE_METHODS:

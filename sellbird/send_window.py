@@ -7,7 +7,7 @@ both. Replies are never held by the window; in quiet hours they wait for
 the operator's own hours, as before. ``weekdays_only`` means Monday to
 Friday everywhere.
 
-The recipient's zone comes from what Harvey already knows, in this order:
+The recipient's zone comes from what Sellbird already knows, in this order:
 
 1. the company's location: a US state ("Austin, TX", "Brooklyn, New York"),
    a Canadian province or Australian state ("Toronto, ON, Canada",
@@ -24,7 +24,7 @@ A country with several zones and nothing more specific gets its main zone
 (MAIN_ZONE: Sydney for Australia, Moscow for Russia), except the US, which
 has none. A main zone is used but not stored, so coordinates or a country
 found later can still correct it. An empty location stays unresolved. Those recipients get the window in
-``usage.quiet_hours.timezone``, which is what Harvey did before. A resolved
+``usage.quiet_hours.timezone``, which is what Sellbird did before. A resolved
 zone is stored on the prospect, so it is worked out once (unless a country
 found later could still change it; see ``recipient_zone``).
 
@@ -36,7 +36,7 @@ that guess isn't stored. Writing the country out ("Berlin, Germany") always
 works.
 
 The same reading gives Precleared the recipient's country, when the check
-is on (``recipient_country``). Only a country Harvey is sure of goes: one
+is on (``recipient_country``). Only a country Sellbird is sure of goes: one
 named in the location, the country of a state or province named there, a
 code that is a region and a country too once nearby cached coordinates settle
 it. A stored time zone alone has no country provenance and does not count.
@@ -594,7 +594,7 @@ async def _place(state, prospect) -> tuple[str, str]:
 
 
 async def recipient_country(state, prospect) -> str:
-    """The recipient's country when Harvey is sure of it, for Precleared's
+    """The recipient's country when Sellbird is sure of it, for Precleared's
     ``recipient_country``; "" otherwise, since a guess sent as fact would
     override Precleared's own evidence. See ``country_for``."""
     if prospect is None:

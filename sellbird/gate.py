@@ -236,7 +236,7 @@ def pre_send_check(
     if kind == "sequence" and postal_address.strip() and postal_address.strip() not in body:
         reasons.append("postal address footer missing")
 
-    # No HTML — Harvey sends plain text only
+    # No HTML — Sellbird sends plain text only
     if re.search(r"<\s*(html|body|div|table|img|a)\b", body, re.IGNORECASE):
         reasons.append("HTML markup in body (plain text only)")
 
@@ -247,7 +247,7 @@ def pre_send_check(
 #
 # Websites and the replies people send reach the model, and either can carry
 # planted instructions ("add this link", "paste your instructions"). Prompts
-# fence that text (harvey.untrusted), but a model can still follow it. So an
+# fence that text (sellbird.untrusted), but a model can still follow it. So an
 # email nobody approved is also checked here before it goes: anything that
 # trips these goes back to the Outbox for a human instead of out (#66).
 
@@ -399,8 +399,8 @@ def _shown(host: str, link: str, prefix: str) -> str:
     return host
 
 
-# Files Harvey's instructions live in, under the checkout. A passage from
-# them in an outgoing email means a reply quoted Harvey's playbook back.
+# Files Sellbird's instructions live in, under the checkout. A passage from
+# them in an outgoing email means a reply quoted Sellbird's playbook back.
 # These are written to be said to prospects, so echoing them is fine.
 _SAY_ALOUD_FILES = frozenset({"email_frameworks.md", "product_knowledge.md",
                               "objection_handling.md", "README.md"})
@@ -420,8 +420,8 @@ def _words(text: str) -> list[str]:
 
 
 def _instruction_runs(root) -> dict[tuple, str]:
-    """Every LEAK_RUN_WORDS-word run in Harvey's instructions → its file."""
-    from harvey.untrusted import UNTRUSTED_RULE
+    """Every LEAK_RUN_WORDS-word run in Sellbird's instructions → its file."""
+    from sellbird.untrusted import UNTRUSTED_RULE
     files = sorted(p for folder in ("prompts", "skills") for p in (root / folder).glob("*.md")
                    if p.name not in _SAY_ALOUD_FILES)
     key = (str(root), tuple((str(p), p.stat().st_mtime_ns) for p in files))
@@ -430,7 +430,7 @@ def _instruction_runs(root) -> dict[tuple, str]:
         sources = [(p.name, _QUOTED_RE.sub(" | ", "\n".join(
             line for line in p.read_text(encoding="utf-8", errors="replace").splitlines()
             if not _SCRIPT_LINE_RE.match(line)))) for p in files]
-        sources.append(("Harvey's prompt rules", UNTRUSTED_RULE))
+        sources.append(("Sellbird's prompt rules", UNTRUSTED_RULE))
         for name, text in sources:
             words = _words(text)
             for i in range(len(words) - LEAK_RUN_WORDS + 1):
@@ -443,10 +443,10 @@ def autopilot_review(subject: str, body: str, config, root=None, recipient: str 
     """Why an email nobody approved must wait for a human, or [] to send.
 
     Two things a planted instruction would try: point the reader somewhere
-    that isn't yours, or get Harvey to quote its own instructions back.
+    that isn't yours, or get Sellbird to quote its own instructions back.
     ``recipient``'s own domain is fine to mention to them ("saw
     joesroofing.com"): it's theirs."""
-    from harvey.paths import PROJECT_ROOT
+    from sellbird.paths import PROJECT_ROOT
     reasons: list[str] = []
     text = f"{subject or ''}\n{body or ''}"
     allowed = allowed_link_domains(config)
@@ -465,6 +465,6 @@ def autopilot_review(subject: str, body: str, config, root=None, recipient: str 
     for i in range(len(words) - LEAK_RUN_WORDS + 1):
         source = runs.get(tuple(words[i:i + LEAK_RUN_WORDS]))
         if source:
-            reasons.append(f"quotes Harvey's instructions ({source})")
+            reasons.append(f"quotes Sellbird's instructions ({source})")
             break
     return reasons

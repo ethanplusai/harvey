@@ -1,16 +1,16 @@
-# Harvey
+# Sellbird
 
 **An autonomous sales agent that runs on your Claude Code or Codex subscription.**
 
-Harvey finds businesses worth selling to, learns something specific about each one, writes cold email that references it, sends it, reads the replies, and works the conversation toward a meeting. It runs on your machine, in a loop, on its own.
+Sellbird finds businesses worth selling to, learns something specific about each one, writes cold email that references it, sends it, reads the replies, and works the conversation toward a meeting. It runs on your machine, in a loop, on its own.
 
-The unusual part: **there is no model API bill.** Harvey uses your Claude Pro or Max subscription through Claude Code, or your ChatGPT subscription through Codex. Model calls use the plan you already pay for, without an API key or per-token API billing. Claude is the default; [Codex is an opt-in provider on macOS and Linux](#using-a-chatgpt-plan-instead-codex).
+The unusual part: **there is no model API bill.** Sellbird uses your Claude Pro or Max subscription through Claude Code, or your ChatGPT subscription through Codex. Model calls use the plan you already pay for, without an API key or per-token API billing. Claude is the default; [Codex is an opt-in provider on macOS and Linux](#using-a-chatgpt-plan-instead-codex).
 
 ```
-$ harvey run
+$ sellbird run
 
 ============================================================
-Harvey is online. Always Be Closing.
+Sellbird is online. Always Be Closing.
 ============================================================
 Checking pipeline state...
 Decision: write_campaign (3 new prospects with no drafts)
@@ -22,11 +22,11 @@ Cycle complete. Sleeping for 15 minutes.
 ```
 
 And the dashboard it keeps, at `localhost:5555`. In this order: the Today screen, a
-conversation Harvey handed back because a prospect asked for a contract, approving
+conversation Sellbird handed back because a prospect asked for a contract, approving
 a drafted reply from the outbox, confirming a signal, building a cohort from
 confirmed signals, searching contacts, and the same screen in dark mode:
 
-![Harvey's dashboard: the Today screen, a conversation handed back for a human, approving a reply in the outbox, confirming a signal and building a cohort, searching contacts, then dark mode](docs/dashboard.gif)
+![Sellbird's dashboard: the Today screen, a conversation handed back for a human, approving a reply in the outbox, confirming a signal and building a cohort, searching contacts, then dark mode](docs/dashboard.gif)
 
 <sub>The demo data is invented: "Bookwell" selling online booking to roofers, dental practices and HVAC shops, on `.test` domains.</sub>
 
@@ -35,7 +35,7 @@ confirmed signals, searching contacts, and the same screen in dark mode:
 ## Table of contents
 
 - [Why the subscription thing matters](#why-the-subscription-thing-matters)
-- [What Harvey actually does](#what-harvey-actually-does)
+- [What Sellbird actually does](#what-sellbird-actually-does)
 - [Quick start](#quick-start)
 - [You confirm what it looks for](#you-confirm-what-it-looks-for)
 - [The prospecting pipeline](#the-prospecting-pipeline)
@@ -58,11 +58,11 @@ confirmed signals, searching contacts, and the same screen in dark mode:
 
 Every other autonomous sales agent bills you per token. That is the whole reason they cost what they cost: an agent that thinks in a loop, all day, is an agent that burns API credits in a loop, all day. Vendors solve this by thinking less — shorter prompts, cheaper models, fewer passes.
 
-Harvey uses the subscription-backed CLI for the provider you choose: `claude` for Claude Code, or an isolated `codex app-server` for Codex. Both return text with model tools disabled. Harvey handles the prospecting and mail operations itself.
+Sellbird uses the subscription-backed CLI for the provider you choose: `claude` for Claude Code, or an isolated `codex app-server` for Codex. Both return text with model tools disabled. Sellbird handles the prospecting and mail operations itself.
 
-Claude calls run with none of your own Claude Code setup: no `CLAUDE.md` (yours, the project's or any parent folder's), no hooks, skills, plugins, MCP servers or settings files, no tools, in an empty temporary folder, and nothing saved to your Claude transcripts. Your login (subscription or `claude setup-token`) and any admin-managed policy still apply. This needs a Claude CLI with `--safe-mode`; with an older one Harvey pauses instead of sending prompts unisolated and says to run `claude update`. To check this offline against your installed CLI, with no credentials or network: `HARVEY_CLAUDE_CLI_TESTS=1 pytest tests/test_claude_cli_isolation.py`.
+Claude calls run with none of your own Claude Code setup: no `CLAUDE.md` (yours, the project's or any parent folder's), no hooks, skills, plugins, MCP servers or settings files, no tools, in an empty temporary folder, and nothing saved to your Claude transcripts. Your login (subscription or `claude setup-token`) and any admin-managed policy still apply. This needs a Claude CLI with `--safe-mode`; with an older one Sellbird pauses instead of sending prompts unisolated and says to run `claude update`. To check this offline against your installed CLI, with no credentials or network: `SELLBIRD_CLAUDE_CLI_TESTS=1 pytest tests/test_claude_cli_isolation.py`.
 
-Your selected subscription covers model calls, subject to its usage limits. That lets Harvey use its skills library for personalization and reply handling without a separate model API bill.
+Your selected subscription covers model calls, subject to its usage limits. That lets Sellbird use its skills library for personalization and reply handling without a separate model API bill.
 
 **What this costs you:**
 
@@ -74,17 +74,17 @@ Your selected subscription covers model calls, subject to its usage limits. That
 | Writing and sending | your subscription + a mailbox (~$7/mo Google Workspace) |
 | Prospecting tools | **none.** No Apollo, no ZoomInfo, no Clearbit, no Clay. |
 
-For comparison, the tools Harvey replaces start at $250–500/month — and they are weakest precisely where Harvey is strongest: small local businesses with 5–50 people, where single-provider contact coverage caps out around 30% and micro-businesses are frequently absent entirely.
+For comparison, the tools Sellbird replaces start at $250–500/month — and they are weakest precisely where Sellbird is strongest: small local businesses with 5–50 people, where single-provider contact coverage caps out around 30% and micro-businesses are frequently absent entirely.
 
-**Harvey also budgets itself.** It reads the active provider's subscription quota and throttles to leave headroom for your own Claude or Codex work. Set `max_daily_claude_percent: 80` for either provider—the setting's name predates Codex support. If quota cannot be read, Harvey reports it as unavailable and falls back to its daily call budget.
+**Sellbird also budgets itself.** It reads the active provider's subscription quota and throttles to leave headroom for your own Claude or Codex work. Set `max_daily_claude_percent: 80` for either provider—the setting's name predates Codex support. If quota cannot be read, Sellbird reports it as unavailable and falls back to its daily call budget.
 
-Harvey runs locally with your own login. Check the terms and usage limits of the provider you choose.
+Sellbird runs locally with your own login. Check the terms and usage limits of the provider you choose.
 
 ---
 
-## What Harvey actually does
+## What Sellbird actually does
 
-Harvey runs a heartbeat: wake up, check the budget, decide what most needs doing, do it, log it, sleep. Every 15 minutes by default.
+Sellbird runs a heartbeat: wake up, check the budget, decide what most needs doing, do it, log it, sleep. Every 15 minutes by default.
 
 ```
                  ┌──────────────────────────────────────┐
@@ -111,41 +111,41 @@ Profiling and outbox draining ride along on **every** cycle regardless, because 
 - **Python 3.11+** — check with `python3 --version`. macOS ships 3.9; if that's what you have, `brew install python@3.13` first.
 - An active **Claude Pro or Max** subscription, with the CLI logged in (`claude login`) — or, opt-in, a **ChatGPT plan with the Codex CLI** ([see below](#using-a-chatgpt-plan-instead-codex))
 - A mailbox to send from — Gmail/Workspace recommended, on a *dedicated secondary domain*. Microsoft 365 works too ([setup](docs/microsoft365.md))
-- A warmup service on that mailbox — we recommend [TrulyInbox](https://trulyinbox.com/?via=harvey). It warms a new mailbox before cold email, keeps it out of spam after, and Harvey reads its inbox rate to tell you when you're ready ([Warmup](#warmup-with-trulyinbox))
+- A warmup service on that mailbox — we recommend [TrulyInbox](https://trulyinbox.com/?via=sellbird). It warms a new mailbox before cold email, keeps it out of spam after, and Sellbird reads its inbox rate to tell you when you're ready ([Warmup](#warmup-with-trulyinbox))
 
 ### Easiest: let Claude set it up
 
 ```bash
-git clone https://github.com/ethanplusai/harvey.git
-cd harvey
+git clone https://github.com/ethanplusai/sellbird.git
+cd sellbird
 claude
 ```
 
-Then say: **"set up Harvey for me"**. The repo ships a `CLAUDE.md` that turns Claude Code into the setup wizard — it checks what state you're in, installs what's missing, asks what it needs, and trains Harvey on your product.
+Then say: **"set up Sellbird for me"**. The repo ships a `CLAUDE.md` that turns Claude Code into the setup wizard — it checks what state you're in, installs what's missing, asks what it needs, and trains Sellbird on your product.
 
 ### Or do it yourself
 
 ```bash
 # 1. Install — note python3.13, not python3. On macOS bare `python3` is the
-#    system 3.9, and a venv built from it can't run Harvey.
+#    system 3.9, and a venv built from it can't run Sellbird.
 python3.13 -m venv .venv && source .venv/bin/activate && pip install -e .
 
 # 2. Configure — every variable is documented inline with where to get it
 cp .env.example .env && $EDITOR .env
 
-# 3. Learn your product from your website (writes harvey.local.yaml; re-running
+# 3. Learn your product from your website (writes sellbird.local.yaml; re-running
 #    it updates the product, targeting and company and keeps your other settings)
-harvey train https://your-company.com
+sellbird train https://your-company.com
 
 # 4. Choose what makes a good prospect (see below — this one matters)
-harvey signals --confirm free
+sellbird signals --confirm free
 
 # 5. Find businesses. Free source, no account needed.
-harvey discover
+sellbird discover
 
 # 6. Watch it work
-harvey dashboard          # prints a private link to http://127.0.0.1:5555
-harvey run
+sellbird dashboard          # prints a private link to http://127.0.0.1:5555
+sellbird run
 ```
 
 ### Or deploy with Docker (Linux)
@@ -157,22 +157,22 @@ above on macOS or Windows. On a remote Linux host, reach the dashboard through
 an SSH tunnel rather than exposing its port to the network.
 
 ```bash
-git clone https://github.com/ethanplusai/harvey.git
-cd harvey
+git clone https://github.com/ethanplusai/sellbird.git
+cd sellbird
 
 # Create the credentials file only if you do not already have one.
 test -e .env || cp .env.example .env
 
 # Run as your Linux user, never root. Set these again when rebuilding.
-export HARVEY_UID=$(id -u) HARVEY_GID=$(id -g)
+export SELLBIRD_UID=$(id -u) SELLBIRD_GID=$(id -g)
 
 # Sign in to Claude on the host first; ~/.claude must already exist.
 # The image ships Claude only; Codex is not included.
 docker compose build
-docker compose run --rm harvey setup
+docker compose run --rm sellbird setup
 
 docker compose up -d
-docker compose logs harvey
+docker compose logs sellbird
 # Open the private unlock link printed in the logs.
 ```
 
@@ -180,11 +180,11 @@ Compose mounts the checkout directory at `/app`. Setup credentials, both YAML
 config files, training output, knowledge files, and `data/` remain in that
 checkout when containers are recreated. Directory mounting also permits atomic
 configuration saves; do not replace it with individual config-file mounts.
-Harvey loads `.env` directly. Restart the container after editing credentials.
+Sellbird loads `.env` directly. Restart the container after editing credentials.
 The checkout and Claude auth directory must be writable by the selected user.
 
-To train later, use `docker compose run --rm harvey train <product-url>`;
-`harvey.local.yaml` is saved directly to the checkout. Back up this file, `.env`,
+To train later, use `docker compose run --rm sellbird train <product-url>`;
+`sellbird.local.yaml` is saved directly to the checkout. Back up this file, `.env`,
 `skills/`, and `data/` before moving installations. The running code also comes
 from the checkout: restart after updating it, and rebuild when dependencies or
 the Dockerfile change. The build context excludes local data and credentials.
@@ -198,14 +198,14 @@ you need the Codex provider.
 
 ## You confirm what it looks for
 
-This is the part that makes Harvey different from a black box, and it is deliberately not skippable.
+This is the part that makes Sellbird different from a black box, and it is deliberately not skippable.
 
-Harvey knows how to collect **29 signals** about a business. It does not collect any of them until you say so. On first run it *proposes* the catalog; you confirm, skip, or reject each one in the dashboard or from the terminal:
+Sellbird knows how to collect **29 signals** about a business. It does not collect any of them until you say so. On first run it *proposes* the catalog; you confirm, skip, or reject each one in the dashboard or from the terminal:
 
 ```bash
-harvey signals                       # review the catalog
-harvey signals --confirm free        # everything that costs nothing (26 of them)
-harvey signals --confirm SERP_RANK   # a paid one, opted into explicitly
+sellbird signals                       # review the catalog
+sellbird signals --confirm free        # everything that costs nothing (26 of them)
+sellbird signals --confirm SERP_RANK   # a paid one, opted into explicitly
 ```
 
 Every signal shows what it is in plain language, **what it costs**, and how many companies already carry it.
@@ -223,7 +223,7 @@ Every signal shows what it is in plain language, **what it costs**, and how many
 | | `NO_SCHEMA_MARKUP` | A concrete, checkable SEO gap you can name in an email. |
 | | `BLOG_STALE` | Content marketing started and abandoned. |
 | | `SITE_PAGE_COUNT`, `TECH_STACK`, `BLOCKS_AI_CRAWLERS` | Size, platform, AI-search visibility. |
-| | `HIRING_ROLE` / `OPEN_ROLES` | What they're hiring for, and how many roles are open. When their site links a Greenhouse, Lever, Ashby or Workable board, Harvey reads that board's public feed (one request): roles matching `icp.hiring_signals` (else `icp.titles`), with department, location, posting date and the posting's URL; when the board lists none, it records "not hiring" so a closed role stops counting. Otherwise it reads the careers page. Set `hiring_signals` to the roles that mean they're buying: the `titles` fallback names who you email, so "CEO" only matches a CEO opening (never "Assistant to the CEO"), which is rarely the signal you want. |
+| | `HIRING_ROLE` / `OPEN_ROLES` | What they're hiring for, and how many roles are open. When their site links a Greenhouse, Lever, Ashby or Workable board, Sellbird reads that board's public feed (one request): roles matching `icp.hiring_signals` (else `icp.titles`), with department, location, posting date and the posting's URL; when the board lists none, it records "not hiring" so a closed role stops counting. Otherwise it reads the careers page. Set `hiring_signals` to the roles that mean they're buying: the `titles` fallback names who you email, so "CEO" only matches a CEO opening (never "Assistant to the CEO"), which is rarely the signal you want. |
 | | `YC_BACKED`, `ACCELERATOR`, `FUNDING_ROUND` | A startup, as its own site says: YC or another accelerator (with the batch or cohort), or a raise it announced (round, amount, date). |
 | **People** | `CONTACT_FOUND`, `DECISION_MAKER_TITLE`, `LIKELY_OWNER`, `REGISTRY_VERIFIED` | Who decides, and whether they own the place. |
 | **Contact** | `EMAIL_PATTERN`, `EMAIL_STATUS`, `CONTACT_FORM_URL` | Whether you can actually reach them. |
@@ -237,7 +237,7 @@ Has a marketing agency  AND  running Google Ads  AND NOT  already has online boo
 → 23 companies
 ```
 
-That is a campaign with a reason behind it. You know exactly why each of those 23 is on the list, and so does the email Harvey writes them.
+That is a campaign with a reason behind it. You know exactly why each of those 23 is on the list, and so does the email Sellbird writes them.
 
 ---
 
@@ -250,14 +250,14 @@ Four stages. Each one runs independently, re-runs safely, and states its cost.
 The only stage that spends money, so it always estimates first and never calls anything until you press go.
 
 ```bash
-harvey discover --providers   # the menu, with real prices
-harvey discover --estimate    # projected spend, then exits
-harvey discover               # go
+sellbird discover --providers   # the menu, with real prices
+sellbird discover --estimate    # projected spend, then exits
+sellbird discover               # go
 ```
 
 | Source | Cost | Free tier | Best for |
 |---|---|---|---|
-| **OpenStreetMap** *(default)* | free | unlimited, no account | Trying the whole pipeline before paying anyone. Coverage is thin for businesses without a storefront: OSM maps premises, so whole trades are barely present (under 2,000 roofers and under 2,300 plumbers in the entire US). Harvey says so in the UI rather than quietly under-delivering. |
+| **OpenStreetMap** *(default)* | free | unlimited, no account | Trying the whole pipeline before paying anyone. Coverage is thin for businesses without a storefront: OSM maps premises, so whole trades are barely present (under 2,000 roofers and under 2,300 plumbers in the entire US). Sellbird says so in the UI rather than quietly under-delivering. |
 | **TinyFish** | free | 30 searches a minute, 500 an hour, no card | Finding businesses by phrase (including the startup and hiring presets) at no cost. Records no search rank: its ordering isn't Google's and it takes no location, so use Serper or DataForSEO SERP for rank signals. |
 | **DataForSEO Business Listings** | $0.372 / 1,000 | $1 credit | Local trades, clinics, contractors. Phone, domain, rating, claimed status — and it can filter for businesses with **no website at all**. |
 | **DataForSEO SERP** | $0.006 / search at depth 30 (Live, $0.002 per 10 results) | $1 credit + free sandbox | Organic rank as the buying signal, plus who holds the local 3-pack, searched from the city centre. |
@@ -266,7 +266,7 @@ harvey discover               # go
 | **Scavio Google Maps** | $0.01 / page (up to 20 listings) | 50 credits, no card | Google Maps listings around each city: phone, website, category, rating and reviews, including businesses with no website. |
 | **Scavio Google Search** | ~$0.03 / depth-30 search | same 50 credits | Rank as the signal, on the same key as Scavio Google Maps. |
 
-**Selling to startups?** Harvey has a built-in startup skill, made of three
+**Selling to startups?** Sellbird has a built-in startup skill, made of three
 parts:
 
 - **The searches** (each a web search, so Serper or DataForSEO SERP):
@@ -277,7 +277,7 @@ parts:
   | `accelerator` (*Accelerator startups*) | Ones backed by Techstars, 500 Global, Antler, Entrepreneur First, South Park Commons, Neo, AI Grant, a16z speedrun or Plug and Play (two searches per industry; the signal also reads Pioneer) | `ACCELERATOR`, with the program and cohort ("Techstars 2024") |
   | `funding` (*Recently funded*) | Companies announcing their own raise ("we raised", "announces $X Series A") in the last 18 months, news sites and funding databases excluded | `FUNDING_ROUND`: round, amount and date |
 
-  `harvey discover --preset accelerator --provider serper`, or the *Look for*
+  `sellbird discover --preset accelerator --provider serper`, or the *Look for*
   menu on the Discover tab.
 - **The signals:** turn them on in the Signals tab. They read the homepage and
   About page (and for a raise, the page the search found on their own site and
@@ -298,11 +298,11 @@ parts:
   undated raise alone doesn't bring the playbook, and is never written to as
   news.
 
-Harvey never reads ycombinator.com, the accelerators' directories, Crunchbase,
+Sellbird never reads ycombinator.com, the accelerators' directories, Crunchbase,
 PitchBook or LinkedIn, whose terms forbid scraping them; everything comes from
 the companies' own sites and your search provider.
 
-**Looking for companies hiring a role?** `harvey discover --preset hiring
+**Looking for companies hiring a role?** `sellbird discover --preset hiring
 --provider serper` (or *Look for: Companies hiring for your roles*) searches
 your industries for companies whose own careers pages list one of your
 `icp.hiring_signals` roles (else `icp.titles`). Hosted boards and job sites
@@ -326,11 +326,11 @@ ignore environment proxies, so proxy routing cannot bypass that boundary.
 
 Homepage, `robots.txt`, `sitemap.xml`, plus the team and careers pages when they exist — then regex over HTML already in hand. Out comes the incumbent agency, the ad pixels, the missing schema, the abandoned blog, the open roles, the named humans.
 
-Agency detection is the compounding one. Almost every agency credits itself in the footer, and Harvey scores the wording: *"Powered by"* / *"Website by"* → 0.9 confidence; a bare descriptive link → 0.75; an unlabelled link → 0.35 and **not recorded**. A wrong incumbent in an email is worse than saying nothing.
+Agency detection is the compounding one. Almost every agency credits itself in the footer, and Sellbird scores the wording: *"Powered by"* / *"Website by"* → 0.9 confidence; a bare descriptive link → 0.75; an unlabelled link → 0.35 and **not recorded**. A wrong incumbent in an email is worse than saying nothing.
 
 ### 3. ENRICH — who decides
 
-The owner, from the company's own site. Harvey reads the homepage and follows the site's own menu to the pages where people are named — team, about, our story, meet the dentists, attorneys, contact — six pages at most, skipping links that land back on the homepage. On those pages it reads:
+The owner, from the company's own site. Sellbird reads the homepage and follows the site's own menu to the pages where people are named — team, about, our story, meet the dentists, attorneys, contact — six pages at most, skipping links that land back on the homepage. On those pages it reads:
 
 - **cards and lists**: a name with a title under it, even when the title is only a `<br>` away inside a span;
 - **sentences**: "owned and operated by Gary Pruitt", "led today by President Ilan Brooks", "Ines Varga started Countwise";
@@ -339,25 +339,25 @@ The owner, from the company's own site. Harvey reads the homepage and follows th
 
 Owners rank first, and at most two people per company become prospects. Headings made of ordinary words ("Team of Experts"), customers quoted in testimonials or tweets ("Founder at Quillnest"), other organisations' officers ("KTR President Vic Hale"), former or late owners ("Past President", "the late Harold Smith"), and taglines are not people. Titles match your ICP by whole word: "Vice President" doesn't count as "President" unless you list it, and Proprietor, Principal, Managing Partner, Founder and CEO all count as an owner. With `LIKELY_OWNER` confirmed, each owner is recorded as an observation with the evidence that says so.
 
-When a company's site names nobody, or names an owner whose address is only a guess, and Harvey has no contact there yet — common for small trades — it also uses a general address the company prints on its own pages (only general mailboxes such as `owner@`, `office@`, `info@` or `hello@`, never a person's own address). Harvey reads whole pages for it, including schema.org and addresses hidden from scrapers, and accepts an address on another domain only when that domain leads to the company's own site. It is never guessed, it is verified like any other address, and those emails greet the company's team instead of a first name.
+When a company's site names nobody, or names an owner whose address is only a guess, and Sellbird has no contact there yet — common for small trades — it also uses a general address the company prints on its own pages (only general mailboxes such as `owner@`, `office@`, `info@` or `hello@`, never a person's own address). Sellbird reads whole pages for it, including schema.org and addresses hidden from scrapers, and accepts an address on another domain only when that domain leads to the company's own site. It is never guessed, it is verified like any other address, and those emails greet the company's team instead of a first name.
 
 A site behind a bot challenge (SiteGround's "sgcaptcha", Cloudflare's "Just a moment…") is reported as challenged, not unreachable, and isn't retried.
 
 ### 4. VERIFY — can you reach them
 
-Harvey learns each company's **address pattern** and verifies one candidate, rather than brute-forcing name variations. Any address the site publishes can teach it: `nvale@` next to Nora Vale is `{first initial}{last}`, and `j.smith@` is an initial and surname. A lone dotless address no named person owns (`kmorrow@`: Kmorrow, or K. Morrow?) is ambiguous and teaches nothing. An address two named people could own (`jsmith@` when John and Jane Smith both work there) is format evidence only, and Harvey never guesses or verifies an address another named person could own: a verifier would confirm *their* mailbox. It decodes the usual hiding tricks (Cloudflare email protection, a mail link's `data-user`/`data-domain` attributes, `name [at] domain [dot] com`) and never invents an address from ordinary text. A person's own published address is used as is. With no evidence at all, it guesses `first.last@`, or `first@` when something besides the website says the company is small (your ICP's company size, or a local-business listing as its source). A cached guess never stops a real address or a Hunter lookup from replacing it, and Hunter is asked once per domain (a timeout or rate limit doesn't count). Raw SMTP probing is not viable from a laptop — outbound port 25 is usually blocked, and Google Workspace and Microsoft 365 accept everything from an unknown IP.
+Sellbird learns each company's **address pattern** and verifies one candidate, rather than brute-forcing name variations. Any address the site publishes can teach it: `nvale@` next to Nora Vale is `{first initial}{last}`, and `j.smith@` is an initial and surname. A lone dotless address no named person owns (`kmorrow@`: Kmorrow, or K. Morrow?) is ambiguous and teaches nothing. An address two named people could own (`jsmith@` when John and Jane Smith both work there) is format evidence only, and Sellbird never guesses or verifies an address another named person could own: a verifier would confirm *their* mailbox. It decodes the usual hiding tricks (Cloudflare email protection, a mail link's `data-user`/`data-domain` attributes, `name [at] domain [dot] com`) and never invents an address from ordinary text. A person's own published address is used as is. With no evidence at all, it guesses `first.last@`, or `first@` when something besides the website says the company is small (your ICP's company size, or a local-business listing as its source). A cached guess never stops a real address or a Hunter lookup from replacing it, and Hunter is asked once per domain (a timeout or rate limit doesn't count). Raw SMTP probing is not viable from a laptop — outbound port 25 is usually blocked, and Google Workspace and Microsoft 365 accept everything from an unknown IP.
 
 Every address is tagged honestly: `verified` / `risky` (catch-all) / `guess` / `invalid`. **Only deliverable ones are ever sent to.** A guess is never treated as a win.
 
-> Harvey is worth running even if you never let it send. `harvey export` writes a sequencer-ready CSV of everything it found.
+> Sellbird is worth running even if you never let it send. `sellbird export` writes a sequencer-ready CSV of everything it found.
 
 ---
 
 ## The skills library
 
-Harvey's sales knowledge lives in `skills/` as **plain Markdown you can edit**. There is no fine-tuning, no vector store, no retrieval step. Before an agent runs, the skills it needs are concatenated straight into its prompt. Change a file, and the next heartbeat behaves differently — no restart, no code change.
+Sellbird's sales knowledge lives in `skills/` as **plain Markdown you can edit**. There is no fine-tuning, no vector store, no retrieval step. Before an agent runs, the skills it needs are concatenated straight into its prompt. Change a file, and the next heartbeat behaves differently — no restart, no code change.
 
-This is the main way you shape Harvey. If its emails are too pushy, edit `email_frameworks.md`. If it mishandles a specific objection, edit `objection_handling.md` and add the response you'd actually give.
+This is the main way you shape Sellbird. If its emails are too pushy, edit `email_frameworks.md`. If it mishandles a specific objection, edit `objection_handling.md` and add the response you'd actually give.
 
 **Your own email shape.** Whatever the skills say, the Writer ends every prompt with a built-in shape: email 1 under 75 words, one observation and one question, no pitch, no link. If your first email has to do more (say who you are, what it costs, link to a sign-up page), write your rules in a markdown file and point `writer.email_rules` at it:
 
@@ -366,7 +366,7 @@ writer:
   email_rules: "skills/email_rules.md"   # gitignored
 ```
 
-The file replaces the built-in shape for the per-person first email and the 3-email sequence, and wins over `email_frameworks.md` and the prompt's style rules where they disagree. It can't lift the FACTS rule (nothing about a prospect is invented), and the send gate still applies: at most 220 words and one link per email, and the do-not-contact list. If `compliance.opt_out_line` is set, Harvey adds it under each cold email and tells the Writer not to write a second one; leave it empty and your rules can put an opt-out sentence in the body instead (Harvey still warns, since it can't check your sentence). Harvey's own opt-out phrase checks are in English; the model still reads every reply for a request to stop. A file that's set but missing, empty or over 20,000 characters stops the Writer until it's fixed, rather than drafting in the shape you replaced.
+The file replaces the built-in shape for the per-person first email and the 3-email sequence, and wins over `email_frameworks.md` and the prompt's style rules where they disagree. It can't lift the FACTS rule (nothing about a prospect is invented), and the send gate still applies: at most 220 words and one link per email, and the do-not-contact list. If `compliance.opt_out_line` is set, Sellbird adds it under each cold email and tells the Writer not to write a second one; leave it empty and your rules can put an opt-out sentence in the body instead (Sellbird still warns, since it can't check your sentence). Sellbird's own opt-out phrase checks are in English; the model still reads every reply for a request to stop. A file that's set but missing, empty or over 20,000 characters stops the Writer until it's fixed, rather than drafting in the shape you replaced.
 
 ### What ships
 
@@ -378,7 +378,7 @@ The file replaces the built-in shape for the per-person first email and the 3-em
 
 **`lead_qualification.md`** — **BANT** for the first screen, ICP scoring 1–10 for prioritization, **MEDDIC** for anything complex. Includes explicit disqualification criteria, which matter more than the qualification ones.
 
-**`sales_methodology.md`** — The operating philosophy: the ABC loop, how a conversation should flow across stages, tone calibration, and the ethical lines Harvey does not cross.
+**`sales_methodology.md`** — The operating philosophy: the ABC loop, how a conversation should flow across stages, tone calibration, and the ethical lines Sellbird does not cross.
 
 **`offer_strategy.md`** — The offer ladder by engagement level, and the rule that governs it: *never lead with an offer, never pitch in a cold email.* First contact exists to start a conversation. Offers come out only after genuine interest.
 
@@ -388,7 +388,7 @@ The file replaces the built-in shape for the per-person first email and the 3-em
 
 **`linkedin_outreach.md`** — Connection sequences and rate limits, opening with the risk section it should open with: automating LinkedIn violates their ToS, never use a fake identity, and if someone asks whether this is automated, say yes immediately.
 
-**Generated for your product by `harvey train <url>`:**
+**Generated for your product by `sellbird train <url>`:**
 
 - **`product_knowledge.md`** — what you sell, the benefits, pricing, use cases, the pain you solve, buying triggers
 - **`competitive_intel.md`** — battle cards per competitor, differentiation angles, migration paths
@@ -397,7 +397,7 @@ The file replaces the built-in shape for the per-person first email and the 3-em
 
 ### Which agent gets which
 
-Defined in `harvey/brain.py` — edit the map to change it.
+Defined in `sellbird/brain.py` — edit the map to change it.
 
 | Skill | Scout | Writer | Handler | Sender | LinkedIn |
 |---|:-:|:-:|:-:|:-:|:-:|
@@ -413,13 +413,13 @@ Defined in `harvey/brain.py` — edit the map to change it.
 | `product_knowledge` | ● | ● | ● | ● | ● |
 | `competitive_intel` | | ● | ● | | |
 
-Adding a skill: write the file, add its name to `skill_map` in `harvey/brain.py`. That's the whole process.
+Adding a skill: write the file, add its name to `skill_map` in `sellbird/brain.py`. That's the whole process.
 
 ---
 
 ## The sub-agents
 
-Harvey feels like one agent. Underneath it's five, each loaded with different skills.
+Sellbird feels like one agent. Underneath it's five, each loaded with different skills.
 
 | Agent | What it does |
 |---|---|
@@ -435,24 +435,24 @@ Conversation stages: `initial_outreach → engaged → qualifying → presenting
 
 ## Nothing sends without you
 
-By default **every outgoing email waits for your approval.** Harvey is a copilot until you decide otherwise.
+By default **every outgoing email waits for your approval.** Sellbird is a copilot until you decide otherwise.
 
 The dashboard's Outbox is a decisions desk: one email fills the pane, the rest wait in a rail, and you work the queue with `A` approve, `R` reject, `J`/`K` to move. That shape is deliberate — a wall of stacked drafts invites a single approve-all reflex, which is exactly the review the approval ladder exists to force.
 
 ```bash
-harvey outbox                 # review from the terminal
-harvey outbox --approve-all
-harvey sending pause          # kill switch, stops everything mid-flight
-harvey retry-writes           # retry prospects the Writer gave up on after 3 unusable drafts
+sellbird outbox                 # review from the terminal
+sellbird outbox --approve-all
+sellbird sending pause          # kill switch, stops everything mid-flight
+sellbird retry-writes           # retry prospects the Writer gave up on after 3 unusable drafts
 ```
 
 Before anything leaves, a **deterministic pre-send gate** — no model involved — rejects: unrendered merge tags, banned phrases, emails over the length cap, too many links, HTML bodies, non-deliverable addresses, and any mismatch between the recipient and the database record.
 
 Optionally, the same step can ask [Precleared](https://precleared.dev) whether cold email to each new address is allowed before the first one goes out. See [Legal and deliverability](#legal-and-deliverability).
 
-**Office hours in the recipient's time zone.** Set `channels.email.send_window` and cold email goes out only between `start` and `end` (08:00 to 17:00 on weekdays by default) in each recipient's own time zone, so one campaign can reach New York and Oslo and land in office hours in both. Harvey works the zone out once, from the company's location (a US state, a Canadian province, an Australian state, a country with one time zone or its main one, plus the coordinates discovery already cached for that place), from the country Precleared finds when that check is on, or from `prospect_country`. A code that's a state and a country too ("Mumbai, IN") is settled by those; with nothing else a US state code reads as the state, so write the country out when you can. Guesses like that, and a country's main zone, are re-checked rather than stored. Anyone it can't place gets the window in `usage.quiet_hours.timezone`. Follow-ups keep their delay and move into the window, an email approved after hours waits for the next one, and replies are never held by the window. `weekdays_only` means Monday to Friday everywhere. Quiet hours still pause prospecting, writing and replies, but wake for cold email that can go now in its recipient's window: the heartbeat reads replies first, then sends it (and queues any draft campaign, which sends nothing). Gmail, Microsoft and SMTP only.
+**Office hours in the recipient's time zone.** Set `channels.email.send_window` and cold email goes out only between `start` and `end` (08:00 to 17:00 on weekdays by default) in each recipient's own time zone, so one campaign can reach New York and Oslo and land in office hours in both. Sellbird works the zone out once, from the company's location (a US state, a Canadian province, an Australian state, a country with one time zone or its main one, plus the coordinates discovery already cached for that place), from the country Precleared finds when that check is on, or from `prospect_country`. A code that's a state and a country too ("Mumbai, IN") is settled by those; with nothing else a US state code reads as the state, so write the country out when you can. Guesses like that, and a country's main zone, are re-checked rather than stored. Anyone it can't place gets the window in `usage.quiet_hours.timezone`. Follow-ups keep their delay and move into the window, an email approved after hours waits for the next one, and replies are never held by the window. `weekdays_only` means Monday to Friday everywhere. Quiet hours still pause prospecting, writing and replies, but wake for cold email that can go now in its recipient's window: the heartbeat reads replies first, then sends it (and queues any draft campaign, which sends nothing). Gmail, Microsoft and SMTP only.
 
-**A logo under every email.** Plain text usually lands better for cold email, since images and HTML can push a new mailbox toward spam, so warm up first and test placement after adding one. Email goes out as plain text unless you set `channels.email.signature.logo` to a PNG, JPEG or GIF of at most 100 KB (a path relative to the Harvey folder, or absolute). Then every email, cold or reply, goes out as HTML with the logo underneath, embedded in the message itself so it shows without the recipient allowing remote images. Gmail and SMTP also include the same plain text. The words don't change: the HTML is Harvey's text, escaped, with its paragraphs and line breaks kept and web addresses made clickable. `width` sets the logo's display width (120 pixels by default), `alt` its text for mail with images off (your `persona.company` by default), `link` an optional web address it opens, and `direction: rtl` lays a Hebrew or Arabic email out right to left. If the file goes missing or stops being a usable image, approved email waits in the Outbox rather than going out without the logo, and the log says why. Gmail, Microsoft and SMTP only.
+**A logo under every email.** Plain text usually lands better for cold email, since images and HTML can push a new mailbox toward spam, so warm up first and test placement after adding one. Email goes out as plain text unless you set `channels.email.signature.logo` to a PNG, JPEG or GIF of at most 100 KB (a path relative to the Sellbird folder, or absolute). Then every email, cold or reply, goes out as HTML with the logo underneath, embedded in the message itself so it shows without the recipient allowing remote images. Gmail and SMTP also include the same plain text. The words don't change: the HTML is Sellbird's text, escaped, with its paragraphs and line breaks kept and web addresses made clickable. `width` sets the logo's display width (120 pixels by default), `alt` its text for mail with images off (your `persona.company` by default), `link` an optional web address it opens, and `direction: rtl` lays a Hebrew or Arabic email out right to left. If the file goes missing or stops being a usable image, approved email waits in the Outbox rather than going out without the logo, and the log says why. Gmail, Microsoft and SMTP only.
 
 ```yaml
 channels:
@@ -465,46 +465,46 @@ channels:
 
 ### Approval or autopilot
 
-Harvey has two sending modes. The dashboard shows which one you're in at the
+Sellbird has two sending modes. The dashboard shows which one you're in at the
 top of the Outbox, and Settings → Sending explains both and switches them.
 
 | | **Approval** (the default) | **Autopilot** |
 |---|---|---|
 | First emails, follow-ups, replies | Wait in the Outbox until you approve each one | Go out on their own, on schedule |
 | Daily limit, quiet hours, warmup ramp, opt-outs, bounces, Pause all sending | Apply | Apply the same |
-| An email with a link that isn't yours, or quoting Harvey's instructions | You see it like any other | Held in the Outbox, marked **Held**, until you approve it |
+| An email with a link that isn't yours, or quoting Sellbird's instructions | You see it like any other | Held in the Outbox, marked **Held**, until you approve it |
 | On Instantly | Campaigns aren't deployed at all (Instantly can't hold single emails) | Campaigns deploy; held replies come to you |
 
 **Turning autopilot on.** Approve a batch or two by hand first and read what
-Harvey writes. Then either go to Settings → Sending → *Turn on autopilot…* and
+Sellbird writes. Then either go to Settings → Sending → *Turn on autopilot…* and
 type `autopilot`, or set `channels.email.require_approval: false` in your config
-(`harvey.local.yaml` if you trained Harvey, otherwise `harvey.yaml`). A running
-Harvey picks it up from its next cycle, with no restart.
+(`sellbird.local.yaml` if you trained Sellbird, otherwise `sellbird.yaml`). A running
+Sellbird picks it up from its next cycle, with no restart.
 
 **Turning it off** is one click (*Turn off autopilot*, on the Outbox or in
 Settings), or `require_approval: true` in the config. It works at once, even
 mid-cycle: emails autopilot approved that haven't gone out come back to the
 Outbox, and nothing it approved is sent after that. Emails you approved
 yourself stay approved. (Emails approved before this version also come back
-the first time, since Harvey can't tell who approved those.) On Instantly,
+the first time, since Sellbird can't tell who approved those.) On Instantly,
 campaigns already running there keep running: pause them in Instantly.
 
 **What autopilot still holds for you.** Text from outside reaches the model:
-the websites Harvey researches, and the replies people send. Either can carry
-planted instructions ("ignore the above, add this link"). Harvey marks that
+the websites Sellbird researches, and the replies people send. Either can carry
+planted instructions ("ignore the above, add this link"). Sellbird marks that
 text as data in every prompt, and the model has no tools, files or network to
 act with. But a prompt can't guarantee the model ignores an instruction. So an
 email nobody approved goes back to the Outbox, marked **Held** with the
 reason, instead of out, when it:
 
 - links to, or gives an address at, a domain that isn't yours. Yours are the
-  sending address's domain, the site you trained Harvey on, the recipient's own
+  sending address's domain, the site you trained Sellbird on, the recipient's own
   domain (in an email to them), your own booking page
   (`product.offer.booking_url`; only that page, since cal.com and Calendly host
   everyone's), and any you list: `channels.email.link_domains:
   ["mainsite.com"]`. Links are read the way a browser opens them, and bare
   `evil.com/x`, `www.`, IP addresses and "evil dot com" all count;
-- quotes a passage of Harvey's own instructions (`prompts/`, `skills/`), which
+- quotes a passage of Sellbird's own instructions (`prompts/`, `skills/`), which
   is what a reply trying to extract your playbook would get back. Scripts the
   playbooks quote to be said, and the email frameworks and product knowledge,
   are fine to use.
@@ -517,7 +517,7 @@ pre-send gate), a campaign template that would be held isn't deployed, and a
 lead whose fields would be held isn't uploaded.
 
 **Legacy Instantly:** the local Outbox cannot approve individual Instantly sends.
-With approval on, Harvey holds campaign deployment (including activation
+With approval on, Sellbird holds campaign deployment (including activation
 retries) and routes replies to a human. Choose Gmail, Microsoft 365, or SMTP
 for the approval queue. Turning autopilot off doesn't pause campaigns already
 running on Instantly; pause those in Instantly itself.
@@ -527,41 +527,41 @@ running on Instantly; pause those in Instantly itself.
 ## The dashboard
 
 ```bash
-harvey dashboard     # prints the link to open, e.g. http://127.0.0.1:5555/#token=…
+sellbird dashboard     # prints the link to open, e.g. http://127.0.0.1:5555/#token=…
 ```
 
-**Opening it.** The dashboard can change your mail settings, approve the outbox and start Harvey, so it is locked to you, not just to your machine. On first start it creates a random token in `data/dashboard-token` (readable only by you) and prints a link carrying it after the `#`. Open that link: the page keeps the token for that browser tab only and removes it from the address bar. A new tab, or a tab opened without the link, shows a locked screen; paste the token there, or run `harvey dashboard --url` to print the link again. Every API request needs the token as an `Authorization: Bearer` header — scripts and `curl` included — and the token is never accepted from a cookie or a query string. Delete `data/dashboard-token` and restart the dashboard to replace it.
+**Opening it.** The dashboard can change your mail settings, approve the outbox and start Sellbird, so it is locked to you, not just to your machine. On first start it creates a random token in `data/dashboard-token` (readable only by you) and prints a link carrying it after the `#`. Open that link: the page keeps the token for that browser tab only and removes it from the address bar. A new tab, or a tab opened without the link, shows a locked screen; paste the token there, or run `sellbird dashboard --url` to print the link again. Every API request needs the token as an `Authorization: Bearer` header — scripts and `curl` included — and the token is never accepted from a cookie or a query string. Delete `data/dashboard-token` and restart the dashboard to replace it.
 
 **It only listens on this machine.** `--host` accepts loopback addresses only (`127.0.0.1`, `::1`, `localhost`), and requests must name one of them in their `Host` header, which also stops a DNS name pointed at 127.0.0.1 from reaching it. Requests sent by other websites open in your browser are refused. To use it from another computer, tunnel instead of exposing it: `ssh -L 5555:127.0.0.1:5555 your-machine`, then open the printed link locally. The token protects against other users and other websites, not against programs already running as your own user account, which can read the token file just as they can read `.env` or the database.
 
-**Windows:** the token file is protected by the permissions of the folder it lives in (your user profile normally restricts this to you); Harvey doesn't apply POSIX file modes there.
+**Windows:** the token file is protected by the permissions of the folder it lives in (your user profile normally restricts this to you); Sellbird doesn't apply POSIX file modes there.
 
-Plain HTML, CSS and JavaScript served from `harvey/web/`. No build step, no framework, no bundler — edit `app.css` and reload. Fonts are vendored, so it renders correctly with the network off.
+Plain HTML, CSS and JavaScript served from `sellbird/web/`. No build step, no framework, no bundler — edit `app.css` and reload. Fonts are vendored, so it renders correctly with the network off.
 
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="docs/screenshots/today-dark.png">
   <img alt="The Today screen: four headline figures with 14-day trends, the list of things waiting on you, contacts by stage, and collector runs" src="docs/screenshots/today-light.png">
 </picture>
 
-The sidebar is grouped by what you're doing: **Work** (what needs you), **Pipeline** (what Harvey is building) and **System** (how it's running). Counts next to a tab mean something is waiting there.
+The sidebar is grouped by what you're doing: **Work** (what needs you), **Pipeline** (what Sellbird is building) and **System** (how it's running). Counts next to a tab mean something is waiting there.
 
 **Work**
 - **Today** — four headline figures with 14-day trends (contacts found, emails sent, conversations, waiting on you), then everything that needs a decision, contacts by stage, collector runs and what the pipeline is doing right now. Setup shows here until it's finished, then disappears.
-- **Outbox** — the decisions desk. Each email sits next to what Harvey knew when it wrote it: the company, how the address was found and verified, and the signals the email draws on. `J`/`K` to move, `A` approve, `E` edit, `R` reject.
-- **Conversations** — every reply in the context of the emails that led to it. Threads Harvey handed to you (a contract request, a reply it had no safe answer for) come first, with **Hand back to Harvey**, **Close** and **Reopen**.
+- **Outbox** — the decisions desk. Each email sits next to what Sellbird knew when it wrote it: the company, how the address was found and verified, and the signals the email draws on. `J`/`K` to move, `A` approve, `E` edit, `R` reject.
+- **Conversations** — every reply in the context of the emails that led to it. Threads Sellbird handed to you (a contract request, a reply it had no safe answer for) come first, with **Hand back to Sellbird**, **Close** and **Reopen**.
 
 **Pipeline**
 - **Signals** — the confirmation gate and the cohort builder
 - **Discover** — the provider menu with prices side by side, an estimate, then a run; plus reading the sites of companies found but not yet looked at
 - **Companies / Contacts** — everything found, searchable, with CSV export. Companies are sorted by a 0-100 fit score and show their status (emailed, draft waiting, or why not contacted); click one for its details card, or export the whole company register
-- **Campaigns** — each sequence Harvey wrote, who it's going to, and per-campaign feedback for the writer
+- **Campaigns** — each sequence Sellbird wrote, who it's going to, and per-campaign feedback for the writer
 
 **System**
 - **Activity**, **Usage**, **Controls**, **Settings**, **Help**. Usage shows Claude or Codex quota gauges and per-agent token counts, with no dollar figures: you're on a subscription and aren't billed per token, so showing costs would be made up.
 
 | Outbox | Conversations |
 |---|---|
-| <picture><source media="(prefers-color-scheme: dark)" srcset="docs/screenshots/outbox-dark.png"><img alt="The outbox decisions desk: a drafted reply to an objection, with the company, contact, verification and signals beside it" src="docs/screenshots/outbox-light.png"></picture> | <picture><source media="(prefers-color-scheme: dark)" srcset="docs/screenshots/conversations-dark.png"><img alt="A conversation Harvey handed back: the two emails sent, the prospect asking for a contract, and the Hand back to Harvey and Close buttons" src="docs/screenshots/conversations-light.png"></picture> |
+| <picture><source media="(prefers-color-scheme: dark)" srcset="docs/screenshots/outbox-dark.png"><img alt="The outbox decisions desk: a drafted reply to an objection, with the company, contact, verification and signals beside it" src="docs/screenshots/outbox-light.png"></picture> | <picture><source media="(prefers-color-scheme: dark)" srcset="docs/screenshots/conversations-dark.png"><img alt="A conversation Sellbird handed back: the two emails sent, the prospect asking for a contract, and the Hand back to Sellbird and Close buttons" src="docs/screenshots/conversations-light.png"></picture> |
 
 Colour is kept for meaning. The chrome is neutral and a single blue marks what you can act on. Status (waiting on you, done, failed, running) uses the same small set of tones in every tab, so "waiting on you" looks the same wherever it shows up. Figures are tabular, so columns line up and a changing number doesn't shift the layout.
 
@@ -571,7 +571,7 @@ Appearance has three states: `auto` follows your OS and is the default, or pick 
 
 ## How the data is stored
 
-SQLite at `data/harvey.db`. One idea drives the schema:
+SQLite at `data/sellbird.db`. One idea drives the schema:
 
 > **Every fact is a row, never a column.**
 
@@ -601,7 +601,7 @@ Two files, both plain text.
 
 **`.env`** — credentials. Every variable documented inline with where to get it. The only required one is a mail provider; everything else is optional.
 
-**`harvey.yaml`** — who Harvey is and who it sells to:
+**`sellbird.yaml`** — who Sellbird is and who it sells to:
 
 ```yaml
 persona:      { name, company, role, email, tone }
@@ -618,32 +618,32 @@ writer:       { humanizer }   # optional; true adds one editing pass per batch u
 
 `max_daily_claude_percent` caps whichever subscription `brain.provider` uses (the name predates Codex support).
 
-If `harvey.local.yaml` exists it wins. It's gitignored, so a fork can carry real product configuration while the tracked `harvey.yaml` stays a template — nobody publishes their positioning and pricing by accident.
+If `sellbird.local.yaml` exists it wins. It's gitignored, so a fork can carry real product configuration while the tracked `sellbird.yaml` stays a template — nobody publishes their positioning and pricing by accident.
 
 ### Commands
 
 ```bash
-harvey run                   # the heartbeat loop
-harvey dashboard             # web UI at 127.0.0.1:5555 (--url: print the unlock link)
-harvey signals               # review/confirm what to prospect against
-harvey discover              # find businesses; --providers / --estimate
-harvey profile               # read discovered companies' sites (free)
-harvey train <url>           # learn a product from its website (--provider codex --model gpt-5.5)
-harvey status                # pipeline summary
-harvey usage                 # active provider's quota + per-agent tokens
-harvey outbox                # review queued email
-harvey export                # deliverable prospects → CSV
-harvey companies             # company register → CSV: every company, fit, and why it wasn't contacted
-harvey sending pause|resume  # kill switch
-harvey warmup [domain]       # is the sending domain ready? (SPF/DKIM/DMARC, age, blocklists, warmup)
-harvey trulyinbox connect    # connect TrulyInbox so Harvey reads the mailbox's warmup
-harvey retry-writes          # retry prospects the Writer gave up on
-harvey gmail auth            # one-time Gmail OAuth
-harvey microsoft auth|test  # one-time Microsoft 365 sign-in (docs/microsoft365.md)
+sellbird run                   # the heartbeat loop
+sellbird dashboard             # web UI at 127.0.0.1:5555 (--url: print the unlock link)
+sellbird signals               # review/confirm what to prospect against
+sellbird discover              # find businesses; --providers / --estimate
+sellbird profile               # read discovered companies' sites (free)
+sellbird train <url>           # learn a product from its website (--provider codex --model gpt-5.5)
+sellbird status                # pipeline summary
+sellbird usage                 # active provider's quota + per-agent tokens
+sellbird outbox                # review queued email
+sellbird export                # deliverable prospects → CSV
+sellbird companies             # company register → CSV: every company, fit, and why it wasn't contacted
+sellbird sending pause|resume  # kill switch
+sellbird warmup [domain]       # is the sending domain ready? (SPF/DKIM/DMARC, age, blocklists, warmup)
+sellbird trulyinbox connect    # connect TrulyInbox so Sellbird reads the mailbox's warmup
+sellbird retry-writes          # retry prospects the Writer gave up on
+sellbird gmail auth            # one-time Gmail OAuth
+sellbird microsoft auth|test  # one-time Microsoft 365 sign-in (docs/microsoft365.md)
 ```
 
 Prospect CSV exports exclude opted-out contacts, including when using
-`--status` or `--email-status` filters. `harvey export --all` is an unfiltered
+`--status` or `--email-status` filters. `sellbird export --all` is an unfiltered
 raw-data export for inspection: it includes opted-out and unverified contacts
 and should not be imported as an outreach list. The dashboard's prospect CSV
 download follows the same policy; `?all=true` selects its raw export.
@@ -651,14 +651,14 @@ download follows the same policy; `?all=true` selects its raw export.
 
 ## Using a ChatGPT plan instead (Codex)
 
-Claude is the default and needs no change. If you'd rather spend a ChatGPT plan (Plus, Pro, Business, …), Harvey can think through the [Codex CLI](https://developers.openai.com/codex) instead — still a subscription, never per-token API billing.
+Claude is the default and needs no change. If you'd rather spend a ChatGPT plan (Plus, Pro, Business, …), Sellbird can think through the [Codex CLI](https://developers.openai.com/codex) instead — still a subscription, never per-token API billing.
 
 ```bash
-npm install -g @openai/codex@0.159.3   # the Codex version Harvey has verified (see Requirements)
+npm install -g @openai/codex@0.159.3   # the Codex version Sellbird has verified (see Requirements)
 codex login                            # choose "Sign in with ChatGPT" — API-key logins are refused
 ```
 
-Then either pick **codex** in `harvey setup` (it suggests `gpt-5.5`), run `harvey train <url> --provider codex --model gpt-5.5`, or add to your config:
+Then either pick **codex** in `sellbird setup` (it suggests `gpt-5.5`), run `sellbird train <url> --provider codex --model gpt-5.5`, or add to your config:
 
 ```yaml
 brain:
@@ -669,34 +669,34 @@ brain:
 
 What to know:
 
-- **It's one or the other.** Harvey uses exactly the provider you configure. If Codex fails, the call fails with a clear log message; it never falls back to Claude (or to an API key). A Codex-only machine doesn't need Claude installed.
-- **Your Codex setup is left alone.** Each call runs throwaway `codex` processes in a private temporary home and empty workspace, so your `~/.codex/config.toml`, MCP servers, plugins, hooks, skills, `AGENTS.md` and memories are never loaded, and Harvey's model choice never changes your own Codex default.
-- **No tools, verified before every prompt.** Prompts contain untrusted text (prospect replies, scraped pages), so the model must have nothing to act with. Harvey disables every tool-providing Codex feature, web search, sub-agents, hooks, skills and project instructions, starts the thread with no execution environment, and then checks Codex's own reports (effective config, account type, thread settings, MCP status, hooks) before sending anything. Anything it can't confirm stops the call. During the turn, any attempted tool call, approval request or non-text item kills the runtime. A read-only sandbox is also set, as extra protection only.
-- **Your login only goes to OpenAI.** Before your login is put into the runtime at all, Harvey starts Codex without it and checks that requests would go to the built-in OpenAI provider and the default ChatGPT endpoint. Any custom provider, overridden built-in provider, base URL, telemetry exporter or other endpoint in any Codex config layer (for example `/etc/codex/config.toml` or a managed config) stops the call there.
-- **Login handling.** Harvey supports Codex's file credential storage (`~/.codex/auth.json`, or `$CODEX_HOME/auth.json`, mode `600`): the default unless you've configured an OS keyring. Keyring storage isn't supported. On every call Harvey reads that file (read-only, never writing or moving it) and gives the runtime a private copy *without the refresh token*, deleted after the call. Codex therefore can't change or renew your real login. When the login has expired, or is due for Codex's routine renewal (after about 8 days), Codex calls stop with "Your Codex login has expired or is due for renewal". Use Codex once yourself (it renews the login automatically) or run `codex login`, and Harvey picks up the renewed login on its next call. Harvey never renews it for you.
-- **Models.** Set `brain.model` to an exact model ID from your account's catalog, including Luna, Sol, and Terra models such as `gpt-5.6-luna`, `gpt-6.1-sol`, and `gpt-5.6-terra`. `gpt-5.5` remains supported when present in your account's catalog and is the setup suggestion. Harvey creates a private catalog copy that preserves model capabilities while selecting direct tool mode and removing experimental tools. The model receives no tools under Harvey's lockdown. A blank `model` selects the highest-priority listed model that can use this configuration; hidden models require an explicit ID. An explicit model is used exactly or the call fails. Unknown model IDs and unrecognized tool modes are rejected. Availability depends on your ChatGPT account.
-- **Quota.** The budget gate and dashboard read your ChatGPT plan's real rate-limit windows from Codex, for the limit bucket that applies to your model, and compare them to `usage.max_daily_claude_percent`. If Codex reports that usage is blocked, or a call fails on the plan's usage limit, Harvey treats the plan as full (even when no window is reported) and stops Codex calls for an hour. If the limits can't be read, the dashboard and `harvey usage` say "Quota unavailable" and the budget falls back to Harvey's own daily call count. Usage is recorded per provider; Codex calls are logged with tokens but no dollar cost, because the plan isn't billed per token.
-- **When Codex can't be used, Harvey pauses rather than guessing.** Before each heartbeat, Harvey checks everything a call needs except the prompt itself: the Codex CLI version, the isolation, your login (expired or due for renewal), your ChatGPT account, and that your configured model can run with no tools. No prompt is sent, so nothing is used from your plan beyond a quick account check. If something is wrong, the whole cycle is skipped: no reply is read or marked handled, nothing is drafted or sent. The log line, `harvey status`, and the dashboard's Actions card say "Codex paused" and why. If Codex stops working part-way through a cycle (for example the plan hits its usage limit), the reply being handled is left exactly as it was for a clean retry, not escalated, half-recorded or lost, and that cycle sends nothing. Fix the cause (usually `codex login`), and Harvey resumes on its next heartbeat: a renewed login or reinstalled CLI is noticed immediately, a usage-limit pause ends after an hour, and other fixes are picked up within 30 minutes. `harvey status --check` runs the same check on demand and exits non-zero if it fails. Brief failures (a crash or timeout) just skip one cycle. Harvey never falls back to Claude or an API key.
-- **Requirements.** **macOS or Linux**, Codex CLI **0.159.3** exactly, and Node.js for its npm package. **Windows isn't supported for Codex:** Harvey refuses it there before reading your login; use the Claude provider on Windows. Harvey checks the Codex version before every call and refuses any other version, including newer ones, because a different Codex can add tools Harvey's lockdown doesn't know about. Support for a new version comes with a Harvey update. Live use with a real ChatGPT account has been verified on macOS and ARM64 Linux. The offline suites also passed on x86-64 Linux under CPU emulation; CI covers Linux and macOS. The Docker image ships the Claude CLI only, so Codex isn't supported in Docker. To re-verify the lockdown offline against your installed CLI, with no credentials or network: `HARVEY_CODEX_CLI_TESTS=1 pytest tests/test_codex_cli_surface.py`.
+- **It's one or the other.** Sellbird uses exactly the provider you configure. If Codex fails, the call fails with a clear log message; it never falls back to Claude (or to an API key). A Codex-only machine doesn't need Claude installed.
+- **Your Codex setup is left alone.** Each call runs throwaway `codex` processes in a private temporary home and empty workspace, so your `~/.codex/config.toml`, MCP servers, plugins, hooks, skills, `AGENTS.md` and memories are never loaded, and Sellbird's model choice never changes your own Codex default.
+- **No tools, verified before every prompt.** Prompts contain untrusted text (prospect replies, scraped pages), so the model must have nothing to act with. Sellbird disables every tool-providing Codex feature, web search, sub-agents, hooks, skills and project instructions, starts the thread with no execution environment, and then checks Codex's own reports (effective config, account type, thread settings, MCP status, hooks) before sending anything. Anything it can't confirm stops the call. During the turn, any attempted tool call, approval request or non-text item kills the runtime. A read-only sandbox is also set, as extra protection only.
+- **Your login only goes to OpenAI.** Before your login is put into the runtime at all, Sellbird starts Codex without it and checks that requests would go to the built-in OpenAI provider and the default ChatGPT endpoint. Any custom provider, overridden built-in provider, base URL, telemetry exporter or other endpoint in any Codex config layer (for example `/etc/codex/config.toml` or a managed config) stops the call there.
+- **Login handling.** Sellbird supports Codex's file credential storage (`~/.codex/auth.json`, or `$CODEX_HOME/auth.json`, mode `600`): the default unless you've configured an OS keyring. Keyring storage isn't supported. On every call Sellbird reads that file (read-only, never writing or moving it) and gives the runtime a private copy *without the refresh token*, deleted after the call. Codex therefore can't change or renew your real login. When the login has expired, or is due for Codex's routine renewal (after about 8 days), Codex calls stop with "Your Codex login has expired or is due for renewal". Use Codex once yourself (it renews the login automatically) or run `codex login`, and Sellbird picks up the renewed login on its next call. Sellbird never renews it for you.
+- **Models.** Set `brain.model` to an exact model ID from your account's catalog, including Luna, Sol, and Terra models such as `gpt-5.6-luna`, `gpt-6.1-sol`, and `gpt-5.6-terra`. `gpt-5.5` remains supported when present in your account's catalog and is the setup suggestion. Sellbird creates a private catalog copy that preserves model capabilities while selecting direct tool mode and removing experimental tools. The model receives no tools under Sellbird's lockdown. A blank `model` selects the highest-priority listed model that can use this configuration; hidden models require an explicit ID. An explicit model is used exactly or the call fails. Unknown model IDs and unrecognized tool modes are rejected. Availability depends on your ChatGPT account.
+- **Quota.** The budget gate and dashboard read your ChatGPT plan's real rate-limit windows from Codex, for the limit bucket that applies to your model, and compare them to `usage.max_daily_claude_percent`. If Codex reports that usage is blocked, or a call fails on the plan's usage limit, Sellbird treats the plan as full (even when no window is reported) and stops Codex calls for an hour. If the limits can't be read, the dashboard and `sellbird usage` say "Quota unavailable" and the budget falls back to Sellbird's own daily call count. Usage is recorded per provider; Codex calls are logged with tokens but no dollar cost, because the plan isn't billed per token.
+- **When Codex can't be used, Sellbird pauses rather than guessing.** Before each heartbeat, Sellbird checks everything a call needs except the prompt itself: the Codex CLI version, the isolation, your login (expired or due for renewal), your ChatGPT account, and that your configured model can run with no tools. No prompt is sent, so nothing is used from your plan beyond a quick account check. If something is wrong, the whole cycle is skipped: no reply is read or marked handled, nothing is drafted or sent. The log line, `sellbird status`, and the dashboard's Actions card say "Codex paused" and why. If Codex stops working part-way through a cycle (for example the plan hits its usage limit), the reply being handled is left exactly as it was for a clean retry, not escalated, half-recorded or lost, and that cycle sends nothing. Fix the cause (usually `codex login`), and Sellbird resumes on its next heartbeat: a renewed login or reinstalled CLI is noticed immediately, a usage-limit pause ends after an hour, and other fixes are picked up within 30 minutes. `sellbird status --check` runs the same check on demand and exits non-zero if it fails. Brief failures (a crash or timeout) just skip one cycle. Sellbird never falls back to Claude or an API key.
+- **Requirements.** **macOS or Linux**, Codex CLI **0.159.3** exactly, and Node.js for its npm package. **Windows isn't supported for Codex:** Sellbird refuses it there before reading your login; use the Claude provider on Windows. Sellbird checks the Codex version before every call and refuses any other version, including newer ones, because a different Codex can add tools Sellbird's lockdown doesn't know about. Support for a new version comes with a Sellbird update. Live use with a real ChatGPT account has been verified on macOS and ARM64 Linux. The offline suites also passed on x86-64 Linux under CPU emulation; CI covers Linux and macOS. The Docker image ships the Claude CLI only, so Codex isn't supported in Docker. To re-verify the lockdown offline against your installed CLI, with no credentials or network: `SELLBIRD_CODEX_CLI_TESTS=1 pytest tests/test_codex_cli_surface.py`.
 - **Overhead.** Each call checks the CLI version, starts Codex once without your login to verify its configuration, reads the model catalog, then starts it again to run the prompt; each heartbeat's check does the same without the prompt. That adds a few seconds per call, and one Brain's Codex calls run one at a time.
 
 ---
 
 ## Legal and deliverability
 
-Harvey automates outreach, but **you are the sender.** Cold email is legal in most places when done right and expensive when done wrong — CAN-SPAM penalties run to $53,088 per email. Harvey ships with compliant defaults. Keep them.
+Sellbird automates outreach, but **you are the sender.** Cold email is legal in most places when done right and expensive when done wrong — CAN-SPAM penalties run to $53,088 per email. Sellbird ships with compliant defaults. Keep them.
 
-**CAN-SPAM (US).** Truthful subject line and accurate from-address — Harvey's copywriting rules forbid fake "re:" threads and impersonation. A working opt-out, honored fast: every cold email ends with an opt-out line (`compliance.opt_out_line`, default *Not interested? Reply "no thanks" and I won't email again.*), and Harvey treats any opt-out wording as immediate and permanent, wherever in the reply the person wrote it (including a bare "STOP" or "No thanks"). If the same reply threatens legal action or complains ("stop emailing me, my attorney will be in touch"), the opt-out still stands and the conversation goes to you as well. Nothing Harvey does later moves someone off *opted out*: a later message from them is kept for you to read, never answered, and a complaint still goes to you. To see why someone was opted out (the rule that fired, the words, and their message), click **Why?** on their row in Contacts. If it was a mistake, **Undo opt-out** there marks them as replied: Harvey sends nothing on its own, and their next reply gets a draft for your approval. Your physical mailing address in the footer: set `compliance.postal_address` in `harvey.yaml` before your first campaign. Harvey adds both lines under every cold email when it sends (replies don't get them), shows them under each draft in the Outbox, and warns on `harvey run`, `harvey status` and the Outbox tab until the address is set. Text in a reply that repeats what Harvey wrote for that person (its emails, campaign templates, and every footer it has used) is set aside as quoted, not read as their words, so quoting Harvey's own footer isn't an opt-out; the model also reads replies without the quoted email. The opt-out line must ask for a reply Harvey recognises (`Reply "no thanks"`, `Reply STOP`, also "unsubscribe", "remove me", "opt out") and can't contain a link or email address. Hebrew works the same way: a line such as `השיבו "הסר"` or `תגידו לי "לא תודה"` is accepted, and Harvey catches Hebrew opt-outs without the model: a bare "הסר", "תורידו אותי מהרשימה", "תפסיקו לשלוח", "אל תכתבו לי", "לא מעוניין, תודה". A Hebrew legal threat or complaint ("עורכת הדין שלי", "אתבע אתכם", "תלונה על ספאם", "חוק הספאם") comes to you the same way, with no draft, while "תביעות ביטוח" or "סליחה על ההטרדה" are read as ordinary replies. Spanish too: `Responda BAJA` or `Responda "no, gracias"` is accepted, and Harvey catches "no, gracias", a bare "BAJA", "denme de baja", "no me escriba más", "dejen de enviarme correos", "sáquenme de su lista" and "no me interesa" said on its own, but not "¡cómo no, gracias!", "queremos dar de baja a nuestro proveedor actual" or "no me interesa el plan anual, pero sí el mensual", which go to the model. Spanish legal threats aren't matched by rule yet; the model reads those.
+**CAN-SPAM (US).** Truthful subject line and accurate from-address — Sellbird's copywriting rules forbid fake "re:" threads and impersonation. A working opt-out, honored fast: every cold email ends with an opt-out line (`compliance.opt_out_line`, default *Not interested? Reply "no thanks" and I won't email again.*), and Sellbird treats any opt-out wording as immediate and permanent, wherever in the reply the person wrote it (including a bare "STOP" or "No thanks"). If the same reply threatens legal action or complains ("stop emailing me, my attorney will be in touch"), the opt-out still stands and the conversation goes to you as well. Nothing Sellbird does later moves someone off *opted out*: a later message from them is kept for you to read, never answered, and a complaint still goes to you. To see why someone was opted out (the rule that fired, the words, and their message), click **Why?** on their row in Contacts. If it was a mistake, **Undo opt-out** there marks them as replied: Sellbird sends nothing on its own, and their next reply gets a draft for your approval. Your physical mailing address in the footer: set `compliance.postal_address` in `sellbird.yaml` before your first campaign. Sellbird adds both lines under every cold email when it sends (replies don't get them), shows them under each draft in the Outbox, and warns on `sellbird run`, `sellbird status` and the Outbox tab until the address is set. Text in a reply that repeats what Sellbird wrote for that person (its emails, campaign templates, and every footer it has used) is set aside as quoted, not read as their words, so quoting Sellbird's own footer isn't an opt-out; the model also reads replies without the quoted email. The opt-out line must ask for a reply Sellbird recognises (`Reply "no thanks"`, `Reply STOP`, also "unsubscribe", "remove me", "opt out") and can't contain a link or email address. Hebrew works the same way: a line such as `השיבו "הסר"` or `תגידו לי "לא תודה"` is accepted, and Sellbird catches Hebrew opt-outs without the model: a bare "הסר", "תורידו אותי מהרשימה", "תפסיקו לשלוח", "אל תכתבו לי", "לא מעוניין, תודה". A Hebrew legal threat or complaint ("עורכת הדין שלי", "אתבע אתכם", "תלונה על ספאם", "חוק הספאם") comes to you the same way, with no draft, while "תביעות ביטוח" or "סליחה על ההטרדה" are read as ordinary replies. Spanish too: `Responda BAJA` or `Responda "no, gracias"` is accepted, and Sellbird catches "no, gracias", a bare "BAJA", "denme de baja", "no me escriba más", "dejen de enviarme correos", "sáquenme de su lista" and "no me interesa" said on its own, but not "¡cómo no, gracias!", "queremos dar de baja a nuestro proveedor actual" or "no me interesa el plan anual, pero sí el mensual", which go to the model. Spanish legal threats aren't matched by rule yet; the model reads those.
 
-**Do not contact.** List competitors, existing customers, or anyone else Harvey must never email under `compliance.do_not_contact`, one address or domain per line, in the config file Harvey reads: `harvey.local.yaml` if you trained Harvey (that file wins), otherwise `harvey.yaml`. A domain covers its subdomains (`acme.example` also blocks `mail.acme.example`, not `notacme.example`), an address covers its plus-tags (`jane@` also blocks `jane+news@`), and a pasted link such as `https://www.acme.example/about` or `Jane Doe <jane@acme.example>` counts as what it names. An entry that is neither an address nor a domain stops Harvey from starting, with the entry named, rather than quietly protecting nobody. A running Harvey picks up an edit at once, and the send gate checks the list as each email leaves, cold or reply, so it holds even for an email you already approved. If someone on the list writes back, Harvey doesn't draft an answer: the conversation comes to you. `harvey export` and the dashboard's Export buttons leave them out too. On Instantly, listed leads are left out of the upload and a reply to one comes to you, but Harvey can't take back a lead Instantly already has: remove it there.
+**Do not contact.** List competitors, existing customers, or anyone else Sellbird must never email under `compliance.do_not_contact`, one address or domain per line, in the config file Sellbird reads: `sellbird.local.yaml` if you trained Sellbird (that file wins), otherwise `sellbird.yaml`. A domain covers its subdomains (`acme.example` also blocks `mail.acme.example`, not `notacme.example`), an address covers its plus-tags (`jane@` also blocks `jane+news@`), and a pasted link such as `https://www.acme.example/about` or `Jane Doe <jane@acme.example>` counts as what it names. An entry that is neither an address nor a domain stops Sellbird from starting, with the entry named, rather than quietly protecting nobody. A running Sellbird picks up an edit at once, and the send gate checks the list as each email leaves, cold or reply, so it holds even for an email you already approved. If someone on the list writes back, Sellbird doesn't draft an answer: the conversation comes to you. `sellbird export` and the dashboard's Export buttons leave them out too. On Instantly, listed leads are left out of the upload and a reply to one comes to you, but Sellbird can't take back a lead Instantly already has: remove it there.
 
-**GDPR / PECR (EU & UK).** B2B cold email needs a defensible legitimate interest: the pitch must be genuinely relevant to that person's role, you must know where the data came from, and objecting must be effortless. If you can't say why a specific person would care, Harvey shouldn't email them — and its qualification rules say so.
+**GDPR / PECR (EU & UK).** B2B cold email needs a defensible legitimate interest: the pitch must be genuinely relevant to that person's role, you must know where the data came from, and objecting must be effortless. If you can't say why a specific person would care, Sellbird shouldn't email them — and its qualification rules say so.
 
-**Per-recipient check (optional).** Those rules turn on facts about each recipient: a UK sole trader needs consent where a limited company doesn't, Germany wants prior consent even for business email, and Canada's CASL depends on whether the address was published. With `compliance.precleared.enabled: true`, Harvey asks [Precleared](https://precleared.dev) about each new recipient before the first cold email. Anything other than `ok_to_email` holds that email back, with the rule and the next step shown in the Outbox, and the signed receipt id is logged with every send. One check per address, cached for 30 days (changing the sender country, address source, product description or the country sent with it triggers a fresh check); replies are never checked; native providers (Gmail, Microsoft 365, SMTP) only. Harvey tells Precleared the recipient's country when it is sure of it from the company's location (a country, a US state, a Canadian province or an Australian state named there, as for the send window), and Precleared takes that as settled; otherwise Precleared works the country out from the address, company records or the company's website. If all your prospects are in one country, also set `prospect_country` (for example `US`), which Precleared uses only when none of those show it; without it, the one country every `icp.geography` entry is in serves as that default. Precleared receives the recipient's address, your sender country, the address source, your product description and the recipient's country when Harvey is sure of it, else your prospects' country if there is one. It also receives the company's name and the person's name when Harvey has them, which it uses to find a UK company on the Companies House register when the domain alone doesn't (it doesn't store the person's name). Without a key it allows 10 checks a day, and a free key (`PRECLEARED_API_KEY`) allows 25. Put the setting in `harvey.yaml`, or in `harvey.local.yaml` if you trained Harvey, since that file wins. [docs/precleared.md](docs/precleared.md) has the details, verdict by verdict.
+**Per-recipient check (optional).** Those rules turn on facts about each recipient: a UK sole trader needs consent where a limited company doesn't, Germany wants prior consent even for business email, and Canada's CASL depends on whether the address was published. With `compliance.precleared.enabled: true`, Sellbird asks [Precleared](https://precleared.dev) about each new recipient before the first cold email. Anything other than `ok_to_email` holds that email back, with the rule and the next step shown in the Outbox, and the signed receipt id is logged with every send. One check per address, cached for 30 days (changing the sender country, address source, product description or the country sent with it triggers a fresh check); replies are never checked; native providers (Gmail, Microsoft 365, SMTP) only. Sellbird tells Precleared the recipient's country when it is sure of it from the company's location (a country, a US state, a Canadian province or an Australian state named there, as for the send window), and Precleared takes that as settled; otherwise Precleared works the country out from the address, company records or the company's website. If all your prospects are in one country, also set `prospect_country` (for example `US`), which Precleared uses only when none of those show it; without it, the one country every `icp.geography` entry is in serves as that default. Precleared receives the recipient's address, your sender country, the address source, your product description and the recipient's country when Sellbird is sure of it, else your prospects' country if there is one. It also receives the company's name and the person's name when Sellbird has them, which it uses to find a UK company on the Companies House register when the domain alone doesn't (it doesn't store the person's name). Without a key it allows 10 checks a day, and a free key (`PRECLEARED_API_KEY`) allows 25. Put the setting in `sellbird.yaml`, or in `sellbird.local.yaml` if you trained Sellbird, since that file wins. [docs/precleared.md](docs/precleared.md) has the details, verdict by verdict.
 
-**If the check is held up.** When Precleared can't answer (the day's free checks are used up, the key is out of checks, was rejected or is being rate limited, or Precleared can't be reached), cold email to new addresses waits and replies still go out; email to people Precleared has already cleared keeps going. If Precleared can't check one address, that email is tried again six hours later and the rest carry on, unless that happens at two different domains with no answer in between, which holds new addresses as above. The Today page and `harvey status` say how many cold emails are waiting on the check and what fixes it.
+**If the check is held up.** When Precleared can't answer (the day's free checks are used up, the key is out of checks, was rejected or is being rate limited, or Precleared can't be reached), cold email to new addresses waits and replies still go out; email to people Precleared has already cleared keeps going. If Precleared can't check one address, that email is tried again six hours later and the rest carry on, unless that happens at two different domains with no answer in between, which holds new addresses as above. The Today page and `sellbird status` say how many cold emails are waiting on the check and what fixes it.
 
-**Bot disclosure.** Some jurisdictions require disclosing automation. Harvey is instructed to answer truthfully, always, if a prospect asks whether they're talking to an AI. Never configure it otherwise.
+**Bot disclosure.** Some jurisdictions require disclosing automation. Sellbird is instructed to answer truthfully, always, if a prospect asks whether they're talking to an AI. Never configure it otherwise.
 
 **LinkedIn.** Browser automation violates LinkedIn's ToS and can get the account restricted. Off by default. If you turn it on, use an account you can afford to lose.
 
@@ -707,77 +707,77 @@ your explicit choice.
 **Deliverability — warm up or burn out.** Sending cold email from your main domain, or at volume on day one, lands you in spam permanently.
 
 1. Buy a **dedicated sending domain** (`getacme.com`, not `acme.com`).
-2. Set up **SPF, DKIM and DMARC** on it. Without all three, Gmail junks you. `harvey warmup` checks them, plus domain age, blocklists, your warmup progress and bounce rate, and ends with READY / NOT READY. It only reads public DNS and Harvey's own records.
-3. **Warm up for 2–4 weeks** before real volume, and keep warmup running after. We recommend [TrulyInbox](https://trulyinbox.com/?via=harvey); see [Warmup with TrulyInbox](#warmup-with-trulyinbox).
-4. **Ramp slowly** — 10–20/day per inbox, adding ~5/day. The `max_daily_sends: 50` default is a ceiling, not a target. Set `channels.email.warmup.start_date` and Harvey does this for you (Gmail, Microsoft, SMTP; Instantly has its own warmup): no cold email for `min_days`, then a cold-email cap that climbs by `daily_increase` a day. Replies always go out.
-5. **Watch bounces.** Above ~3%, stop and fix list quality. Harvey trips its own kill switch past your configured threshold.
+2. Set up **SPF, DKIM and DMARC** on it. Without all three, Gmail junks you. `sellbird warmup` checks them, plus domain age, blocklists, your warmup progress and bounce rate, and ends with READY / NOT READY. It only reads public DNS and Sellbird's own records.
+3. **Warm up for 2–4 weeks** before real volume, and keep warmup running after. We recommend [TrulyInbox](https://trulyinbox.com/?via=sellbird); see [Warmup with TrulyInbox](#warmup-with-trulyinbox).
+4. **Ramp slowly** — 10–20/day per inbox, adding ~5/day. The `max_daily_sends: 50` default is a ceiling, not a target. Set `channels.email.warmup.start_date` and Sellbird does this for you (Gmail, Microsoft, SMTP; Instantly has its own warmup): no cold email for `min_days`, then a cold-email cap that climbs by `daily_increase` a day. Replies always go out.
+5. **Watch bounces.** Above ~3%, stop and fix list quality. Sellbird trips its own kill switch past your configured threshold.
 
 *None of this is legal advice. Sending at scale or into regulated industries? Talk to a lawyer.*
 
 ### Warmup with TrulyInbox
 
 Whether a mailbox is warmed isn't something DNS can tell you: only the warmup
-service sees where its mail lands. We recommend [TrulyInbox](https://trulyinbox.com/?via=harvey), and Harvey
-connects to it so `harvey warmup` can say whether your mailbox is actually ready:
+service sees where its mail lands. We recommend [TrulyInbox](https://trulyinbox.com/?via=sellbird), and Sellbird
+connects to it so `sellbird warmup` can say whether your mailbox is actually ready:
 
-1. **Get TrulyInbox** at [trulyinbox.com](https://trulyinbox.com/?via=harvey) and add your sending mailbox.
-   Connecting Harvey needs API access, which starts on the Starter plan.
+1. **Get TrulyInbox** at [trulyinbox.com](https://trulyinbox.com/?via=sellbird) and add your sending mailbox.
+   Connecting Sellbird needs API access, which starts on the Starter plan.
 2. **Create a key.** In TrulyInbox, open Settings > API keys and create a
    workspace key with `accounts:read`, `warmup:read`, `analytics:read` and
    `workspace:read`.
-3. **Connect it**: `harvey trulyinbox connect`, or paste it into the warmup step
-   on the dashboard's Today page. Harvey checks the key before saving it to `.env`.
+3. **Connect it**: `sellbird trulyinbox connect`, or paste it into the warmup step
+   on the dashboard's Today page. Sellbird checks the key before saving it to `.env`.
 
-`harvey warmup` then reads the mailbox from TrulyInbox and calls it ready only
+`sellbird warmup` then reads the mailbox from TrulyInbox and calls it ready only
 when it's enrolled, signed in, has warmed for `min_days` (14 by default), and
-less than 5% of its warmup mail landed in spam. Harvey only reads: it never
+less than 5% of its warmup mail landed in spam. Sellbird only reads: it never
 enrolls, pauses or changes anything in your TrulyInbox account.
 
-Already warming with another service? `harvey trulyinbox other` (or *I use
-another service* on the dashboard) and Harvey stops suggesting it.
+Already warming with another service? `sellbird trulyinbox other` (or *I use
+another service* on the dashboard) and Sellbird stops suggesting it.
 
 ---
 
 ## Troubleshooting
 
-**`command not found: harvey`** — `source .venv/bin/activate` first.
+**`command not found: sellbird`** — `source .venv/bin/activate` first.
 
-**`ModuleNotFoundError: No module named 'harvey'` after install (macOS)** — Python 3.13 silently ignores `.pth` files carrying the macOS hidden flag, and some Macs propagate that flag into `.venv`. Run `harvey install` again (it auto-fixes), or: `ln -s "$(pwd)/harvey" .venv/lib/python3.13/site-packages/harvey`
+**`ModuleNotFoundError: No module named 'sellbird'` after install (macOS)** — Python 3.13 silently ignores `.pth` files carrying the macOS hidden flag, and some Macs propagate that flag into `.venv`. Run `sellbird install` again (it auto-fixes), or: `ln -s "$(pwd)/sellbird" .venv/lib/python3.13/site-packages/sellbird`
 
 **`externally-managed-environment`** — Use a venv, not system Python.
 
 **`SyntaxError` or odd `ImportError`s right after install (macOS)** — Your venv is Python 3.9. `python3 -m venv` builds from `/usr/bin/python3`, which macOS keeps at 3.9. Check with `.venv/bin/python -V`, then rebuild: `rm -rf .venv && python3.13 -m venv .venv && source .venv/bin/activate && pip install -e .`
 
-**Claude headless mode fails** — `claude login`, and confirm the subscription is active. Test with `claude -p "say hi"`. In Docker, mount `~/.claude` into the container (writable: the CLI refreshes its login there). If the log says the Claude CLI "lacks --safe-mode" (or another flag), run `claude update` (in Docker, rebuild the image); Harvey resumes on its own. If your Claude login depends on `env` or `apiKeyHelper` entries in your Claude settings files, set those variables in Harvey's environment instead: Harvey's calls don't read settings files. `harvey status --check` confirms the CLI without sending a prompt.
+**Claude headless mode fails** — `claude login`, and confirm the subscription is active. Test with `claude -p "say hi"`. In Docker, mount `~/.claude` into the container (writable: the CLI refreshes its login there). If the log says the Claude CLI "lacks --safe-mode" (or another flag), run `claude update` (in Docker, rebuild the image); Sellbird resumes on its own. If your Claude login depends on `env` or `apiKeyHelper` entries in your Claude settings files, set those variables in Sellbird's environment instead: Sellbird's calls don't read settings files. `sellbird status --check` confirms the CLI without sending a prompt.
 
-**Dashboard says "locked"** — Open the link `harvey dashboard` printed (or `harvey dashboard --url`). If it says the token file can't be used, follow the message: usually delete `data/dashboard-token` and restart the dashboard. Visit it as `127.0.0.1` or `localhost`; other host names are refused.
+**Dashboard says "locked"** — Open the link `sellbird dashboard` printed (or `sellbird dashboard --url`). If it says the token file can't be used, follow the message: usually delete `data/dashboard-token` and restart the dashboard. Visit it as `127.0.0.1` or `localhost`; other host names are refused.
 
-**Codex calls fail** — Read the log line; every Codex error says what to do. "Not logged in" or "expired or is due for renewal" → use Codex once or run `codex login` with ChatGPT. "Hasn't been verified with Harvey" → install the supported Codex version named in the message. "Isolation could not be verified" → a Codex config layer outside your `~/.codex` (for example a managed or `/etc/codex` config) forces a tool, hook, MCP server, instructions or custom endpoint back on; Harvey refuses to send prompts until it's gone. Model catalog errors → choose an available model ID from the catalog shown in the message, or leave `brain.model` blank to select a listed model. Harvey never switches to Claude on its own.
+**Codex calls fail** — Read the log line; every Codex error says what to do. "Not logged in" or "expired or is due for renewal" → use Codex once or run `codex login` with ChatGPT. "Hasn't been verified with Sellbird" → install the supported Codex version named in the message. "Isolation could not be verified" → a Codex config layer outside your `~/.codex` (for example a managed or `/etc/codex` config) forces a tool, hook, MCP server, instructions or custom endpoint back on; Sellbird refuses to send prompts until it's gone. Model catalog errors → choose an available model ID from the catalog shown in the message, or leave `brain.model` blank to select a listed model. Sellbird never switches to Claude on its own.
 
-**Discovery finds nothing** — Confirm signals first (`harvey signals --confirm free`); nothing is collected until you do. If you're on the free OpenStreetMap source, it only covers mapped trades and is thin for service-area businesses — `harvey discover --providers` shows the alternatives.
+**Discovery finds nothing** — Confirm signals first (`sellbird signals --confirm free`); nothing is collected until you do. If you're on the free OpenStreetMap source, it only covers mapped trades and is thin for service-area businesses — `sellbird discover --providers` shows the alternatives.
 
-**Overpass is throttling** — It's free volunteer infrastructure. Harvey walks three mirrors before giving up. Wait a few minutes, or use a paid provider for bulk work.
+**Overpass is throttling** — It's free volunteer infrastructure. Sellbird walks three mirrors before giving up. Wait a few minutes, or use a paid provider for bulk work.
 
-**Emails land in spam** — Almost always the domain, not the copy. Check SPF/DKIM/DMARC, confirm warmup ran ([TrulyInbox](https://trulyinbox.com/?via=harvey) shows the inbox rate; `harvey warmup` reads it once connected), halve your volume.
+**Emails land in spam** — Almost always the domain, not the copy. Check SPF/DKIM/DMARC, confirm warmup ran ([TrulyInbox](https://trulyinbox.com/?via=sellbird) shows the inbox rate; `sellbird warmup` reads it once connected), halve your volume.
 
-**Harvey does nothing during the day** — Check `quiet_hours` and whether it hit `max_daily_claude_percent`. `harvey status` shows current state; the `actions` table logs every decision.
+**Sellbird does nothing during the day** — Check `quiet_hours` and whether it hit `max_daily_claude_percent`. `sellbird status` shows current state; the `actions` table logs every decision.
 
-**How do I stop it right now?** — `Ctrl+C`, or `harvey sending pause` to stop outbound while leaving the loop running. State is in SQLite, so it resumes cleanly.
+**How do I stop it right now?** — `Ctrl+C`, or `sellbird sending pause` to stop outbound while leaving the loop running. State is in SQLite, so it resumes cleanly.
 
-**Where does my data live?** — All local: `data/harvey.db`, `.env`, `harvey.yaml`. Nothing goes anywhere except the APIs you configured.
+**Where does my data live?** — All local: `data/sellbird.db`, `.env`, `sellbird.yaml`. Nothing goes anywhere except the APIs you configured.
 
 ---
 
 ## Project structure
 
 ```
-harvey/
+sellbird/
 ├── main.py              # heartbeat loop
 ├── brain.py             # Claude/Codex provider selection + skills + usage
 ├── claude_runtime.py    # Isolated Claude CLI calls (safe mode, no tools, clean dir)
 ├── codex.py             # Isolated Codex subscription runtime
 ├── state.py             # SQLite schema, migrations, observations, cohorts
-├── signals.py           # the 23-signal catalog Harvey proposes
+├── signals.py           # the 23-signal catalog Sellbird proposes
 ├── pipeline.py          # DISCOVER → PROFILE chaining
 ├── gate.py              # deterministic pre-send checks
 ├── dashboard.py         # FastAPI JSON API
@@ -798,9 +798,9 @@ tests/                   # 242 tests
 
 ## Philosophy
 
-**Autonomous doesn't mean unsupervised.** Quiet hours, spend caps, send limits, an approval queue, a deterministic pre-send gate, and a kill switch. Harvey asks before it spends and before it sends, until you tell it not to.
+**Autonomous doesn't mean unsupervised.** Quiet hours, spend caps, send limits, an approval queue, a deterministic pre-send gate, and a kill switch. Sellbird asks before it spends and before it sends, until you tell it not to.
 
-**You decide what a good prospect is.** Harvey proposes signals; you confirm them. A prospect list you can't explain is a prospect list you shouldn't send to.
+**You decide what a good prospect is.** Sellbird proposes signals; you confirm them. A prospect list you can't explain is a prospect list you shouldn't send to.
 
 **If it can be gotten deterministically, don't use a model.** Rank position, tech detection, junk filtering, the priority decision, the pre-send gate — all plain code. Claude or Codex is reserved for the parts that need judgment. That's why this runs on a subscription at all.
 
@@ -808,7 +808,7 @@ tests/                   # 242 tests
 
 **The database is the asset, not the agent.** The initial list is worth little. The same signals observed over quarters — who changed agencies, who started spending on ads, who let their content go stale — is worth a great deal.
 
-**Everything is editable.** Prompts, skills, config, the dashboard. All plain text. You don't need to be a developer to change how Harvey sells.
+**Everything is editable.** Prompts, skills, config, the dashboard. All plain text. You don't need to be a developer to change how Sellbird sells.
 
 ---
 

@@ -1,6 +1,6 @@
 """aiosmtplib must refuse addresses that smuggle extra SMTP commands.
 
-Harvey hands aiosmtplib addresses it scraped from third-party websites, both
+Sellbird hands aiosmtplib addresses it scraped from third-party websites, both
 when sending (smtp_mail) and when probing a mailbox (email_finder). Versions
 before 5.1.1 wrote a CR/LF inside an address straight onto the wire, so
 "a@b.com\\r\\nRCPT TO:<x@y.com>" became two commands (GHSA-v3q9-hj7j-63hq).

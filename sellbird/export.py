@@ -2,7 +2,7 @@
 
 Produces a CSV that drops straight into Instantly, Smartlead, or any
 sequencer (email / first_name / last_name / company_name / personalization
-columns), plus Harvey's own quality columns (score, email_status, signals)
+columns), plus Sellbird's own quality columns (score, email_status, signals)
 so a human can eyeball what they're getting.
 """
 
@@ -10,10 +10,10 @@ import csv
 import io
 import logging
 
-from harvey.gate import do_not_contact_match
-from harvey.state import StateManager
+from sellbird.gate import do_not_contact_match
+from sellbird.state import StateManager
 
-logger = logging.getLogger("harvey.export")
+logger = logging.getLogger("sellbird.export")
 
 # Column order chosen so the file imports cleanly into cold-email tools
 # without remapping; extra columns are simply available as custom variables.
@@ -101,7 +101,7 @@ async def collect_prospects(
 
 
 def _do_not_contact(config) -> list[str]:
-    from harvey.config import (
+    from sellbird.config import (
         ConfigError, ConfigFileNotFoundError, do_not_contact_from_file, live_do_not_contact,
     )
     if config is not None:

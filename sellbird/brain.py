@@ -1,8 +1,8 @@
-"""Brain — Harvey's thinking engine.
+"""Brain — Sellbird's thinking engine.
 
 Runs on the operator's Claude subscription (Claude Code headless, the
 default) or, when ``brain.provider: codex`` is configured, their ChatGPT
-subscription through an isolated Codex runtime (see harvey/codex.py). The
+subscription through an isolated Codex runtime (see sellbird/codex.py). The
 provider is fixed per Brain; a failing provider never falls back to the
 other one.
 """
@@ -14,12 +14,12 @@ import re
 import time
 from pathlib import Path
 
-from harvey.state import StateManager
+from sellbird.state import StateManager
 
-logger = logging.getLogger("harvey.brain")
+logger = logging.getLogger("sellbird.brain")
 
-from harvey.paths import PROJECT_ROOT
-from harvey.textio import read_user_text
+from sellbird.paths import PROJECT_ROOT
+from sellbird.textio import read_user_text
 
 PROMPTS_DIR = PROJECT_ROOT / "prompts"
 SKILLS_DIR = PROJECT_ROOT / "skills"
@@ -41,7 +41,7 @@ _NON_RETRYABLE_PATTERNS = (
 
 PROVIDER_LABELS = {"claude": "Claude", "codex": "Codex"}
 
-# Settings key holding the brain's last health transition, for `harvey
+# Settings key holding the brain's last health transition, for `sellbird
 # status` and the dashboard: {"provider", "status": "ok"|"paused", "reason",
 # "since", and for pauses "kind" (plus "until", epoch seconds, for usage limits)}.
 BRAIN_STATUS_KEY = "brain_status"
@@ -81,7 +81,7 @@ class BrainUnavailable(Exception):
 
 class Brain:
     def __init__(self, state: StateManager, brain_config=None):
-        from harvey.config import BrainConfig
+        from sellbird.config import BrainConfig
 
         self.state = state
         self.config = brain_config or BrainConfig()
@@ -100,14 +100,14 @@ class Brain:
         self._usage_pause_recorded = False
         self._status_synced = False
         if self.provider == "codex":
-            from harvey.codex import CodexClient, CodexQuotaClient
+            from sellbird.codex import CodexClient, CodexQuotaClient
             self.codex = CodexClient(
                 model=self.model, reasoning_effort=self.config.reasoning_effort
             )
             self.quota = CodexQuotaClient(self.codex)
         else:
             # Lazy import avoids a cycle (quota -> usage -> state).
-            from harvey.integrations.quota import QuotaClient
+            from sellbird.integrations.quota import QuotaClient
             self.quota = QuotaClient()
 
     @property
@@ -139,7 +139,7 @@ class Brain:
         """
         if self.provider != "codex":
             return await self._claude_preflight()
-        from harvey.codex import CodexError
+        from sellbird.codex import CodexError
 
         await self._expire_usage_pause()
         if self.unavailable:
@@ -182,7 +182,7 @@ class Brain:
         """Claude: the installed CLI must support every isolation flag
         (claude_runtime.check_cli). Runs ``claude --help`` only: no login
         check, no model call. Returns "" or why calls are paused."""
-        from harvey.claude_runtime import ClaudeRuntimeError, check_cli
+        from sellbird.claude_runtime import ClaudeRuntimeError, check_cli
 
         try:
             await asyncio.to_thread(check_cli)
@@ -196,7 +196,7 @@ class Brain:
     def _fingerprint(self):
         if self.provider == "codex":
             return self.codex.fingerprint()
-        from harvey.claude_runtime import fingerprint
+        from sellbird.claude_runtime import fingerprint
         return fingerprint()
 
     async def _start_usage_pause(self):
@@ -268,7 +268,7 @@ class Brain:
                 max_retries=max_retries, agent=agent, task=task,
             )
 
-        from harvey import claude_runtime
+        from sellbird import claude_runtime
 
         # Never start an unisolated call: a CLI missing any isolation flag
         # pauses Claude (like a Codex setup problem) until it's updated.
@@ -355,7 +355,7 @@ class Brain:
                     if any(p in error.lower() for p in _NON_RETRYABLE_PATTERNS):
                         logger.error(
                             "Non-retryable Claude error (auth). "
-                            "Run 'claude login' and restart Harvey."
+                            "Run 'claude login' and restart Sellbird."
                         )
                         return ""
                     continue  # retry transient failures
@@ -419,8 +419,8 @@ class Brain:
         agent: str,
         task: str,
     ) -> str:
-        """One isolated Codex turn per attempt (see harvey/codex.py)."""
-        from harvey.codex import CodexError
+        """One isolated Codex turn per attempt (see sellbird/codex.py)."""
+        from sellbird.codex import CodexError
 
         paused = self.paused_reason
         if paused:
@@ -485,8 +485,8 @@ class Brain:
     async def _record_codex_usage(self, result, agent: str, task: str, label: str):
         """One usage row per Codex call. ChatGPT plans aren't billed per
         token, so cost is recorded as 0 rather than estimated."""
-        if not agent and label.startswith("harvey-"):
-            agent = label[len("harvey-"):].split("-")[0]
+        if not agent and label.startswith("sellbird-"):
+            agent = label[len("sellbird-"):].split("-")[0]
         await self.state.record_usage_event(
             agent=agent,
             task=task or label,
@@ -506,7 +506,7 @@ class Brain:
         With ``--output-format json`` stdout is one JSON object whose
         ``result`` field is the model's text. If parsing fails (older CLI,
         truncated output), fall back to treating stdout as plain text so a
-        formatting change can never break Harvey's pipeline.
+        formatting change can never break Sellbird's pipeline.
         """
         try:
             payload = json.loads(raw)
@@ -523,9 +523,9 @@ class Brain:
         if not payload:
             return
 
-        if not agent and label.startswith("harvey-"):
-            # Callers historically pass labels like "harvey-scout-score".
-            agent = label[len("harvey-"):].split("-")[0]
+        if not agent and label.startswith("sellbird-"):
+            # Callers historically pass labels like "sellbird-scout-score".
+            agent = label[len("sellbird-"):].split("-")[0]
 
         session = str(payload.get("session_id") or "")
         duration_ms = int(payload.get("duration_ms") or 0)
@@ -632,13 +632,13 @@ class Brain:
     async def is_within_budget(
         self, max_daily_calls: int = 200, max_percent: float | None = None
     ) -> bool:
-        """Check whether Harvey may spend more of the active subscription.
+        """Check whether Sellbird may spend more of the active subscription.
 
         Preferred signal: the account's REAL utilization windows (Claude's
         `/usage` numbers, or Codex's ChatGPT-plan rate limits), compared
-        against max_percent so Harvey always leaves the remainder for the
+        against max_percent so Sellbird always leaves the remainder for the
         user's own interactive work. Fallback when those are unavailable:
-        Harvey's own call counter for this provider against max_daily_calls.
+        Sellbird's own call counter for this provider against max_daily_calls.
         """
         await self._expire_usage_pause()
         if time.monotonic() < self._usage_limited_until:

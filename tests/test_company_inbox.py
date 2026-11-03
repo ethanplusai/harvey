@@ -4,11 +4,11 @@ from types import SimpleNamespace
 
 import pytest
 
-import harvey.agents.scout as scout_mod
-import harvey.integrations.email_finder as ef
-from harvey.agents.scout import Scout
-from harvey.agents.sender import Sender
-from harvey.models.prospect import COMPANY_INBOX_SOURCE, Prospect
+import sellbird.agents.scout as scout_mod
+import sellbird.integrations.email_finder as ef
+from sellbird.agents.scout import Scout
+from sellbird.agents.sender import Sender
+from sellbird.models.prospect import COMPANY_INBOX_SOURCE, Prospect
 
 
 def inbox(**kw):
@@ -248,7 +248,7 @@ async def test_no_inbox_without_a_company_record():
 # ── writer ──
 
 def test_inbox_prospects_get_their_own_campaign():
-    from harvey.agents.writer import Writer
+    from sellbird.agents.writer import Writer
     writer = Writer.__new__(Writer)
     writer.config = SimpleNamespace(channels=SimpleNamespace(email=SimpleNamespace(provider="gmail")))
     named = Prospect(first_name="Jo", last_name="Li", title="Owner", industry="Roofing", email="jo@a.com")
@@ -268,7 +268,7 @@ class SequenceBrain:
 
 
 def sequence_writer(steps):
-    from harvey.agents.writer import Writer
+    from sellbird.agents.writer import Writer
     writer = Writer.__new__(Writer)
     writer.brain = SequenceBrain(steps)
     writer.skills = ""

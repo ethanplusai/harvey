@@ -1,4 +1,4 @@
-"""Interactive setup wizard — walks you through everything Harvey needs."""
+"""Interactive setup wizard — walks you through everything Sellbird needs."""
 
 import asyncio
 import getpass
@@ -11,22 +11,22 @@ import yaml
 
 from pydantic import ValidationError
 
-from harvey.brain import Brain
-from harvey.config import BrainConfig, normalize_prospect_country
-from harvey.state import StateManager
+from sellbird.brain import Brain
+from sellbird.config import BrainConfig, normalize_prospect_country
+from sellbird.state import StateManager
 
-logger = logging.getLogger("harvey.setup")
+logger = logging.getLogger("sellbird.setup")
 
-from harvey.paths import PROJECT_ROOT
-from harvey.textio import read_user_text
+from sellbird.paths import PROJECT_ROOT
+from sellbird.textio import read_user_text
 ENV_FILE = PROJECT_ROOT / ".env"
 ENV_EXAMPLE = PROJECT_ROOT / ".env.example"
-CONFIG_FILE = PROJECT_ROOT / "harvey.yaml"
+CONFIG_FILE = PROJECT_ROOT / "sellbird.yaml"
 
 
-def _print_harvey(message: str):
-    """Print a message as Harvey."""
-    print(f"\n  Harvey: {message}")
+def _print_sellbird(message: str):
+    """Print a message as Sellbird."""
+    print(f"\n  Sellbird: {message}")
 
 
 def _print_step(step: int, total: int, title: str):
@@ -82,10 +82,10 @@ def _read_env_file() -> dict[str, str]:
 
 
 def _config_file() -> Path:
-    """The config Harvey loads: harvey.local.yaml (what `harvey train` writes)
-    wins over harvey.yaml when it exists, as in config._find_config_file.
-    Setup reads and writes this file, so its answers are the ones Harvey uses."""
-    local = CONFIG_FILE.with_name("harvey.local.yaml")
+    """The config Sellbird loads: sellbird.local.yaml (what `sellbird train` writes)
+    wins over sellbird.yaml when it exists, as in config._find_config_file.
+    Setup reads and writes this file, so its answers are the ones Sellbird uses."""
+    local = CONFIG_FILE.with_name("sellbird.local.yaml")
     return local if local.exists() else CONFIG_FILE
 
 
@@ -124,21 +124,21 @@ def _check_codex_cli() -> bool:
 async def _test_claude(brain: Brain) -> bool:
     """Test that the configured brain answers (Claude or Codex)."""
     response = await brain.think(
-        "Respond with exactly: HARVEY_READY",
-        session_id="harvey-setup-test",
+        "Respond with exactly: SELLBIRD_READY",
+        session_id="sellbird-setup-test",
     )
-    return "HARVEY_READY" in response
+    return "SELLBIRD_READY" in response
 
 
 def _ask_brain_config() -> BrainConfig:
-    """Ask which subscription Harvey thinks with. Claude is the default."""
-    _print_harvey("I think with an AI subscription you already pay for:")
+    """Ask which subscription Sellbird thinks with. Claude is the default."""
+    _print_sellbird("I think with an AI subscription you already pay for:")
     print("    claude — your Claude plan, via Claude Code (default)")
     print("    codex  — your ChatGPT plan, via the Codex CLI")
     while True:
         provider = _ask("Which one? (claude/codex)", default="claude").lower()
         if provider == "codex":
-            from harvey.codex import CodexError, require_supported_platform
+            from sellbird.codex import CodexError, require_supported_platform
             try:
                 require_supported_platform()
             except CodexError as e:
@@ -148,8 +148,8 @@ def _ask_brain_config() -> BrainConfig:
             break
         print("    (type claude or codex)")
     if provider == "codex":
-        from harvey.codex import SUGGESTED_MODEL
-        print(f"    {SUGGESTED_MODEL} is the Codex model Harvey has verified as text-only")
+        from sellbird.codex import SUGGESTED_MODEL
+        print(f"    {SUGGESTED_MODEL} is the Codex model Sellbird has verified as text-only")
         print("    (no code-execution tools). Press Enter to use it, or type another.")
     while True:
         if provider == "codex":
@@ -191,14 +191,14 @@ class SetupWizard:
         print(f"""
 ╔══════════════════════════════════════════════════════════╗
 ║                                                          ║
-║   Harvey Setup Wizard                                    ║
+║   Sellbird Setup Wizard                                    ║
 ║   Let's get you closing deals.                           ║
 ║                                                          ║
 ╚══════════════════════════════════════════════════════════╝""")
 
-        _print_harvey("Hey. I'm Harvey. Let's get me set up so I can start")
-        _print_harvey("closing deals for you. I'll walk you through everything.")
-        _print_harvey("This takes about 5 minutes.\n")
+        _print_sellbird("Hey. I'm Sellbird. Let's get me set up so I can start")
+        _print_sellbird("closing deals for you. I'll walk you through everything.")
+        _print_sellbird("This takes about 5 minutes.\n")
 
         total_steps = 7
 
@@ -219,7 +219,7 @@ class SetupWizard:
         self._setup_cloudflare()
 
         # Step 5: Train on product
-        _print_step(5, total_steps, "Train Harvey on Your Product")
+        _print_step(5, total_steps, "Train Sellbird on Your Product")
         await self._setup_product()
 
         # Step 6: Configure behavior
@@ -252,7 +252,7 @@ class SetupWizard:
             print("✓ Found")
         else:
             print("✗ Not found")
-            _print_harvey("I need Claude Code CLI to think. Install it from:")
+            _print_sellbird("I need Claude Code CLI to think. Install it from:")
             print("         https://claude.ai/download")
             print("\n         After installing, run 'claude login' to authenticate,")
             print("         then re-run this setup.")
@@ -267,15 +267,15 @@ class SetupWizard:
             print("✓ Working")
         else:
             print("✗ Failed")
-            _print_harvey("Claude CLI is installed but headless mode isn't working.")
-            _print_harvey("Make sure you're logged in: run 'claude login'")
+            _print_sellbird("Claude CLI is installed but headless mode isn't working.")
+            _print_sellbird("Make sure you're logged in: run 'claude login'")
             print("\n         Also verify your Max subscription is active.")
             if not _ask_yes_no("Continue anyway?", default=False):
                 raise SystemExit(1)
         self._check_python_packages()
 
     async def _check_codex(self):
-        from harvey.codex import (
+        from sellbird.codex import (
             CODEX_INSTALL_HINT, CodexError, check_cli_version, check_native_auth,
         )
 
@@ -284,7 +284,7 @@ class SetupWizard:
             print("✓ Found")
         else:
             print("✗ Not found")
-            _print_harvey("I need the Codex CLI to think with your ChatGPT plan:")
+            _print_sellbird("I need the Codex CLI to think with your ChatGPT plan:")
             print(f"         {CODEX_INSTALL_HINT}")
             print("\n         Then run 'codex login', choose 'Sign in with ChatGPT',")
             print("         and re-run this setup.")
@@ -295,7 +295,7 @@ class SetupWizard:
             print(f"✓ {check_cli_version()}")
         except CodexError as e:
             print("✗ Not supported")
-            _print_harvey(str(e))
+            _print_sellbird(str(e))
             raise SystemExit(1)
 
         print("  Checking Codex ChatGPT login...", end=" ")
@@ -304,11 +304,11 @@ class SetupWizard:
             print("✓ Found")
         except CodexError as e:
             print("✗ Not ready")
-            _print_harvey(str(e))
+            _print_sellbird(str(e))
             raise SystemExit(1)
 
         # A real (subscription, not API-billed) call through the same
-        # isolated runtime Harvey uses for every prompt.
+        # isolated runtime Sellbird uses for every prompt.
         print("  Testing Codex (isolated, no tools)...", end=" ", flush=True)
         state = StateManager()
         await state.init_db()
@@ -317,8 +317,8 @@ class SetupWizard:
             print("✓ Working")
         else:
             print("✗ Failed")
-            _print_harvey("Codex is installed but the test call failed. The log")
-            _print_harvey("above says why (login, plan limits, or isolation).")
+            _print_sellbird("Codex is installed but the test call failed. The log")
+            _print_sellbird("above says why (login, plan limits, or isolation).")
             if not _ask_yes_no("Continue anyway?", default=False):
                 raise SystemExit(1)
         self._check_python_packages()
@@ -340,12 +340,12 @@ class SetupWizard:
             if not _ask_yes_no("Continue anyway?", default=False):
                 raise SystemExit(1)
 
-        _print_harvey("Prerequisites look good. Let's keep going.")
+        _print_sellbird("Prerequisites look good. Let's keep going.")
 
     async def _setup_email_platform(self):
         """Configure Instantly API."""
-        _print_harvey("I need a cold email platform to send campaigns through.")
-        _print_harvey("Right now I support Instantly (recommended) and Woodpecker.")
+        _print_sellbird("I need a cold email platform to send campaigns through.")
+        _print_sellbird("Right now I support Instantly (recommended) and Woodpecker.")
 
         has_instantly = _ask_yes_no("Do you have an Instantly account?")
 
@@ -357,23 +357,23 @@ class SetupWizard:
             print("\n  Testing API key...", end=" ", flush=True)
             if await _test_instantly(api_key):
                 print("✓ Connected")
-                _print_harvey("Perfect. I can send campaigns through Instantly now.")
+                _print_sellbird("Perfect. I can send campaigns through Instantly now.")
             else:
                 print("✗ Failed")
-                _print_harvey("Couldn't connect. The key might be wrong, or you might")
-                _print_harvey("need the Growth plan for API access. I'll save it anyway —")
-                _print_harvey("you can fix it later in .env.")
+                _print_sellbird("Couldn't connect. The key might be wrong, or you might")
+                _print_sellbird("need the Growth plan for API access. I'll save it anyway —")
+                _print_sellbird("you can fix it later in .env.")
         else:
-            _print_harvey("No problem. You'll need one eventually to send emails.")
-            _print_harvey("Sign up at https://instantly.ai (Growth plan for API access).")
-            _print_harvey("Add your API key to .env later as INSTANTLY_API_KEY.")
+            _print_sellbird("No problem. You'll need one eventually to send emails.")
+            _print_sellbird("Sign up at https://instantly.ai (Growth plan for API access).")
+            _print_sellbird("Add your API key to .env later as INSTANTLY_API_KEY.")
             self.env_vars["INSTANTLY_API_KEY"] = ""
 
     def _setup_linkedin(self):
         """Configure LinkedIn credentials."""
-        _print_harvey("I can search LinkedIn to find prospects matching your ICP.")
-        _print_harvey("I'll log into your LinkedIn account using a browser, with")
-        _print_harvey("conservative rate limits and human-like pacing.")
+        _print_sellbird("I can search LinkedIn to find prospects matching your ICP.")
+        _print_sellbird("I'll log into your LinkedIn account using a browser, with")
+        _print_sellbird("conservative rate limits and human-like pacing.")
         print("\n  ⚠  Heads up: automating LinkedIn violates their Terms of Service.")
         print("     Accounts doing this can be restricted or banned. Only use an")
         print("     account you're comfortable putting at risk, and keep the")
@@ -387,20 +387,20 @@ class SetupWizard:
             self.env_vars["LINKEDIN_EMAIL"] = email
             self.env_vars["LINKEDIN_PASSWORD"] = password
 
-            _print_harvey("Got it. I'll stay well under the rate limits and behave")
-            _print_harvey("like a careful human, but the ToS risk is yours to own.")
+            _print_sellbird("Got it. I'll stay well under the rate limits and behave")
+            _print_sellbird("like a careful human, but the ToS risk is yours to own.")
         else:
-            _print_harvey("That's fine. I can still find prospects via Google")
-            _print_harvey("and company websites. You can add LinkedIn later.")
+            _print_sellbird("That's fine. I can still find prospects via Google")
+            _print_sellbird("and company websites. You can add LinkedIn later.")
             self.env_vars["LINKEDIN_EMAIL"] = ""
             self.env_vars["LINKEDIN_PASSWORD"] = ""
 
     def _setup_cloudflare(self):
         """Configure Cloudflare Browser Rendering for deep crawling."""
-        _print_harvey("When I train on a product website, I can crawl it deeply")
-        _print_harvey("using Cloudflare's Browser Rendering API. This means I can")
-        _print_harvey("handle JavaScript-heavy sites and crawl hundreds of pages.")
-        _print_harvey("It's $5/month for ~12,000 pages. Totally optional.")
+        _print_sellbird("When I train on a product website, I can crawl it deeply")
+        _print_sellbird("using Cloudflare's Browser Rendering API. This means I can")
+        _print_sellbird("handle JavaScript-heavy sites and crawl hundreds of pages.")
+        _print_sellbird("It's $5/month for ~12,000 pages. Totally optional.")
 
         use_cloudflare = _ask_yes_no("Set up Cloudflare crawling?", default=False)
 
@@ -409,18 +409,18 @@ class SetupWizard:
             api_token = _ask("Cloudflare API Token (needs Browser Rendering - Edit permission; input hidden)", secret=True)
             self.env_vars["CLOUDFLARE_ACCOUNT_ID"] = account_id
             self.env_vars["CLOUDFLARE_API_TOKEN"] = api_token
-            _print_harvey("Nice. I'll use Cloudflare for deep crawling during training.")
+            _print_sellbird("Nice. I'll use Cloudflare for deep crawling during training.")
         else:
-            _print_harvey("No problem. I'll use my built-in crawler instead. It works")
-            _print_harvey("great for most sites — just can't render JavaScript.")
+            _print_sellbird("No problem. I'll use my built-in crawler instead. It works")
+            _print_sellbird("great for most sites — just can't render JavaScript.")
             self.env_vars["CLOUDFLARE_ACCOUNT_ID"] = ""
             self.env_vars["CLOUDFLARE_API_TOKEN"] = ""
 
     async def _setup_product(self):
-        """Train Harvey on the product — either via URL or manual entry."""
-        _print_harvey("Now the important part — I need to learn about what you're selling.")
-        _print_harvey("I can either crawl your website and figure it out myself,")
-        _print_harvey("or you can tell me the basics manually.\n")
+        """Train Sellbird on the product — either via URL or manual entry."""
+        _print_sellbird("Now the important part — I need to learn about what you're selling.")
+        _print_sellbird("I can either crawl your website and figure it out myself,")
+        _print_sellbird("or you can tell me the basics manually.\n")
 
         method = _ask(
             "Train from website URL or enter manually? (url/manual)",
@@ -430,23 +430,23 @@ class SetupWizard:
         if method in ("url", "u", "website"):
             url = _ask("Your product's website URL (e.g. https://yourcompany.com)")
 
-            _print_harvey(f"Give me a minute — I'm going to crawl {url}")
-            _print_harvey("and learn everything I can about your product.\n")
+            _print_sellbird(f"Give me a minute — I'm going to crawl {url}")
+            _print_sellbird("and learn everything I can about your product.\n")
 
-            from harvey.trainer import Trainer
+            from sellbird.trainer import Trainer
             trainer = Trainer(brain_config=self.brain_config)
             self.config = await trainer.train(url, str(_config_file())) or {}
 
             if self.config:
-                _print_harvey("Training complete! I've got a solid understanding")
-                _print_harvey("of your product now. Check harvey.yaml to review")
-                _print_harvey("what I learned — tweak anything that looks off.")
+                _print_sellbird("Training complete! I've got a solid understanding")
+                _print_sellbird("of your product now. Check sellbird.yaml to review")
+                _print_sellbird("what I learned — tweak anything that looks off.")
                 return
 
-            _print_harvey("Hmm, had trouble with that URL. Let's do it manually.")
+            _print_sellbird("Hmm, had trouble with that URL. Let's do it manually.")
 
         # Manual entry
-        _print_harvey("I'll ask you a few questions about your product.\n")
+        _print_sellbird("I'll ask you a few questions about your product.\n")
 
         company = _ask("Company name")
         product = _ask("Product/service name")
@@ -461,7 +461,7 @@ class SetupWizard:
                 break
             benefits.append(b)
 
-        _print_harvey("Now let's define your ideal customer.\n")
+        _print_sellbird("Now let's define your ideal customer.\n")
 
         industries = _ask("Target industries (comma-separated)").split(",")
         industries = [i.strip() for i in industries if i.strip()]
@@ -478,7 +478,7 @@ class SetupWizard:
         ).split(",")
         geography = [g.strip() for g in geography if g.strip()]
 
-        _print_harvey("Now let's talk about your offer — what happens when someone's interested?\n")
+        _print_sellbird("Now let's talk about your offer — what happens when someone's interested?\n")
 
         primary_offer = _ask(
             "What's your main offer? (e.g., 'SaaS subscription at $99/mo', 'Marketing retainer')",
@@ -509,7 +509,7 @@ class SetupWizard:
                 booking_url = _ask("Booking URL")
                 booking_method = "calendar_link"
             else:
-                print("\n  How should Harvey suggest meeting times?")
+                print("\n  How should Sellbird suggest meeting times?")
                 print("    1. Suggest specific times ('How about Thursday at 2pm?')")
                 print("    2. Ask for their preference ('What does your calendar look like?')")
                 method_choice = _ask("Method (1/2)", default="1")
@@ -518,9 +518,9 @@ class SetupWizard:
             meeting_duration = _ask("How long is the call?", default="15 minutes")
             meeting_owner = _ask("Who takes the meeting? (your name or role)", required=False)
 
-        _print_harvey("What persona should I use for outreach?\n")
+        _print_sellbird("What persona should I use for outreach?\n")
 
-        persona_name = _ask("My name (what prospects see)", default="Harvey")
+        persona_name = _ask("My name (what prospects see)", default="Sellbird")
         persona_email = _ask("My email address")
         persona_role = _ask("My title/role", default="Business Development")
 
@@ -578,11 +578,11 @@ class SetupWizard:
             },
         }
 
-        _print_harvey("Got it. I have everything I need about your product.")
+        _print_sellbird("Got it. I have everything I need about your product.")
 
     def _setup_behavior(self):
-        """Configure Harvey's operational behavior."""
-        _print_harvey("Last thing — a few settings for how I operate.\n")
+        """Configure Sellbird's operational behavior."""
+        _print_sellbird("Last thing — a few settings for how I operate.\n")
 
         # Usage limit
         print("  I track my own Claude usage so I don't eat your whole daily quota.")
@@ -642,7 +642,7 @@ class SetupWizard:
             if "channels" in self.config and "email" in self.config["channels"]:
                 self.config["channels"]["email"]["max_daily_sends"] = daily_sends
 
-        _print_harvey("Perfect. All configured.")
+        _print_sellbird("Perfect. All configured.")
 
     def _setup_compliance(self):
         """Offer the optional per-recipient check through Precleared.
@@ -652,10 +652,10 @@ class SetupWizard:
         """
         current = _current_precleared()
         was_on = current.get("enabled") is True
-        _print_harvey("Before the first email to anyone new, I can ask Precleared")
-        _print_harvey("(precleared.dev) which cold-email rules apply to them. A UK")
-        _print_harvey("sole trader needs consent where a limited company doesn't,")
-        _print_harvey("and the address alone won't tell you which. Totally optional.")
+        _print_sellbird("Before the first email to anyone new, I can ask Precleared")
+        _print_sellbird("(precleared.dev) which cold-email rules apply to them. A UK")
+        _print_sellbird("sole trader needs consent where a limited company doesn't,")
+        _print_sellbird("and the address alone won't tell you which. Totally optional.")
         print("\n  Anything that isn't a clear yes waits in the Outbox with the reason.")
         print("  It checks mail sent through Gmail, Microsoft 365 or SMTP, not Instantly.")
         print("  Precleared receives each new recipient's address, your country, how")
@@ -668,8 +668,8 @@ class SetupWizard:
         if not _ask_yes_no("Turn on the cold-email check?", default=was_on):
             # Only touch the config to switch off a check that was on.
             self.precleared = {"enabled": False} if was_on else None
-            _print_harvey("No problem. You can turn it on later under")
-            _print_harvey(f"compliance.precleared in {_config_file().name}.")
+            _print_sellbird("No problem. You can turn it on later under")
+            _print_sellbird(f"compliance.precleared in {_config_file().name}.")
             return
 
         saved_country = str(current.get("sender_country") or "").strip().upper()
@@ -687,8 +687,8 @@ class SetupWizard:
                 break
             if not country:
                 self.precleared = {"enabled": False} if was_on else None
-                _print_harvey("Precleared needs a sender based in the UK or US,")
-                _print_harvey("so I'll leave the check off for now.")
+                _print_sellbird("Precleared needs a sender based in the UK or US,")
+                _print_sellbird("so I'll leave the check off for now.")
                 return
             print("    (type GB or US, or leave it blank to skip)")
 
@@ -729,8 +729,8 @@ class SetupWizard:
         saved_key = _read_env_file().get("PRECLEARED_API_KEY", "").strip("'\" ")
         has_key = bool(saved_key or os.getenv("PRECLEARED_API_KEY", "").strip())
         if not has_key:
-            _print_harvey("Without a key Precleared allows 10 checks a day. A free key")
-            _print_harvey("from https://precleared.dev/get-key allows 25.")
+            _print_sellbird("Without a key Precleared allows 10 checks a day. A free key")
+            _print_sellbird("from https://precleared.dev/get-key allows 25.")
         key = _ask(
             "Precleared API key (input hidden; Enter keeps your current key)" if has_key
             else "Precleared API key (input hidden; Enter to skip)",
@@ -739,13 +739,13 @@ class SetupWizard:
         )
         if key:
             self.env_vars["PRECLEARED_API_KEY"] = key
-            _print_harvey("Saved the key to .env.")
+            _print_sellbird("Saved the key to .env.")
         elif has_key:
-            _print_harvey("Keeping the key you already have.")
+            _print_sellbird("Keeping the key you already have.")
         else:
             self.env_vars["PRECLEARED_API_KEY"] = ""
-            _print_harvey("No problem: 10 checks a day without one. Add")
-            _print_harvey("PRECLEARED_API_KEY to .env whenever you like.")
+            _print_sellbird("No problem: 10 checks a day without one. Add")
+            _print_sellbird("PRECLEARED_API_KEY to .env whenever you like.")
 
     def _write_env(self):
         """Write the .env file, preserving any existing variables we didn't touch."""
@@ -767,8 +767,8 @@ class SetupWizard:
         logger.info(f"Wrote {ENV_FILE}")
 
     def _write_config(self):
-        """Write harvey.yaml (only if we have manual config — trainer writes its own)."""
-        from harvey.trainer import brain_section
+        """Write sellbird.yaml (only if we have manual config — trainer writes its own)."""
+        from sellbird.trainer import brain_section
 
         config_file = _config_file()
         if self.config:
@@ -804,8 +804,8 @@ class SetupWizard:
                     f.write(text)
                 self.config_saved = True
             except Exception as e:
-                _print_harvey(f"Couldn't save your settings to {config_file.name} ({e}).")
-                _print_harvey("Nothing in it was changed. Fix the file and re-run setup.")
+                _print_sellbird(f"Couldn't save your settings to {config_file.name} ({e}).")
+                _print_sellbird("Nothing in it was changed. Fix the file and re-run setup.")
 
     async def _print_summary(self):
         """Print final summary and next steps."""
@@ -839,14 +839,14 @@ class SetupWizard:
     - .env (your credentials)
     - {_config_file().name} (your configuration)
 
-  To start Harvey:
-    harvey run          (or: python -m harvey)
+  To start Sellbird:
+    sellbird run          (or: python -m sellbird)
 
   To re-train on a different product:
-    harvey train https://newproduct.com
+    sellbird train https://newproduct.com
 
   To re-run this setup:
-    harvey setup
+    sellbird setup
 
   Before you send a single email:
     1. Use a dedicated sending domain (not your main domain) with
@@ -856,8 +856,8 @@ class SetupWizard:
        option and your physical mailing address (CAN-SPAM).
     See the "Legal & Deliverability" section of the README.
 """)
-        _print_harvey("I'm ready. Run 'harvey run' and I'll start closing.")
-        _print_harvey("Always be closing.\n")
+        _print_sellbird("I'm ready. Run 'sellbird run' and I'll start closing.")
+        _print_sellbird("Always be closing.\n")
 
 
 async def run_setup():
@@ -870,6 +870,6 @@ def main():
 
 
 if __name__ == "__main__":
-    from harvey.textio import utf8_stdio
+    from sellbird.textio import utf8_stdio
     utf8_stdio()
     main()

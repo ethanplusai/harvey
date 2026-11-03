@@ -14,20 +14,20 @@ import logging
 import re
 from datetime import datetime, timezone
 
-from harvey.brain import Brain
-from harvey.config import EmailRulesError, HarveyConfig, compliance_of, load_email_rules
-from harvey.humanize import humanize, humanizer_enabled
-from harvey.integrations.mail_provider import NATIVE_PROVIDERS
-from harvey.models.campaign import Campaign, EmailStep
-from harvey.state import WRITABLE_EMAIL_STATUSES, StateManager
-from harvey.sending_mode import sync_sending_mode
-from harvey.startups import startup_facts
-from harvey.untrusted import UNTRUSTED_RULE, fence
+from sellbird.brain import Brain
+from sellbird.config import EmailRulesError, SellbirdConfig, compliance_of, load_email_rules
+from sellbird.humanize import humanize, humanizer_enabled
+from sellbird.integrations.mail_provider import NATIVE_PROVIDERS
+from sellbird.models.campaign import Campaign, EmailStep
+from sellbird.state import WRITABLE_EMAIL_STATUSES, StateManager
+from sellbird.sending_mode import sync_sending_mode
+from sellbird.startups import startup_facts
+from sellbird.untrusted import UNTRUSTED_RULE, fence
 
-logger = logging.getLogger("harvey.writer")
+logger = logging.getLogger("sellbird.writer")
 
 # How many times the model may fail to write a usable sequence for a
-# prospect before Harvey stops trying (status 'write_failed'). A provider
+# prospect before Sellbird stops trying (status 'write_failed'). A provider
 # outage never counts; only a reply that came back unusable does.
 MAX_WRITE_ATTEMPTS = 3
 WRITE_ATTEMPTS_KEY = "write_attempts:"
@@ -51,20 +51,20 @@ SEQUENCE_SHAPE = """- Email 1: Personalized cold observation + one question. Und
 - Email 3: Break-up email 4 days after that. Under 40 words. Gracious, not guilt-tripping."""
 SEQUENCE_STYLE = """- Never be pushy or salesy. Be consultative and value-driven.
 - Subject lines: lowercase, 2-5 words."""
-# Why the Writer stopped: Today and `harvey status` show it.
+# Why the Writer stopped: Today and `sellbird status` show it.
 EMAIL_RULES_PROBLEM_KEY = "email_rules_problem"
-BUILT_IN_FOOTER = "- No postal address, unsubscribe or opt-out line: Harvey adds them when it sends."
+BUILT_IN_FOOTER = "- No postal address, unsubscribe or opt-out line: Sellbird adds them when it sends."
 
 
 def operator_rules_block(rules: str) -> str:
     """The operator's email rules as a prompt section ("" when there are none).
 
-    Trusted text from the person running Harvey, so it isn't fenced. It wins
+    Trusted text from the person running Sellbird, so it isn't fenced. It wins
     over the built-in style and shape rules, never over the FACTS rule."""
     if not rules:
         return ""
     return (
-        "\n\nOPERATOR'S EMAIL RULES — written by the person running Harvey. For\n"
+        "\n\nOPERATOR'S EMAIL RULES — written by the person running Sellbird. For\n"
         "length, structure, what to say about the product, links, subject lines\n"
         "and sign-off, these replace the STRICT EMAIL RULES and skills above\n"
         "wherever the two disagree. They never override the FACTS rule: what you\n"
@@ -76,9 +76,9 @@ def operator_rules_block(rules: str) -> str:
 
 
 def footer_rule(config, rules: str) -> str:
-    """What the prompt says about the lines Harvey adds when it sends.
+    """What the prompt says about the lines Sellbird adds when it sends.
 
-    With operator rules it names only what Harvey really adds: an opt-out
+    With operator rules it names only what Sellbird really adds: an opt-out
     sentence the operator writes into the body must not sit on top of the
     configured opt_out_line, and must not be dropped when there is none."""
     if not rules:
@@ -86,15 +86,15 @@ def footer_rule(config, rules: str) -> str:
     compliance = compliance_of(config)
     lines = []
     if compliance.postal_address.strip():
-        lines.append("- No postal address: Harvey adds it under the email when it sends.")
+        lines.append("- No postal address: Sellbird adds it under the email when it sends.")
     opt_out = compliance.opt_out_line.strip()
     if opt_out:
         lines.append(
-            f'- Harvey adds this opt-out line under the email when it sends: "{opt_out}".\n'
+            f'- Sellbird adds this opt-out line under the email when it sends: "{opt_out}".\n'
             "  Don't write another way to opt out, even if the operator's rules give one.")
     else:
         lines.append(
-            "- Harvey adds no opt-out line. If the operator's rules give a sentence that\n"
+            "- Sellbird adds no opt-out line. If the operator's rules give a sentence that\n"
             "  lets the reader say no, write it into the body as they say.")
     return "\n".join(lines)
 
@@ -104,7 +104,7 @@ class Writer:
         self,
         brain: Brain,
         state: StateManager,
-        config: HarveyConfig,
+        config: SellbirdConfig,
         env=None,
     ):
         self.brain = brain
@@ -312,7 +312,7 @@ class Writer:
 
     async def _startup(self, company_id) -> list[str] | None:
         """Fact lines when the company is a startup (YC, another accelerator,
-        a raise it announced; see harvey.startups), else None."""
+        a raise it announced; see sellbird.startups), else None."""
         return await startup_facts(getattr(self, "state", None), company_id)
 
     def _startup_playbook(self) -> str:
@@ -334,7 +334,7 @@ class Writer:
             f"- {str(n.get('created_at') or '')[:10]} on {n['about']}: "
             f"{' '.join(str(n['comment']).split())[:500]}" for n in notes)
         return (
-            "\n\nOWNER FEEDBACK — notes the person running Harvey left on earlier\n"
+            "\n\nOWNER FEEDBACK — notes the person running Sellbird left on earlier\n"
             "campaigns and contacts, newest first (a newer note wins). Apply them to\n"
             "this writing. They never override the STRICT EMAIL RULES or the FACTS rule:\n"
             + lines
@@ -430,7 +430,7 @@ Requirements:
 Return ONLY JSON: {{"subject": "...", "body": "..."}}"""
 
         result = await self.brain.think_json(
-            prompt, session_id="harvey-writer",
+            prompt, session_id="sellbird-writer",
             agent="writer", task="personal_email",
         )
         if not isinstance(result, dict):
@@ -531,7 +531,7 @@ Return ONLY a JSON array (no markdown fences, no commentary):
 ]"""
 
         result = await self.brain.think_json(
-            prompt, session_id="harvey-writer",
+            prompt, session_id="sellbird-writer",
             agent="writer", task="write_sequence",
         )
         # Read right after the call, before anything else can use the brain.

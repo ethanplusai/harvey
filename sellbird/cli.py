@@ -1,4 +1,4 @@
-"""Harvey CLI — simple commands to install, setup, run, and manage Harvey."""
+"""Sellbird CLI — simple commands to install, setup, run, and manage Sellbird."""
 
 import argparse
 import asyncio
@@ -12,10 +12,10 @@ MIN_PYTHON = (3, 11)
 
 
 def _check_python_version():
-    """Refuse to install on a Python that cannot run Harvey.
+    """Refuse to install on a Python that cannot run Sellbird.
 
     `python3 -m venv .venv` on macOS builds the venv from /usr/bin/python3,
-    which is 3.9 — old enough that Harvey's `X | Y` type syntax fails at
+    which is 3.9 — old enough that Sellbird's `X | Y` type syntax fails at
     import. The install itself appears to succeed and the failure surfaces
     later as an unrelated-looking ImportError, so check up front and name the
     fix.
@@ -25,7 +25,7 @@ def _check_python_version():
 
     have = f"{sys.version_info.major}.{sys.version_info.minor}"
     want = f"{MIN_PYTHON[0]}.{MIN_PYTHON[1]}"
-    print(f"\n  Harvey needs Python {want} or newer. This is Python {have}.")
+    print(f"\n  Sellbird needs Python {want} or newer. This is Python {have}.")
     print(f"  ({sys.executable})\n")
     print("  On macOS, `python3` is usually the system 3.9, so a venv built")
     print("  with it is 3.9 too. Build the venv from a newer Python instead:\n")
@@ -39,7 +39,7 @@ def _check_python_version():
 def cmd_install(args):
     """Install all dependencies including Playwright browsers."""
     _check_python_version()
-    print("\n  Installing Harvey dependencies...\n")
+    print("\n  Installing Sellbird dependencies...\n")
 
     # Install Python packages
     print("  [1/2] Installing Python packages...")
@@ -76,11 +76,11 @@ def cmd_install(args):
         print("  ✓ Playwright browsers installed.\n")
 
     _ensure_importable(args._project_root)
-    print("  Harvey is installed. Run 'harvey setup' next.\n")
+    print("  Sellbird is installed. Run 'sellbird setup' next.\n")
 
 
 def _ensure_importable(project_root: str):
-    """Make sure `import harvey` works outside the repo directory.
+    """Make sure `import sellbird` works outside the repo directory.
 
     Python 3.13 silently skips .pth files carrying the macOS 'hidden'
     file flag, and some Macs propagate that flag to everything inside
@@ -89,7 +89,7 @@ def _ensure_importable(project_root: str):
     (imports don't check the hidden flag; only .pth parsing does).
     """
     check = subprocess.run(
-        [sys.executable, "-c", "import harvey"],
+        [sys.executable, "-c", "import sellbird"],
         cwd="/", capture_output=True,
     )
     if check.returncode == 0:
@@ -98,12 +98,12 @@ def _ensure_importable(project_root: str):
     try:
         import site
         site_packages = Path(site.getsitepackages()[0])
-        link = site_packages / "harvey"
-        target = Path(project_root) / "harvey"
+        link = site_packages / "sellbird"
+        target = Path(project_root) / "sellbird"
         if not link.exists() and target.is_dir():
             link.symlink_to(target)
             recheck = subprocess.run(
-                [sys.executable, "-c", "import harvey"],
+                [sys.executable, "-c", "import sellbird"],
                 cwd="/", capture_output=True,
             )
             if recheck.returncode == 0:
@@ -113,28 +113,28 @@ def _ensure_importable(project_root: str):
     except OSError as e:
         print(f"  Could not apply import fix: {e}")
 
-    print("\n  Warning: 'import harvey' fails outside the project directory.")
-    print("  Run harvey commands from the project root, or reinstall with:")
+    print("\n  Warning: 'import sellbird' fails outside the project directory.")
+    print("  Run sellbird commands from the project root, or reinstall with:")
     print("    pip install -e . --config-settings editable_mode=compat\n")
 
 
 def cmd_setup(args):
     """Run the interactive setup wizard."""
-    from harvey.setup import run_setup
+    from sellbird.setup import run_setup
 
     asyncio.run(run_setup())
 
 
 def cmd_run(args):
-    """Start Harvey's heartbeat loop."""
-    from harvey.main import main
+    """Start Sellbird's heartbeat loop."""
+    from sellbird.main import main
 
     main()
 
 
 def cmd_train(args):
-    """Train Harvey on a website."""
-    from harvey.trainer import Trainer
+    """Train Sellbird on a website."""
+    from sellbird.trainer import Trainer
 
     url = args.url.strip()
     if not url.startswith(("http://", "https://")):
@@ -146,7 +146,7 @@ def cmd_train(args):
         sys.exit(2)
 
     from pydantic import ValidationError
-    from harvey.config import BrainConfig, ConfigError, load_brain_config
+    from sellbird.config import BrainConfig, ConfigError, load_brain_config
 
     try:
         brain_config = load_brain_config()
@@ -173,8 +173,8 @@ def cmd_train(args):
 
 def cmd_dashboard(args):
     """Launch the local web dashboard."""
-    from harvey.dashboard import DashboardSetupError, dashboard_url, start_dashboard
-    from harvey.dashboard_auth import TokenError
+    from sellbird.dashboard import DashboardSetupError, dashboard_url, start_dashboard
+    from sellbird.dashboard_auth import TokenError
 
     if not 1 <= args.port <= 65535:
         print(f"  Invalid port: {args.port}. Must be 1-65535.")
@@ -193,14 +193,14 @@ def cmd_dashboard(args):
 
 def cmd_status(args):
     """Show current pipeline status."""
-    from harvey.state import StateManager
+    from sellbird.state import StateManager
 
     async def _status():
         state = StateManager()
         await state.init_db()
         summary = await state.get_state_summary()
 
-        print("\n  Harvey Pipeline Status")
+        print("\n  Sellbird Pipeline Status")
         print("  " + "=" * 40)
         print(f"  Prospects:            {summary['prospects']}")
         print(f"  Ready to write for:   {summary.get('writable_prospects', 0)} "
@@ -208,24 +208,24 @@ def cmd_status(args):
         write_failed = (summary.get("prospects") or {}).get("write_failed", 0)
         if write_failed:
             print(f"  Couldn't write for:   {write_failed} (the model's drafts kept coming back "
-                  "unusable; `harvey retry-writes` tries again)")
+                  "unusable; `sellbird retry-writes` tries again)")
         print(f"  Draft campaigns:      {summary['draft_campaigns']}")
         print(f"  Active campaigns:     {summary['active_campaigns']}")
         print(f"  Open conversations:   {summary['open_conversations']}")
         by_provider = summary.get("usage_today_by_provider", {})
         print(f"  Claude calls today:   {by_provider.get('claude', summary['usage_today'])}")
         print(f"  Codex calls today:    {by_provider.get('codex', 0)}")
-        from harvey.config import compliance_notice, load_config, sending_notice
+        from sellbird.config import compliance_notice, load_config, sending_notice
         loaded = None
         try:
             loaded = load_config()
             notice = sending_notice(loaded)
             address_notice = compliance_notice(loaded)
         except Exception:
-            # Status must still print when harvey.yaml is broken; that's
+            # Status must still print when sellbird.yaml is broken; that's
             # when people run it. The --check path reports config errors.
             notice = address_notice = ""
-        from harvey.main import unusable_backlog_notice
+        from sellbird.main import unusable_backlog_notice
         backlog = unusable_backlog_notice(summary)
         if backlog:
             print("  Prospecting:          PAUSED")
@@ -235,19 +235,19 @@ def cmd_status(args):
             print("  Sending:              HELD")
             print(textwrap.fill(notice, width=72, initial_indent="                        ",
                                 subsequent_indent="                        "))
-        from harvey.agents.writer import EMAIL_RULES_PROBLEM_KEY
+        from sellbird.agents.writer import EMAIL_RULES_PROBLEM_KEY
         rules_problem = await state.get_setting(EMAIL_RULES_PROBLEM_KEY)
         if rules_problem:
             print(f"  Writing:              STOPPED (writer.email_rules: {rules_problem})")
         hold = await state.current_sends_held()
         if hold:
-            from harvey.sending_mode import held_message
+            from sellbird.sending_mode import held_message
             waiting = len(await state.get_outbox(status="approved", limit=500))
             title, detail = held_message(hold, waiting=waiting)
             print(f"  Sending:              NOT SENDING ({title.split(': ', 1)[-1]})")
             print(textwrap.fill(detail, width=72, initial_indent="                        ",
                                 subsequent_indent="                        "))
-        from harvey.integrations.precleared import current_hold, hold_message
+        from sellbird.integrations.precleared import current_hold, hold_message
         precleared_hold = await current_hold(state, loaded)
         if precleared_hold:
             message = hold_message(precleared_hold)
@@ -259,14 +259,14 @@ def cmd_status(args):
             print("  Postal address:       MISSING")
             print(textwrap.fill(address_notice, width=72, initial_indent="                        ",
                                 subsequent_indent="                        "))
-        from harvey.brain import BRAIN_STATUS_KEY, Brain, active_brain_status
-        from harvey.config import ConfigError, load_brain_config
+        from sellbird.brain import BRAIN_STATUS_KEY, Brain, active_brain_status
+        from sellbird.config import ConfigError, load_brain_config
         try:
             brain_config = load_brain_config()
         except ConfigError as e:
             brain_config, config_error = None, e
         # Only the configured provider's health: an old Codex pause says
-        # nothing once harvey.yaml has switched to Claude.
+        # nothing once sellbird.yaml has switched to Claude.
         brain_status = active_brain_status(
             await state.get_setting(BRAIN_STATUS_KEY),
             brain_config.provider if brain_config else "")
@@ -297,14 +297,14 @@ def cmd_status(args):
         return healthy
 
     if not asyncio.run(_status()):
-        # `harvey status --check` failing is something scripts can act on.
+        # `sellbird status --check` failing is something scripts can act on.
         raise SystemExit(1)
 
 
 def cmd_usage(args):
     """Show brain usage: active provider's quota, totals, breakdowns."""
-    from harvey.state import StateManager
-    from harvey.config import ConfigError, load_brain_config
+    from sellbird.state import StateManager
+    from sellbird.config import ConfigError, load_brain_config
 
     async def _usage():
         state = StateManager()
@@ -323,11 +323,11 @@ def cmd_usage(args):
         provider = brain_config.provider if brain_config else None
         try:
             if provider == "codex":
-                from harvey.codex import CodexClient, CodexQuotaClient
+                from sellbird.codex import CodexClient, CodexQuotaClient
                 windows = await CodexQuotaClient(
                     CodexClient(model=brain_config.model)).get_utilization()
             elif provider == "claude":
-                from harvey.integrations.quota import QuotaClient
+                from sellbird.integrations.quota import QuotaClient
                 windows = await QuotaClient().get_utilization()
         except Exception:
             pass
@@ -396,13 +396,13 @@ def cmd_companies(args):
     """Write the company register to a CSV and summarise it."""
     from collections import Counter
     from datetime import date
-    from harvey.config import load_config
-    from harvey.paths import PROJECT_ROOT
-    from harvey.register import build_register, sqlite_query, to_csv
-    from harvey.state import DB_PATH
+    from sellbird.config import load_config
+    from sellbird.paths import PROJECT_ROOT
+    from sellbird.register import build_register, sqlite_query, to_csv
+    from sellbird.state import DB_PATH
 
     if not DB_PATH.exists():
-        print("\n  No database yet: run 'harvey discover' or 'harvey run' first.\n")
+        print("\n  No database yet: run 'sellbird discover' or 'sellbird run' first.\n")
         return
     rows = asyncio.run(build_register(sqlite_query(DB_PATH), load_config()))
     out = Path(args.out) if args.out else (
@@ -418,8 +418,8 @@ def cmd_companies(args):
 
 def cmd_export(args):
     """Export the prospect list as a sequencer-ready CSV."""
-    from harvey.state import StateManager
-    from harvey.export import export_prospects_csv
+    from sellbird.state import StateManager
+    from sellbird.export import export_prospects_csv
 
     async def _export():
         state = StateManager()
@@ -447,7 +447,7 @@ def cmd_export(args):
         print(f"\n  Exported {count} prospect(s) to {args.out}  ({scope})")
         if count == 0 and not args.all:
             print("  Tip: no deliverable emails yet? Add a REOON_API_KEY to .env so")
-            print("  Harvey can verify addresses, or use --all for the raw list.\n")
+            print("  Sellbird can verify addresses, or use --all for the raw list.\n")
         else:
             print("  The CSV imports directly into Instantly, Smartlead, or any sequencer.\n")
 
@@ -456,17 +456,17 @@ def cmd_export(args):
 
 def cmd_gmail(args):
     """Gmail provider utilities (auth / test)."""
-    from harvey.config import load_env
+    from sellbird.config import load_env
 
     env = load_env()
     if args.gmail_action == "auth":
-        from harvey.integrations.gmail import run_auth_flow
+        from sellbird.integrations.gmail import run_auth_flow
         ok = run_auth_flow(env.gmail_client_id, env.gmail_client_secret)
         sys.exit(0 if ok else 1)
 
     if args.gmail_action == "test":
-        from harvey.config import load_config
-        from harvey.integrations.gmail import GmailProvider
+        from sellbird.config import load_config
+        from sellbird.integrations.gmail import GmailProvider
 
         async def _test():
             provider = GmailProvider(load_config(), env)
@@ -478,17 +478,17 @@ def cmd_gmail(args):
 
 def cmd_microsoft(args):
     """Microsoft 365 provider utilities (auth / test)."""
-    from harvey.config import load_env
+    from sellbird.config import load_env
 
     env = load_env()
     if args.microsoft_action == "auth":
-        from harvey.integrations.microsoft import run_auth_flow
+        from sellbird.integrations.microsoft import run_auth_flow
         ok = run_auth_flow(env.m365_client_id, env.m365_tenant_id)
         sys.exit(0 if ok else 1)
 
     if args.microsoft_action == "test":
-        from harvey.config import load_config
-        from harvey.integrations.microsoft import MicrosoftProvider
+        from sellbird.config import load_config
+        from sellbird.integrations.microsoft import MicrosoftProvider
 
         async def _test():
             provider = MicrosoftProvider(load_config(), env)
@@ -500,7 +500,7 @@ def cmd_microsoft(args):
 
 def cmd_outbox(args):
     """Review and approve queued outgoing emails."""
-    from harvey.state import StateManager
+    from sellbird.state import StateManager
 
     async def _outbox():
         state = StateManager()
@@ -511,7 +511,7 @@ def cmd_outbox(args):
             print(f"\n  Approved {n} email(s). They'll send on schedule.")
             held = await state.count_held_for_review()
             if held:
-                print(f"  {held} email(s) Harvey held for review were left out: read each one,")
+                print(f"  {held} email(s) Sellbird held for review were left out: read each one,")
                 print("  then approve it with --approve <id>.")
             print()
             return
@@ -527,7 +527,7 @@ def cmd_outbox(args):
         paused = await state.get_setting("sending_paused")
         if paused:
             print(f"\n  ⚠ SENDING PAUSED: {paused}")
-            print("  Resume with: harvey sending resume")
+            print("  Resume with: sellbird sending resume")
 
         pending = await state.get_outbox(status="pending_review", limit=50)
         approved = await state.get_outbox(status="approved", limit=10)
@@ -542,8 +542,8 @@ def cmd_outbox(args):
             for line in body_preview.splitlines():
                 print(f"    {line}")
         if pending:
-            print("\n  Approve: harvey outbox --approve <id>   |   all: harvey outbox --approve-all")
-            print("  Reject:  harvey outbox --reject <id>\n")
+            print("\n  Approve: sellbird outbox --approve <id>   |   all: sellbird outbox --approve-all")
+            print("  Reject:  sellbird outbox --reject <id>\n")
         else:
             print("  Nothing awaiting review.\n")
 
@@ -552,8 +552,8 @@ def cmd_outbox(args):
 
 def cmd_profile(args):
     """Read what companies' own websites say about them. Free, no Claude calls."""
-    from harvey.state import StateManager
-    from harvey.pipeline import run_profile_stage
+    from sellbird.state import StateManager
+    from sellbird.pipeline import run_profile_stage
 
     async def _profile():
         state = StateManager()
@@ -568,23 +568,23 @@ def cmd_profile(args):
         print(f"\n  {pending} companies need profiling. Reading up to "
               f"{args.limit}...\n")
         try:
-            from harvey.config import load_config
+            from sellbird.config import load_config
             config = load_config()
         except Exception:
             config = None   # still profiles; no role is singled out as hiring intent
         companies, observations, _ = await run_profile_stage(
             state, limit=args.limit, stale_days=args.stale_days, config=config)
         print(f"  Read {companies} sites → {observations} observations (free)")
-        print("\n  See what turned up: harvey dashboard → Signals\n")
+        print("\n  See what turned up: sellbird dashboard → Signals\n")
 
     asyncio.run(_profile())
 
 
 def cmd_discover(args):
     """Find businesses. The only stage that spends money, so it estimates first."""
-    from harvey.state import StateManager
-    from harvey.config import load_config, load_env
-    from harvey.collectors.discover import (
+    from sellbird.state import StateManager
+    from sellbird.config import load_config, load_env
+    from sellbird.collectors.discover import (
         PROVIDERS, build_queries, preset_problem, provider_menu, run_discovery,
     )
 
@@ -602,12 +602,12 @@ def cmd_discover(args):
                     print(f"    Needs: {', '.join(m['env_keys'])} in .env  —  {m['signup_url']}")
                 if m["caveat"]:
                     print(f"    Note: {m['caveat']}")
-            print("\n  Run one with: harvey discover --provider <key> --estimate\n")
+            print("\n  Run one with: sellbird discover --provider <key> --estimate\n")
             return
 
         if args.provider not in PROVIDERS:
             print(f"\n  Unknown provider {args.provider!r}. "
-                  f"See: harvey discover --providers\n")
+                  f"See: sellbird discover --providers\n")
             return
 
         # Fail before collection; estimates need no credentials.
@@ -624,7 +624,7 @@ def cmd_discover(args):
             print(f"  Missing or empty: {names}")
             print("  Put a real value in .env (template placeholders don't"
                   " count), then retry.")
-            print("  All providers and their keys: harvey discover --providers")
+            print("  All providers and their keys: sellbird discover --providers")
             print("  " + "!" * 68 + "\n")
             raise SystemExit(1)
 
@@ -658,7 +658,7 @@ def cmd_discover(args):
             return
 
         print("\n  Running...\n")
-        from harvey.pipeline import run_prospecting
+        from sellbird.pipeline import run_prospecting
 
         result = await run_prospecting(
             state, config, args.provider, queries,
@@ -700,19 +700,19 @@ def cmd_discover(args):
             print("  " + "=" * 68 + "\n")
             raise SystemExit(1)
 
-        print("\n  Next: harvey dashboard → Signals → cohort builder\n")
+        print("\n  Next: sellbird dashboard → Signals → cohort builder\n")
 
     asyncio.run(_discover())
 
 
 def cmd_signals(args):
-    """Review the signal vocabulary — Harvey proposes, you confirm.
+    """Review the signal vocabulary — Sellbird proposes, you confirm.
 
     Nothing is collected until a signal is confirmed, so a fresh install
     prospects against nothing until someone makes these decisions.
     """
-    from harvey.state import StateManager
-    from harvey.signals import seed_signal_catalog
+    from sellbird.state import StateManager
+    from sellbird.signals import seed_signal_catalog
 
     async def _signals():
         state = StateManager()
@@ -759,9 +759,9 @@ def cmd_signals(args):
             print(f"          {r['cost_note']}")
 
         if by_status["proposed"]:
-            print("\n  Confirm with: harvey signals --confirm CODE[,CODE...]")
-            print("  Everything free: harvey signals --confirm free")
-            print("  Details and descriptions: harvey dashboard → Signals\n")
+            print("\n  Confirm with: sellbird signals --confirm CODE[,CODE...]")
+            print("  Everything free: sellbird signals --confirm free")
+            print("  Details and descriptions: sellbird dashboard → Signals\n")
         else:
             print("")
 
@@ -770,8 +770,8 @@ def cmd_signals(args):
 
 def cmd_retry_writes(args):
     """Put prospects the Writer gave up on back in line for another try."""
-    from harvey.agents.writer import MAX_WRITE_ATTEMPTS
-    from harvey.state import StateManager
+    from sellbird.agents.writer import MAX_WRITE_ATTEMPTS
+    from sellbird.state import StateManager
 
     async def _run():
         state = StateManager()
@@ -792,11 +792,11 @@ def cmd_warmup(args):
 
     from dotenv import load_dotenv
 
-    from harvey import deliverability as d
-    from harvey.agents.handler import BOUNCE_COUNT_KEY
-    from harvey.config import ConfigError, load_config
-    from harvey.paths import PROJECT_ROOT
-    from harvey.state import StateManager
+    from sellbird import deliverability as d
+    from sellbird.agents.handler import BOUNCE_COUNT_KEY
+    from sellbird.config import ConfigError, load_config
+    from sellbird.paths import PROJECT_ROOT
+    from sellbird.state import StateManager
 
     load_dotenv(PROJECT_ROOT / ".env")
     try:
@@ -809,7 +809,7 @@ def cmd_warmup(args):
     sender = smtp_user if "@" in smtp_user else config.persona.email
     domain = (args.domain or sender.rpartition("@")[2]).strip().lower().rstrip(".")
     if not d.DOMAIN_RE.match(domain):
-        print("\n  No valid sending domain found. Pass one: harvey warmup yourdomain.com\n")
+        print("\n  No valid sending domain found. Pass one: sellbird warmup yourdomain.com\n")
         raise SystemExit(1)
 
     async def _history():
@@ -856,7 +856,7 @@ def cmd_warmup(args):
     print("      it shows Gmail's spam rate and domain reputation once you send volume.")
     print("    - Inbox placement: send one email to a seed test (mail-tester.com is free)")
     print("      and aim for 9/10+. TrulyInbox shows the warmup inbox rate, and with it")
-    print("      connected (harvey trulyinbox connect) Harvey reads it into this report.")
+    print("      connected (sellbird trulyinbox connect) Sellbird reads it into this report.")
     print("      Wait for ~95%+ inbox for a week before relying on cold sends.\n")
     if failed or unknown:
         raise SystemExit(1)
@@ -864,9 +864,9 @@ def cmd_warmup(args):
 
 def _warmup_service_check(address: str, warmup):
     """The 'Warmup service' line: TrulyInbox's view of the mailbox, or the recommendation."""
-    from harvey import deliverability as d
-    from harvey.integrations import trulyinbox as ti
-    from harvey.state import StateManager
+    from sellbird import deliverability as d
+    from sellbird.integrations import trulyinbox as ti
+    from sellbird.state import StateManager
 
     async def _run():
         state = StateManager()
@@ -883,11 +883,11 @@ def cmd_trulyinbox(args):
 
     from dotenv import load_dotenv
 
-    from harvey import deliverability as d
-    from harvey.config import ConfigError, load_config
-    from harvey.integrations import trulyinbox as ti
-    from harvey.paths import PROJECT_ROOT
-    from harvey.state import StateManager
+    from sellbird import deliverability as d
+    from sellbird.config import ConfigError, load_config
+    from sellbird.integrations import trulyinbox as ti
+    from sellbird.paths import PROJECT_ROOT
+    from sellbird.state import StateManager
 
     load_dotenv(PROJECT_ROOT / ".env")
     try:
@@ -903,7 +903,7 @@ def cmd_trulyinbox(args):
         await state.init_db()
         if args.trulyinbox_action == "other":
             await ti.set_choice(state, "other")
-            print("\n  Noted: you use another warmup service. Harvey won't ask about "
+            print("\n  Noted: you use another warmup service. Sellbird won't ask about "
                   "TrulyInbox again.\n")
             return 0
         if args.trulyinbox_action == "connect":
@@ -926,14 +926,14 @@ def cmd_trulyinbox(args):
             except ti.TrulyInboxError as e:
                 print(f"\n  {e}\n")
                 return 1
-            from harvey.dashboard import _write_env_file
+            from sellbird.dashboard import _write_env_file
             updates = {"TRULYINBOX_API_KEY": key}
             if not workspace:
                 updates["TRULYINBOX_WORKSPACE_ID"] = client.workspace_id
             try:
                 _write_env_file(updates)
             except OSError as e:
-                print(f"\n  The key works, but Harvey couldn't save it to .env: {e}\n")
+                print(f"\n  The key works, but Sellbird couldn't save it to .env: {e}\n")
                 return 1
             await ti.set_choice(state, "connected")
             print("\n  Connected. " + d.check_warmup_service(health, warmup).detail + "\n")
@@ -951,7 +951,7 @@ def cmd_trulyinbox(args):
 
 def cmd_sending(args):
     """Pause/resume the sending kill switch."""
-    from harvey.state import StateManager
+    from sellbird.state import StateManager
 
     async def _run():
         state = StateManager()
@@ -971,31 +971,31 @@ def cmd_sending(args):
 
 
 def main():
-    from harvey.textio import utf8_stdio
+    from sellbird.textio import utf8_stdio
     utf8_stdio()
-    from harvey.paths import PROJECT_ROOT
+    from sellbird.paths import PROJECT_ROOT
     project_root = str(PROJECT_ROOT)
 
     parser = argparse.ArgumentParser(
-        prog="harvey",
-        description="Harvey — Autonomous AI Sales Agent. Always Be Closing.",
+        prog="sellbird",
+        description="Sellbird — Autonomous AI Sales Agent. Always Be Closing.",
     )
     subparsers = parser.add_subparsers(dest="command")
 
-    # harvey install
+    # sellbird install
     sub = subparsers.add_parser("install", help="Install dependencies")
     sub.set_defaults(func=cmd_install)
 
-    # harvey setup
+    # sellbird setup
     sub = subparsers.add_parser("setup", help="Run the interactive setup wizard")
     sub.set_defaults(func=cmd_setup)
 
-    # harvey run
-    sub = subparsers.add_parser("run", help="Start Harvey's heartbeat loop")
+    # sellbird run
+    sub = subparsers.add_parser("run", help="Start Sellbird's heartbeat loop")
     sub.set_defaults(func=cmd_run)
 
-    # harvey train <url>
-    sub = subparsers.add_parser("train", help="Train Harvey on a website")
+    # sellbird train <url>
+    sub = subparsers.add_parser("train", help="Train Sellbird on a website")
     sub.add_argument("url", help="Website URL to crawl and learn from")
     sub.add_argument(
         "max_pages",
@@ -1015,7 +1015,7 @@ def main():
     )
     sub.set_defaults(func=cmd_train)
 
-    # harvey dashboard
+    # sellbird dashboard
     sub = subparsers.add_parser("dashboard", help="Open the web dashboard")
     sub.add_argument("--host", default="127.0.0.1",
                      help="Loopback address to listen on (default: 127.0.0.1; "
@@ -1025,7 +1025,7 @@ def main():
                      help="Print the unlock link (with its token) and exit")
     sub.set_defaults(func=cmd_dashboard)
 
-    # harvey status
+    # sellbird status
     sub = subparsers.add_parser("status", help="Show pipeline status")
     sub.add_argument(
         "--check", action="store_true",
@@ -1034,7 +1034,7 @@ def main():
     )
     sub.set_defaults(func=cmd_status)
 
-    # harvey export
+    # sellbird export
     sub = subparsers.add_parser(
         "export", help="Export prospects as a sequencer-ready CSV"
     )
@@ -1048,33 +1048,33 @@ def main():
     sub.add_argument("--all", action="store_true", help="Export the raw list without filters, including opted-out contacts (not for outreach)")
     sub.set_defaults(func=cmd_export)
 
-    # harvey companies
+    # sellbird companies
     sub = subparsers.add_parser(
         "companies", help="Export the company register: every company, why it fits, and why it wasn't contacted"
     )
     sub.add_argument("--out", default="", help="Output file (default: data/exports/company-register-<date>.csv)")
     sub.set_defaults(func=cmd_companies)
 
-    # harvey gmail auth|test
+    # sellbird gmail auth|test
     sub = subparsers.add_parser("gmail", help="Gmail provider setup")
     sub.add_argument("gmail_action", choices=["auth", "test"],
                      help="auth: one-time OAuth; test: verify connection")
     sub.set_defaults(func=cmd_gmail)
 
-    # harvey microsoft auth|test
+    # sellbird microsoft auth|test
     sub = subparsers.add_parser("microsoft", help="Microsoft 365 provider setup")
     sub.add_argument("microsoft_action", choices=["auth", "test"],
                      help="auth: one-time sign-in; test: verify connection")
     sub.set_defaults(func=cmd_microsoft)
 
-    # harvey outbox
+    # sellbird outbox
     sub = subparsers.add_parser("outbox", help="Review/approve queued emails")
     sub.add_argument("--approve", metavar="ID", default="", help="Approve one item")
     sub.add_argument("--approve-all", action="store_true", help="Approve all pending")
     sub.add_argument("--reject", metavar="ID", default="", help="Reject one item")
     sub.set_defaults(func=cmd_outbox)
 
-    # harvey sending pause|resume|status
+    # sellbird sending pause|resume|status
     sub = subparsers.add_parser("discover", help="Find businesses matching your ICP")
     sub.add_argument("--provider", default="osm",
                      help="Discovery provider (default: osm — free, no account)")
@@ -1113,7 +1113,7 @@ def main():
     sub.set_defaults(func=cmd_profile)
 
     sub = subparsers.add_parser(
-        "signals", help="Review/confirm which signals Harvey prospects against")
+        "signals", help="Review/confirm which signals Sellbird prospects against")
     sub.add_argument("--confirm", metavar="CODES", default="",
                      help="Comma-separated codes to confirm ('all' or 'free' accepted)")
     sub.add_argument("--reject", metavar="CODES", default="",
@@ -1136,14 +1136,14 @@ def main():
     sub.set_defaults(func=cmd_warmup)
 
     sub = subparsers.add_parser(
-        "trulyinbox", help="Warmup service: connect TrulyInbox so Harvey can read the inbox rate")
+        "trulyinbox", help="Warmup service: connect TrulyInbox so Sellbird can read the inbox rate")
     sub.add_argument("trulyinbox_action", nargs="?", default="status",
                      choices=["status", "connect", "other"],
                      help="connect a key, 'other' if you use another warmup service, "
                           "or show the status (default)")
     sub.set_defaults(func=cmd_trulyinbox)
 
-    # harvey usage
+    # sellbird usage
     sub = subparsers.add_parser("usage", help="Show brain usage and quota (Claude or Codex)")
     sub.add_argument("--days", type=int, default=30, help="Breakdown window (default: 30)")
     sub.set_defaults(func=cmd_usage)
@@ -1154,10 +1154,10 @@ def main():
     if args.command is None:
         parser.print_help()
         print("\n  Quick start:")
-        print("    harvey install   — Install dependencies")
-        print("    harvey setup     — Configure Harvey (first time)")
-        print("    harvey run       — Start closing deals")
-        print("    harvey dashboard — Open the web dashboard")
+        print("    sellbird install   — Install dependencies")
+        print("    sellbird setup     — Configure Sellbird (first time)")
+        print("    sellbird run       — Start closing deals")
+        print("    sellbird dashboard — Open the web dashboard")
         print()
         sys.exit(0)
 
@@ -1169,12 +1169,12 @@ def main():
     except Exception as e:
         # ConfigError and friends carry actionable messages — show them
         # cleanly instead of a raw traceback.
-        from harvey.config import ConfigError
+        from sellbird.config import ConfigError
 
         if isinstance(e, ConfigError):
             print(f"\n  Configuration problem:\n  {e}\n")
         else:
-            print(f"\n  Error running 'harvey {args.command}': {e}\n")
+            print(f"\n  Error running 'sellbird {args.command}': {e}\n")
         sys.exit(1)
 
 

@@ -23,15 +23,15 @@ from email.utils import make_msgid, parseaddr
 
 import aiosmtplib
 
-from harvey.integrations.mail_provider import (
+from sellbird.integrations.mail_provider import (
     InboundMessage,
     MailProvider,
     SendResult,
     looks_like_bounce,
 )
-from harvey.integrations.signature import SignatureError, load_signature, set_body
+from sellbird.integrations.signature import SignatureError, load_signature, set_body
 
-logger = logging.getLogger("harvey.smtp")
+logger = logging.getLogger("sellbird.smtp")
 
 
 class SmtpImapProvider(MailProvider):

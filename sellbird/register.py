@@ -1,7 +1,7 @@
-"""The company register: every company Harvey has found, one row each.
+"""The company register: every company Sellbird has found, one row each.
 
 Built on read from the database, so nothing is lost and it is always current:
-where the company came from, why it fits, what Harvey has done about it, and
+where the company came from, why it fits, what Sellbird has done about it, and
 — when nothing was sent — why not. Companies with no contact found stay in
 the register for people to follow up another way.
 """
@@ -11,9 +11,9 @@ from __future__ import annotations
 import csv
 import io
 
-from harvey.config import ComplianceConfig, live_do_not_contact
-from harvey.fit import company_fit, current_roles
-from harvey.gate import do_not_contact_match
+from sellbird.config import ComplianceConfig, live_do_not_contact
+from sellbird.fit import company_fit, current_roles
+from sellbird.gate import do_not_contact_match
 
 COLUMNS = [
     "company", "website", "sector", "area", "fit", "why_selected",
@@ -72,14 +72,14 @@ def company_status(company: dict, prospects: list[dict], outbox: list[dict],
         return "Queued", "Staged for a campaign"
     if any(p.get("status") == "write_failed" for p in prospects) and \
             not any(p.get("status") in LIVE for p in prospects):
-        return "Not contacted", ("Harvey couldn't write a draft after several tries; "
+        return "Not contacted", ("Sellbird couldn't write a draft after several tries; "
                                  "see the log, and fix the cause to retry")
     live = [p for p in prospects if p.get("status") in LIVE]
     statuses = {(p.get("email_status") or "") for p in live}
     has_form = any(o.get("signal_code") == "CONTACT_FORM_URL" for o in observations)
     form = " Contact form available." if has_form else ""
     if "verified" in statuses or (send_to_risky and "risky" in statuses):
-        return "Ready", "Deliverable email found; Harvey will write to it on a coming cycle"
+        return "Ready", "Deliverable email found; Sellbird will write to it on a coming cycle"
     if "risky" in statuses:
         return "Not contacted", ("Only a risky (catch-all) email, which your rules don't send to. "
                                  "Try phone, LinkedIn or the cold-email domain later." + form)
@@ -94,7 +94,7 @@ def company_status(company: dict, prospects: list[dict], outbox: list[dict],
     if company.get("prospects_checked_at"):
         return "Not contacted", "Website read, but no named person or usable email on it." + form
     if company.get("profile_checked_at"):
-        return "Not processed yet", "Website read; Harvey hasn't looked for contacts here yet." + form
+        return "Not processed yet", "Website read; Sellbird hasn't looked for contacts here yet." + form
     return "Not processed yet", "Found by search; website not read yet"
 
 
@@ -160,7 +160,7 @@ async def build_register(query_db, config, company_id: str | None = None) -> lis
 
 def _do_not_contact(config) -> list[str]:
     """The do-not-contact list as the config file says it is now, as the
-    sender reads it, so an entry added while Harvey runs shows at once."""
+    sender reads it, so an entry added while Sellbird runs shows at once."""
     compliance = getattr(config, "compliance", None)
     if isinstance(compliance, ComplianceConfig):
         try:

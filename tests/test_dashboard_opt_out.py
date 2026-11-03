@@ -1,6 +1,6 @@
 """Why someone is opted out, and undoing it from the dashboard.
 
-An opt-out is permanent to Harvey (state.update_prospect_status never moves
+An opt-out is permanent to Sellbird (state.update_prospect_status never moves
 anyone off it), so a mistaken one needs a deliberate human action, and the
 human needs to see what triggered it before deciding."""
 
@@ -9,7 +9,7 @@ import json
 import sqlite3
 
 from tests.test_dashboard_signals import client  # noqa: F401  (fixture)
-from harvey.state import StateManager
+from sellbird.state import StateManager
 
 
 def _sql(db, query, params=()):
@@ -46,7 +46,7 @@ def test_shows_what_triggered_the_opt_out(client):
 
 def test_an_opt_out_from_before_reasons_were_kept_shows_their_last_message(client):
     _seed(client.db_path)
-    thread = [{"sender": "harvey", "content": "Hi Iris"},
+    thread = [{"sender": "sellbird", "content": "Hi Iris"},
               {"sender": "prospect", "content": "please stop", "timestamp": "2026-10-19T08:00:00"}]
     _sql(client.db_path, "INSERT INTO conversations (id, prospect_id, thread_json, status, updated_at) "
                          "VALUES ('c1', 'p1', ?, 'closed', '2026-10-19T08:00:00')", (json.dumps(thread),))
@@ -110,7 +110,7 @@ def _render_panel(prospect, data, armed=False):
     node = shutil.which("node")
     if not node:
         pytest.skip("node is not installed")
-    source = (Path(__file__).resolve().parent.parent / "harvey" / "web" / "app.js").read_text(encoding="utf-8")
+    source = (Path(__file__).resolve().parent.parent / "sellbird" / "web" / "app.js").read_text(encoding="utf-8")
     parts = []
     for pattern in (r"^function escHtml\(.*?^}\n", r"^function own\(.*?^}\n",
                     r"^const OPT_OUT_RULES = \{.*?^\};\n", r"^function optOutPanel\(.*?^}\n"):
@@ -139,7 +139,7 @@ def test_the_panel_shows_the_reason_and_escapes_their_message():
 def test_the_panel_asks_before_undoing_and_says_what_happens():
     html = _render_panel({"first_name": "Iris", "email": "i@x.test"},
                          {"opted_out": True, "recorded": False, "message": "", "history": []}, armed=True)
-    assert "before Harvey kept a record" in html
+    assert "before Sellbird kept a record" in html
     assert "Confirm undo" in html and "Nothing is sent automatically" in html
 
 

@@ -1,9 +1,9 @@
-"""Harvey data models."""
+"""Sellbird data models."""
 
-from harvey.models.campaign import Campaign, EmailStep
-from harvey.models.company import Company
-from harvey.models.conversation import Conversation, Message, STAGES
-from harvey.models.prospect import Prospect
+from sellbird.models.campaign import Campaign, EmailStep
+from sellbird.models.company import Company
+from sellbird.models.conversation import Conversation, Message, STAGES
+from sellbird.models.prospect import Prospect
 
 __all__ = [
     "Campaign",

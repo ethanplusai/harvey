@@ -1,7 +1,7 @@
-"""TrulyInbox: the warmup service Harvey recommends, and reads.
+"""TrulyInbox: the warmup service Sellbird recommends, and reads.
 
-Harvey only reads from TrulyInbox (is the sending mailbox enrolled, is warmup
-on, how much of its warmup mail lands in spam), so `harvey warmup` can say
+Sellbird only reads from TrulyInbox (is the sending mailbox enrolled, is warmup
+on, how much of its warmup mail lands in spam), so `sellbird warmup` can say
 whether a mailbox is actually warmed instead of counting days from a date.
 """
 
@@ -11,9 +11,9 @@ from datetime import date, timedelta
 import httpx
 import pytest
 
-from harvey import deliverability as d
-from harvey.config import WarmupConfig
-from harvey.integrations import trulyinbox as ti
+from sellbird import deliverability as d
+from sellbird.config import WarmupConfig
+from sellbird.integrations import trulyinbox as ti
 
 KEY = "ti_ws_test_key_123"
 ADDR = "sales@getacme.example"
@@ -161,7 +161,7 @@ def test_a_key_that_cant_go_in_a_header_is_refused():
         ti.TrulyInbox("bad\nkey")
 
 
-# ── What `harvey warmup` says ──
+# ── What `sellbird warmup` says ──
 
 TODAY = date(2026, 10, 25)
 
@@ -175,7 +175,7 @@ def _health(**kw):
 
 def test_not_connected_recommends_trulyinbox_with_the_link():
     c = d.check_warmup_service(None, today=TODAY)
-    assert ti.AFFILIATE_URL in c.detail and "harvey trulyinbox connect" in c.detail
+    assert ti.AFFILIATE_URL in c.detail and "sellbird trulyinbox connect" in c.detail
     assert c.status == d.INFO
 
 
@@ -222,10 +222,10 @@ def test_another_warmup_service_is_respected():
 # ── The link is defined once ──
 
 def test_the_link_lives_in_one_constant():
-    from harvey.paths import PROJECT_ROOT
-    src = [p for p in (PROJECT_ROOT / "harvey").rglob("*") if p.suffix in (".py", ".js", ".html")]
+    from sellbird.paths import PROJECT_ROOT
+    src = [p for p in (PROJECT_ROOT / "sellbird").rglob("*") if p.suffix in (".py", ".js", ".html")]
     assert [p.name for p in src if "trulyinbox.com/?via" in p.read_text(encoding="utf-8")] == ["trulyinbox.py"]
-    for name in ("README.md", "CLAUDE.md", "harvey.yaml"):
+    for name in ("README.md", "CLAUDE.md", "sellbird.yaml"):
         text = (PROJECT_ROOT / name).read_text(encoding="utf-8")
         assert ti.AFFILIATE_URL in text, name
         # every link to the site carries the referral
@@ -237,7 +237,7 @@ def test_the_link_lives_in_one_constant():
 
 @pytest.mark.asyncio
 async def test_the_choice_is_remembered(tmp_path):
-    from harvey.state import StateManager
+    from sellbird.state import StateManager
     state = StateManager(str(tmp_path / "h.db"))
     await state.init_db()
     assert await ti.get_choice(state) == ""

@@ -23,7 +23,7 @@ from urllib.parse import quote, unquote
 
 import httpx
 
-logger = logging.getLogger("harvey.collectors.ats")
+logger = logging.getLogger("sellbird.collectors.ats")
 
 # A board bigger than this is a large enterprise's, not a prospect worth one
 # more request. Lever's feed carries full descriptions: ~6 MB for 300 roles.

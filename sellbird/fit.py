@@ -1,6 +1,6 @@
 """Company fit: one 0-100 number per company, with the reasons behind it.
 
-Worked out on read from what Harvey already holds (the company's industry,
+Worked out on read from what Sellbird already holds (the company's industry,
 its contacts and their email status, and its observations), weighed against
 the ICP in the config. Nothing is stored, so the score follows the config
 the moment it changes.
@@ -20,8 +20,8 @@ from __future__ import annotations
 
 import re
 
-from harvey.collectors.people import title_matches
-from harvey.gate import do_not_contact_match
+from sellbird.collectors.people import title_matches
+from sellbird.gate import do_not_contact_match
 
 SECTOR, DECISION_MAKER, REACHABLE, BUYING = 20, 30, 25, 25
 EMAIL_POINTS = {"verified": 25, "risky": 12, "guess": 5}
@@ -77,7 +77,7 @@ def company_fit(company: dict, prospects: list[dict], observations: list[dict],
     named = [p for p in live if (p.get("first_name") or "").strip()]
     makers = [p for p in named if icp.titles and title_matches(p.get("title") or "", icp.titles)]
     if not makers:
-        # Names the site lists that Harvey didn't turn into contacts.
+        # Names the site lists that Sellbird didn't turn into contacts.
         for o in observations:
             if o.get("signal_code") == "DECISION_MAKER_TITLE":
                 title = (o.get("value_text") or "").split("—", 1)[-1].strip(" ~()")

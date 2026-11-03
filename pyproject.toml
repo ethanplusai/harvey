@@ -3,7 +3,7 @@ requires = ["setuptools>=68.0"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "harvey"
+name = "sellbird"
 version = "0.3.0"
 description = "Autonomous AI sales agent. Always Be Closing."
 readme = "README.md"
@@ -41,17 +41,17 @@ dev = [
 ]
 
 [project.urls]
-Homepage = "https://github.com/ethanplusai/harvey"
-Issues = "https://github.com/ethanplusai/harvey/issues"
-Changelog = "https://github.com/ethanplusai/harvey/blob/main/CHANGELOG.md"
+Homepage = "https://github.com/ethanplusai/sellbird"
+Issues = "https://github.com/ethanplusai/sellbird/issues"
+Changelog = "https://github.com/ethanplusai/sellbird/blob/main/CHANGELOG.md"
 
 [project.scripts]
-harvey = "harvey.cli:main"
+sellbird = "sellbird.cli:main"
 
 [tool.setuptools.packages.find]
-include = ["harvey*"]
+include = ["sellbird*"]
 
 # The dashboard's HTML/CSS/JS are real files served from disk, and its fonts
 # are vendored so a local tool renders correctly with the network off.
 [tool.setuptools.package-data]
-harvey = ["web/*", "web/fonts/*"]
+sellbird = ["web/*", "web/fonts/*"]

@@ -1,6 +1,6 @@
-"""Allow running Harvey with `python -m harvey`."""
+"""Allow running Sellbird with `python -m sellbird`."""
 
-from harvey.cli import main
+from sellbird.cli import main
 
 if __name__ == "__main__":
     main()

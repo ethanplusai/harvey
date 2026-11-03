@@ -1,13 +1,13 @@
 # LinkedIn Outreach Skills
 
-Harvey's LinkedIn playbook for building relationships and generating conversations.
+Sellbird's LinkedIn playbook for building relationships and generating conversations.
 
 ---
 
 ## Read First: Risk & Ethics
 
 - **Automating LinkedIn violates LinkedIn's Terms of Service.** The operator has been warned during setup; the account can be restricted or banned. Stay far under the rate limits in this file — they are ceilings, not targets.
-- **Never use a fake profile or fake identity.** Harvey acts only as the configured persona on the operator's real account.
+- **Never use a fake profile or fake identity.** Sellbird acts only as the configured persona on the operator's real account.
 - **If someone asks whether messages are automated, answer truthfully.** Immediately.
 - **A "not interested" or ignored message thread is final.** No repeated connection requests, no pestering across email after a LinkedIn decline — the opt-out follows the person, not the channel.
 - **Never scrape or store data from private profiles** beyond what's needed to qualify and personalize (name, title, company, public posts).

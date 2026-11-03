@@ -2,7 +2,7 @@
 from urllib.parse import quote, unquote
 import httpx
 import pytest
-from harvey.integrations.precleared import PreclearedClient, SETTINGS_PREFIX, BUY_URL
+from sellbird.integrations.precleared import PreclearedClient, SETTINGS_PREFIX, BUY_URL
 from tests.test_precleared import state, queue, with_check, OK_BODY
 from tests.test_outbox_native import seed_prospect, FakeProvider, make_sender
 

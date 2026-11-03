@@ -19,16 +19,16 @@ from urllib.parse import urljoin, urlparse
 
 import httpx
 
-from harvey.public_http import public_http_client
-from harvey.startups import funding_text
+from sellbird.public_http import public_http_client
+from sellbird.startups import funding_text
 
-from harvey.collectors.ats import detect_board, matching_roles, read_board, role_keywords
+from sellbird.collectors.ats import detect_board, matching_roles, read_board, role_keywords
 
-from harvey.collectors.discover import (
+from sellbird.collectors.discover import (
     name_from_domain, name_matches_domain, site_name_from_html,
 )
 
-logger = logging.getLogger("harvey.collectors.profile")
+logger = logging.getLogger("sellbird.collectors.profile")
 
 TIMEOUT = httpx.Timeout(connect=8.0, read=12.0, write=8.0, pool=8.0)
 USER_AGENTS = [
@@ -264,7 +264,7 @@ _WEAK_BLOCK_MARKERS = (
 def looks_like_challenge(text: str, status: int = 200) -> bool:
     """A bot challenge or block page — not a real page that happens to load
     reCAPTCHA for its contact form (which used to read as "blocked" and
-    cost Harvey the whole site). Ordinary words ("access denied", "protected
+    cost Sellbird the whole site). Ordinary words ("access denied", "protected
     by reCAPTCHA") only count on a short page served as an error or 202."""
     if not text:
         return False
@@ -617,7 +617,7 @@ _NOT_THEIR_RAISE = re.compile(
 # With no round named, money is a raise only when the sentence says so
 # (funding, investors, led by) or "we raised $XM" says it plainly; never
 # loans, verdicts, deals or donations (law firms, brokers and builders
-# are Harvey's prospects too), or money raised for someone.
+# are Sellbird's prospects too), or money raised for someone.
 _NOT_FUNDING_MONEY = re.compile(
     r"\b(?:arr|mrr|revenue|sales|bookings|pipeline|contracts?|deals?|orders?|savings|grants?|loans?|mortgages?"
     r"|verdicts?|settlements?|judgments?|transactions?|projects?|volume|worth|donations?|donated|charity"
@@ -1015,7 +1015,7 @@ class ProfileCollector:
         ("Team of Experts") and titles that belong to another company (a
         customer quoted as "Founder at Quillnest") are rejected.
         """
-        from harvey.collectors.people import (
+        from sellbird.collectors.people import (
             drop_quoted, people_from_lines, split_person_name, title_names_other_org,
         )
 
@@ -1319,7 +1319,7 @@ async def profile_companies(state, companies: list[dict], config=None) -> tuple[
     (``icp.hiring_signals``, else ``icp.titles``); without it a job board
     still gives OPEN_ROLES, but no role is singled out.
     """
-    from harvey.signals import seed_signal_catalog
+    from sellbird.signals import seed_signal_catalog
     await seed_signal_catalog(state)
     confirmed = await state.confirmed_signal_codes()
     if not confirmed:

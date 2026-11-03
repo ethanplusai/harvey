@@ -5,9 +5,9 @@ from unittest.mock import AsyncMock
 import httpx
 import pytest
 
-import harvey.dashboard as dashboard
-import harvey.integrations.gmail as gmail
-from harvey.state import MAYBE_SENT_PREFIX, StateManager
+import sellbird.dashboard as dashboard
+import sellbird.integrations.gmail as gmail
+from sellbird.state import MAYBE_SENT_PREFIX, StateManager
 from tests.test_outbox_native import make_sender, seed_prospect, _now_iso
 from tests.test_gmail_inbox import message
 
@@ -81,8 +81,8 @@ async def test_sender_outbox_and_dashboard_outcome(
         assert item['message_id'] == '<rfc-id@example.invalid>'
         assert item['thread_ref'] == 'thread-id'
     monkeypatch.setattr(dashboard, 'DB_PATH', path)
-    assert (pid in await dashboard._harvey_committed_ids()) == (outcome != 'rejected')
-    assert await dashboard._harvey_sent_to(pid) == (outcome != 'rejected')
+    assert (pid in await dashboard._sellbird_committed_ids()) == (outcome != 'rejected')
+    assert await dashboard._sellbird_sent_to(pid) == (outcome != 'rejected')
     # The provider recovers, but neither a second drain nor a fresh process
     # may silently re-send an already attempted outbox item.
     status, body = 200, '{"id":"recovered"}'
