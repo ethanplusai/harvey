@@ -9,6 +9,12 @@ minor versions can still change behaviour.
 
 ### Added
 
+- **Lovable and Supabase in the tech stack.** `TECH_STACK` now records a site
+  built with Lovable (its default social-card image or author tag, its older
+  editor script, its `/lovable-uploads/` image path, or a `*.lovable.app`
+  link) and a Supabase backend (a project's API host). For anyone selling to
+  founders of AI-built apps, that is the buying signal. A page that only
+  mentions either tool by name doesn't count.
 - **Company fit and the company register.** The Companies tab now sorts by a
   0-100 fit score worked out from what Harvey already holds: the ICP sector
   match, a contact with a target title, the best email found, and an open

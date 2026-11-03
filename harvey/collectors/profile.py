@@ -19,6 +19,7 @@ from urllib.parse import urljoin, urlparse
 
 import httpx
 
+from harvey.integrations.tech_detect import LOVABLE_FINGERPRINTS, SUPABASE_FINGERPRINTS
 from harvey.public_http import public_http_client
 from harvey.startups import funding_text
 
@@ -95,6 +96,9 @@ TECH_FINGERPRINTS: dict[str, tuple[str, ...]] = {
     "Housecall Pro": (r"housecallpro",),
     "CallRail": (r"cdn\.callrail\.com",),
     "Stripe": (r"js\.stripe\.com",),
+    # AI app builders: the app was prompted into existence, not hand-built
+    "Lovable": LOVABLE_FINGERPRINTS,
+    "Supabase": SUPABASE_FINGERPRINTS,
 }
 
 GOOGLE_ADS = (r"googleadservices\.com", r"gtag/js\?id=AW-", r"google_conversion",

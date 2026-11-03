@@ -152,6 +152,34 @@ def test_clean_page_has_no_false_tech():
     assert collector().detect_tech("<html><body><h1>Acme</h1></body></html>") == []
 
 
+@pytest.mark.parametrize("marker", [
+    '<meta property="og:image" content="https://lovable.dev/opengraph-image-p98pqg.png" />',
+    '<meta name="author" content="Lovable" />',
+    '<script src="https://cdn.gpteng.co/gptengineer.js" type="module"></script>',
+    '<img src="/lovable-uploads/0f1e2d3c-aaaa-bbbb-cccc-000000000000.png">',
+    '<a href="https://acme-portal.lovable.app">Open the app</a>',
+])
+def test_lovable_built_site_is_detected(marker):
+    html = f"<html><head>{marker}</head><body><div id=\"root\"></div></body></html>"
+    assert "Lovable" in collector().detect_tech(html)
+
+
+def test_supabase_project_host_is_detected():
+    html = '<link rel="preconnect" href="https://abcdefghijklmnopqrst.supabase.co">'
+    assert "Supabase" in collector().detect_tech(html)
+
+
+@pytest.mark.parametrize("copy", [
+    "<p>We migrated our Lovable app to a new host.</p>",
+    "<p>Our stack: Supabase, Stripe and React.</p>",
+    '<a href="https://supabase.com/docs">docs</a>',
+    '<meta name="author" content="Lovable Smith" />',
+])
+def test_mentioning_the_tools_is_not_using_them(copy):
+    found = collector().detect_tech(f"<html><body>{copy}</body></html>")
+    assert "Lovable" not in found and "Supabase" not in found
+
+
 # ── confirmation gate ──
 
 @pytest.mark.asyncio
