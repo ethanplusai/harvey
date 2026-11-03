@@ -16,6 +16,7 @@ import pytest
 import harvey
 import harvey.cli
 import sellbird.legacy as legacy
+from tests.test_dashboard_live_status import client, env  # noqa: F401  (fixtures)
 
 ROOT = Path(__file__).resolve().parent.parent
 
@@ -148,3 +149,38 @@ def test_package_declares_both_commands():
 def test_old_files_stay_out_of_git():
     ignored = (ROOT / ".gitignore").read_text().splitlines()
     assert {"harvey.local.yaml", "harvey.local.yaml.*", "data/", "*.db"} <= set(ignored)
+
+
+# ── the dashboard says it once ──
+
+
+def test_moving_files_leaves_the_dashboard_notice(tmp_path):
+    _harvey_install(tmp_path)
+    legacy.migrate_files(tmp_path)
+    assert legacy.welcome_pending(tmp_path)
+    legacy.dismiss_welcome(tmp_path)
+    assert not legacy.welcome_pending(tmp_path)
+    legacy.dismiss_welcome(tmp_path)  # twice is fine
+
+
+def test_no_notice_when_nothing_moved(tmp_path):
+    assert legacy.migrate_files(tmp_path) == []
+    assert not legacy.welcome_pending(tmp_path)
+
+
+def test_no_notice_when_every_file_was_left_alone(tmp_path):
+    (tmp_path / "harvey.local.yaml").write_text("product: old\n")
+    (tmp_path / "sellbird.local.yaml").write_text("product: new\n")
+    legacy.migrate_files(tmp_path)
+    assert not legacy.welcome_pending(tmp_path)
+
+
+def test_the_dashboard_shows_the_notice_until_dismissed(client, tmp_path, monkeypatch):
+    root = tmp_path / "install"
+    root.mkdir()
+    _harvey_install(root)
+    legacy.migrate_files(root)
+    monkeypatch.setattr(legacy, "PROJECT_ROOT", root)
+    assert client.get("/api/rename-notice").json() == {"show": True}
+    assert client.post("/api/rename-notice/dismiss").json()["success"]
+    assert client.get("/api/rename-notice").json() == {"show": False}

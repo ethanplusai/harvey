@@ -17,7 +17,8 @@ minor versions can still change behaviour.
   overwrites, and waits while a Harvey process is still running.
   `HARVEY_*` settings still apply. `harvey` and `python -m harvey` keep
   working for now and say they moved. See "Upgrading from Harvey" in the
-  README.
+  README. After an upgrade moves files, the dashboard's Today screen says
+  "Harvey is now Sellbird" once, until you dismiss it.
 - **The agent no longer calls itself by the product's name.** The prompts
   described the model as Harvey ("like Harvey Specter"), and the default and
   trained sender was Harvey at harvey@your-domain. The default sender is now

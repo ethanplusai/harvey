@@ -411,7 +411,7 @@ function showTab(id, btn) {
 
 function loadCurrentTab() {
   switch (currentTab) {
-    case 'today': loadLiveStatus(); loadToday(); loadTrend(); loadFunnel(); loadSetupStatus(); loadRuns(); loadTodayActivity(); break;
+    case 'today': loadLiveStatus(); loadRenameNotice(); loadToday(); loadTrend(); loadFunnel(); loadSetupStatus(); loadRuns(); loadTodayActivity(); break;
     case 'signals': loadSignals(); break;
     case 'discover': loadDiscoverProviders(); break;
     case 'companies': if (!companyDrill) loadCompanies(); break;
@@ -658,6 +658,28 @@ async function loadRuns() {
 }
 
 // ── Setup checklist (lives on Today, and disappears once it's done) ──
+
+// Shown once after an upgrade from Harvey moved this install's files.
+async function loadRenameNotice() {
+  const el = document.getElementById('today-renamed');
+  if (!el) return;
+  const data = await api('/api/rename-notice');
+  if (!data || !data.show) { el.innerHTML = ''; return; }
+  el.innerHTML =
+    '<div class="card rename-card">' +
+      '<div><h3>Harvey is now Sellbird</h3>' +
+        '<p class="muted">Same project, new name. Your settings, data and sign-in came with you. ' +
+        'The <code>harvey</code> command still works for now; use <code>sellbird</code> from here on.</p></div>' +
+      '<div class="rename-actions">' +
+        '<a class="btn btn-ghost" href="https://github.com/ethanplusai/sellbird#upgrading-from-harvey" target="_blank" rel="noopener">What changed</a>' +
+        '<button class="btn btn-secondary" onclick="dismissRenameNotice()">Got it</button>' +
+      '</div></div>';
+}
+
+async function dismissRenameNotice() {
+  document.getElementById('today-renamed').innerHTML = '';
+  await api('/api/rename-notice/dismiss', {method: 'POST'});
+}
 
 async function loadSetupStatus() {
   const el = document.getElementById('today-setup');
@@ -2659,6 +2681,7 @@ async function loadActivity() {
 
 // ── Init & live refresh ──
 
+loadRenameNotice();
 loadToday();
 loadTrend();
 loadFunnel();

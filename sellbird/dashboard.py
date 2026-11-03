@@ -480,6 +480,20 @@ async def trulyinbox_connect(request: Request):
     return {"success": True, "message": d.check_warmup_service(health, warmup).detail}
 
 
+@app.get("/api/rename-notice")
+async def get_rename_notice():
+    """Whether to say "Harvey is now Sellbird": once, after an upgrade moved files."""
+    from sellbird import legacy
+    return {"show": legacy.welcome_pending(legacy.PROJECT_ROOT)}
+
+
+@app.post("/api/rename-notice/dismiss")
+async def dismiss_rename_notice():
+    from sellbird import legacy
+    legacy.dismiss_welcome(legacy.PROJECT_ROOT)
+    return {"success": True}
+
+
 @app.post("/api/trulyinbox/other")
 async def trulyinbox_other():
     """The user warms their mailbox with another service: stop recommending one."""

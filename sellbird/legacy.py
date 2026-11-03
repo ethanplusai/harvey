@@ -34,6 +34,9 @@ FILES = [
     ("data/harvey.log", "data/sellbird.log"),
 ]
 OLD_PID = "data/harvey.pid"
+# Left when files moved, so the dashboard can say "Harvey is now Sellbird" once,
+# for people who only ever open the dashboard and never see the terminal.
+WELCOME = "data/renamed-from-harvey"
 ENV_PREFIX_OLD, ENV_PREFIX_NEW = "HARVEY_", "SELLBIRD_"
 
 
@@ -80,6 +83,8 @@ def migrate_files(root: Path = PROJECT_ROOT) -> list[str]:
             notes.append(f"Couldn't move {old_name} to {new_name}: {e.strerror or e}")
             continue
         notes.append(f"Moved {old_name} to {new_name}.")
+    if any(n.startswith("Moved ") for n in notes):
+        _leave_welcome(root)
     # A stale pidfile from a Harvey that has stopped means nothing now.
     stale = root / OLD_PID
     if stale.exists():
@@ -88,3 +93,25 @@ def migrate_files(root: Path = PROJECT_ROOT) -> list[str]:
         except OSError:
             pass
     return notes
+
+
+def _leave_welcome(root: Path) -> None:
+    try:
+        (root / WELCOME).parent.mkdir(parents=True, exist_ok=True)
+        (root / WELCOME).write_text("Harvey's files moved to Sellbird's names. "
+                                    "The dashboard says so once, then deletes this.\n",
+                                    encoding="utf-8")
+    except OSError:
+        pass  # only a notice; never let it stop a run
+
+
+def welcome_pending(root: Path | None = None) -> bool:
+    """True until the dashboard's "Harvey is now Sellbird" notice is dismissed."""
+    return ((root or PROJECT_ROOT) / WELCOME).exists()
+
+
+def dismiss_welcome(root: Path | None = None) -> None:
+    try:
+        ((root or PROJECT_ROOT) / WELCOME).unlink(missing_ok=True)
+    except OSError:
+        pass
