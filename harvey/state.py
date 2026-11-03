@@ -519,6 +519,12 @@ MIGRATIONS: list[str] = [
     -- knows about the recipient. Empty until then.
     ALTER TABLE prospects ADD COLUMN timezone TEXT DEFAULT '';
     """,
+    # ── v15: when email finders last searched a company for its people ──
+    """
+    -- A company whose site named nobody reachable is searched by domain at
+    -- most once in a while, so finder credits aren't spent on it every cycle.
+    ALTER TABLE companies ADD COLUMN contacts_searched_at TIMESTAMP DEFAULT NULL;
+    """,
 ]
 
 BRAIN_PROVIDERS = ("claude", "codex")
@@ -1966,6 +1972,56 @@ class StateManager:
                 (f"-{int(stale_days)} days", int(limit)),
             ) as cursor:
                 return [dict(r) for r in await cursor.fetchall()]
+
+    async def companies_without_reachable_contact(
+        self, limit: int = 3, stale_days: int = 90
+    ) -> list[dict]:
+        """Companies whose own site has been read for people, but where no
+        live contact has a sendable (verified or catch-all) address, and that
+        email finders haven't searched in ``stale_days``. Oldest search first.
+
+        A company where anyone has been emailed, replied or opted out is left
+        alone: Harvey doesn't go looking for their colleagues."""
+        async with self._connect() as db:
+            db.row_factory = aiosqlite.Row
+            async with db.execute(
+                """SELECT c.id, c.name, c.domain, c.industry
+                   FROM companies c
+                   WHERE c.domain != ''
+                     AND c.prospects_checked_at IS NOT NULL
+                     AND (c.contacts_searched_at IS NULL
+                          OR c.contacts_searched_at < datetime('now', ?))
+                     AND NOT EXISTS (
+                         SELECT 1 FROM prospects p
+                         WHERE p.company_id = c.id
+                           AND ((p.email_status IN ('verified', 'risky') AND p.status != 'lost')
+                                OR p.status NOT IN ('new', 'queued', 'lost')))
+                   ORDER BY c.contacts_searched_at IS NOT NULL, c.contacts_searched_at,
+                            c.prospects_checked_at
+                   LIMIT ?""",
+                (f"-{int(stale_days)} days", int(limit)),
+            ) as cursor:
+                return [dict(r) for r in await cursor.fetchall()]
+
+    async def prospect_names_at_company(self, company_id: str) -> set[str]:
+        """Lower-cased "first last" of everyone already on file at a company."""
+        async with self._connect() as db:
+            async with db.execute(
+                "SELECT first_name, last_name FROM prospects WHERE company_id = ?",
+                (company_id,),
+            ) as cursor:
+                return {f"{f or ''} {l or ''}".strip().lower()
+                        for f, l in await cursor.fetchall() if (f or l)}
+
+    async def mark_contacts_searched(self, company_id: str):
+        """Record that email finders searched this company for its people."""
+        async with self._connect() as db:
+            await db.execute(
+                "UPDATE companies SET contacts_searched_at = CURRENT_TIMESTAMP, "
+                "updated_at = CURRENT_TIMESTAMP WHERE id = ?",
+                (company_id,),
+            )
+            await db.commit()
 
     async def mark_prospects_checked(self, company_id: str):
         """Record that a prospect-backfill pass looked at this company,

@@ -78,6 +78,7 @@ class EmailResult:
     status: str          # verified / risky / guess / invalid
     pattern: str = ""
     mx_type: str = ""
+    source: str = ""     # "" for the pattern pipeline, "finder:<provider>" otherwise
 
     @property
     def verified(self) -> bool:
@@ -789,6 +790,12 @@ async def find_email(
                                 other_people, known_emails):
         logger.info(f"Email for {first_name} {last_name}@{domain}: {candidate} could be "
                     "another named person's mailbox; not guessed")
+        if verify:
+            found = await _ask_finders(first_name, last_name, domain, mx_type, env, state,
+                                       tried=candidate, other_people=other_people,
+                                       known_emails=known_emails)
+            if found is not None and found.status != "guess":
+                return found
         return EmailResult(email="", status="guess", pattern=pattern, mx_type=mx_type)
     if not candidate:
         candidate = build_email(DEFAULT_PATTERN, first_name, last_name, domain)
@@ -818,5 +825,117 @@ async def find_email(
         # Verification couldn't decide — an honest guess, never "verified".
         status = "guess"
 
+    if status in ("invalid", "guess"):
+        # The company's format didn't give a deliverable address for this
+        # person. A finder may know the one they actually use.
+        found = await _ask_finders(first_name, last_name, domain, mx_type, env, state,
+                                   tried=candidate, other_people=other_people,
+                                   known_emails=known_emails)
+        if found is not None and (found.status != "guess" or status == "invalid"):
+            return found
+
     logger.info(f"Email for {first_name} {last_name}@{domain}: {candidate} [{status}]")
     return EmailResult(email=candidate, status=status, pattern=pattern, mx_type=mx_type)
+
+
+_SECOND_LEVEL = {"co", "com", "org", "net", "ac", "gov", "edu", "ltd", "plc", "or", "ne", "go"}
+# Hosts that give many unrelated businesses a subdomain: their parent is
+# never "the company's own" domain.
+_SHARED_HOSTS = {
+    "godaddysites.com", "wixsite.com", "blogspot.com", "wordpress.com", "github.io",
+    "netlify.app", "vercel.app", "webflow.io", "squarespace.com", "business.site",
+    "weebly.com", "web.app", "firebaseapp.com", "herokuapp.com", "myshopify.com",
+}
+
+
+def _parent_domain(domain: str) -> str:
+    """in.acme.com → acme.com, uk.acme.co.uk → acme.co.uk; a domain that is
+    already registrable is returned as is."""
+    labels = domain.split(".")
+    keep = 3 if len(labels) >= 3 and labels[-2] in _SECOND_LEVEL and len(labels[-1]) == 2 else 2
+    return ".".join(labels[-keep:])
+
+
+def on_company_domain(email: str, domain: str) -> bool:
+    """Whether a finder's address belongs to the company at ``domain``: the
+    domain itself, one of its subdomains, or its parent when the site is a
+    regional subdomain (in.acme.com's people mail from acme.com). Never the
+    parent of a shared host, and never any other domain (a group or holding
+    company's domain can't be told apart from an unrelated one)."""
+    host = (email or "").strip().lower().partition("@")[2]
+    domain = _clean_domain(domain)
+    if not host or not domain:
+        return False
+    if host == domain or host.endswith("." + domain):
+        return True
+    parent = _parent_domain(domain)
+    return parent != domain and parent not in _SHARED_HOSTS and host == parent
+
+
+async def _grade(email: str, mx_type: str, env, verified_by_provider: bool) -> Optional[str]:
+    """Our verifiers' verdict on a finder's address; the finder's own
+    "verified" counts only when they can't decide. None when nobody can."""
+    status, _ = await _verify_candidate(email, mx_type, env)
+    if status is None and verified_by_provider:
+        return "verified"
+    return status
+
+
+async def grade_found_address(email: str, domain: str, env, verified_by_provider: bool = False) -> str:
+    """verified / risky / guess / invalid for an address a finder listed for
+    someone at ``domain`` (a company search). Off the company's domain, or a
+    domain that takes no mail, is invalid."""
+    email = (email or "").strip().lower()
+    if not on_company_domain(email, domain):
+        return "invalid"
+    mx_host = await get_mx_host(email.partition("@")[2])
+    if not mx_host:
+        return "invalid"
+    return await _grade(email, classify_mx(mx_host), env, verified_by_provider) or "guess"
+
+
+async def _ask_finders(first_name, last_name, domain, mx_type, env, state, *,
+                       tried, other_people, known_emails) -> Optional[EmailResult]:
+    """The configured email finders' best address for this person, graded by
+    the same verifiers as any candidate, or None.
+
+    A finder's address is used only when it's at the company's own domain
+    (or a subdomain) and isn't another named person's mailbox. Our verifiers
+    decide; a finder's own "verified" counts only when they can't. An address
+    nobody could check comes back as a guess, which is never sent."""
+    from harvey.integrations.email_finders import ask_finders, configured_finders
+
+    if not configured_finders():
+        return None
+    fallback = None
+    async for proposal in ask_finders(first_name, last_name, domain, state):
+        email = proposal.email
+        if not on_company_domain(email, domain):
+            logger.info(f"Email finder {proposal.provider}: {first_name} {last_name} at "
+                        f"{domain} came back on another domain; not used")
+            continue
+        if email == tried:
+            continue
+        host = email.partition("@")[2]
+        host_mx = mx_type
+        if host != domain:
+            mx_host = await get_mx_host(host)
+            if not mx_host:
+                continue
+            host_mx = classify_mx(mx_host)
+        pattern = infer_pattern_from_email(email, first_name, last_name) or ""
+        if _belongs_to_someone_else(email, pattern, (first_name, last_name), host,
+                                    other_people, known_emails):
+            logger.info(f"Email finder {proposal.provider}: {email} could be another "
+                        "named person's mailbox; not used")
+            continue
+        status = await _grade(email, host_mx, env, proposal.verified_by_provider)
+        if status in ("verified", "risky"):
+            logger.info(f"Email for {first_name} {last_name}@{domain}: {email} [{status}] "
+                        f"(via {proposal.provider})")
+            return EmailResult(email=email, status=status, pattern=pattern, mx_type=host_mx,
+                               source=f"finder:{proposal.provider}")
+        if status is None and fallback is None:
+            fallback = EmailResult(email=email, status="guess", pattern=pattern,
+                                   mx_type=mx_type, source=f"finder:{proposal.provider}")
+    return fallback
