@@ -1,6 +1,7 @@
 """Microsoft 365 provider: token rotation, draft-then-send, threaded replies,
 reading the inbox without touching it, and failing loudly."""
 
+import base64
 import json
 import os
 
@@ -54,11 +55,14 @@ class Graph:
                 "internetMessageId": f"<reply{self.drafts}@sender.example>",
                 "conversationId": "conv9",
             })
+        if path.endswith("/attachments") and method == "POST":
+            return httpx.Response(201, json={"id": "att1"})
         if method == "PATCH" or method == "DELETE":
             return httpx.Response(200 if method == "PATCH" else 204, json={} if method == "PATCH" else None)
         if path.endswith("/send"):
             return httpx.Response(202)
-        if path == "/v1.0/me/mailFolders/inbox/messages":
+        if path in ("/v1.0/me/mailFolders/inbox/messages",
+                    "/v1.0/me/mailFolders('inbox')/messages"):
             return self._inbox_page(request)
         return httpx.Response(404, json={"error": {"code": "notFound"}})
 
@@ -85,7 +89,8 @@ class Graph:
                 if r.url.host == "graph.microsoft.com"]
 
     def inbox_requests(self):
-        return [r for r in self.requests if r.url.path.endswith("/inbox/messages")]
+        return [r for r in self.requests
+                if r.url.path.endswith(("/inbox/messages", "('inbox')/messages"))]
 
 
 def message(i, sender="someone@elsewhere.example", body="hello"):
@@ -177,6 +182,74 @@ async def test_failed_send_deletes_the_draft(graph):
 
     assert not result.ok
     assert ("DELETE", "/v1.0/me/messages/draft1") in graph.calls()
+
+
+def signed_config(logo):
+    from types import SimpleNamespace
+    from harvey.config import SignatureConfig
+    return SimpleNamespace(
+        persona=SimpleNamespace(email="owner@sender.example", company="Acme"),
+        channels=SimpleNamespace(email=SimpleNamespace(
+            signature=SignatureConfig(logo=str(logo), direction="rtl"))),
+    )
+
+
+def signed_provider(graph, logo):
+    return MicrosoftProvider(config=signed_config(logo), env=Env(),
+                             transport=httpx.MockTransport(graph))
+
+
+@pytest.mark.asyncio
+async def test_signature_sends_html_with_the_logo_inline(graph, tmp_path):
+    from tests.test_signature import png
+    logo = tmp_path / "logo.png"
+    logo.write_bytes(png(200, 100))
+
+    result = await signed_provider(graph, logo).send_email("jane@acme.com", "booking", "Hi Jane.")
+
+    assert result.ok
+    assert graph.calls() == [
+        ("GET", "/v1.0/me"),
+        ("POST", "/v1.0/me/messages"),
+        ("POST", "/v1.0/me/messages/draft1/attachments"),  # before it's sent
+        ("POST", "/v1.0/me/messages/draft1/send"),
+    ]
+    posts = [json.loads(r.content) for r in graph.requests
+             if r.url.host == "graph.microsoft.com" and r.method == "POST" and r.content]
+    draft, attachment = posts[0], posts[1]
+    assert draft["body"]["contentType"] == "HTML"
+    assert "Hi Jane." in draft["body"]["content"]
+    assert f'src="cid:{attachment["contentId"]}"' in draft["body"]["content"]
+    assert attachment["isInline"] is True
+    assert attachment["contentType"] == "image/png"
+    assert base64.b64decode(attachment["contentBytes"]) == logo.read_bytes()
+
+
+@pytest.mark.asyncio
+async def test_signed_reply_carries_the_logo_too(graph, tmp_path):
+    from tests.test_signature import png
+    logo = tmp_path / "logo.png"
+    logo.write_bytes(png(200, 100))
+
+    result = await signed_provider(graph, logo).send_email(
+        "jane@acme.com", "Re: booking", "Tuesday works.", thread_ref="AAMk-their-message")
+
+    assert result.ok
+    assert graph.calls()[-2:] == [
+        ("POST", "/v1.0/me/messages/reply1/attachments"),
+        ("POST", "/v1.0/me/messages/reply1/send"),
+    ]
+    [patch] = [json.loads(r.content) for r in graph.requests if r.method == "PATCH"]
+    assert patch["body"]["contentType"] == "HTML"
+
+
+@pytest.mark.asyncio
+async def test_unusable_logo_sends_nothing(graph, tmp_path):
+    result = await signed_provider(graph, tmp_path / "missing.png").send_email(
+        "jane@acme.com", "booking", "Hi Jane.")
+
+    assert not result.ok and result.error.startswith("signature:")
+    assert graph.calls() == []  # no draft, so nothing to clean up either
 
 
 @pytest.mark.asyncio
@@ -403,6 +476,33 @@ async def test_hostile_next_link_is_refused_before_any_request(graph, link):
     graph_requests = [r for r in graph.requests if r.url.host == "graph.microsoft.com"]
     assert [r.url.path for r in graph_requests] == [
         "/v1.0/me", "/v1.0/me/mailFolders/inbox/messages"]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("folder", ["mailFolders('inbox')", "mailFolders(%27inbox%27)"])
+async def test_next_link_in_odata_key_form_is_followed(graph, folder):
+    # Live Graph writes the inbox as mailFolders('inbox') in its nextLink.
+    graph.inbox = [message(i) for i in range(60)]
+    graph.pages[1] = {"@odata.nextLink": (
+        f"https://graph.microsoft.com/v1.0/me/{folder}/messages"
+        "?%24select=id&%24top=50&%24skip=50")}
+    replies = await provider(graph).get_replies()
+    assert len(replies) == 60
+    assert len(graph.inbox_requests()) == 2
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("link", [
+    "https://graph.microsoft.com/v1.0/me/mailFolders('sentitems')/messages?%24skip=50",
+    "https://graph.microsoft.com/v1.0/me/mailFolders('inbox')/messages/m1/send?x=1",
+    "https://graph.microsoft.com/v1.0/me/mailFolders('inbox')/messages",
+], ids=["other-folder", "send-path", "no-query"])
+async def test_odata_key_form_still_refuses_other_paths(graph, link):
+    graph.inbox = [message(i) for i in range(60)]
+    graph.pages[1] = {"@odata.nextLink": link}
+    with pytest.raises(GraphError, match="nextLink"):
+        await provider(graph).get_replies()
+    assert len(graph.inbox_requests()) == 1
 
 
 @pytest.mark.asyncio

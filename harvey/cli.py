@@ -235,12 +235,16 @@ def cmd_status(args):
             print("  Sending:              HELD")
             print(textwrap.fill(notice, width=72, initial_indent="                        ",
                                 subsequent_indent="                        "))
+        from harvey.agents.writer import EMAIL_RULES_PROBLEM_KEY
+        rules_problem = await state.get_setting(EMAIL_RULES_PROBLEM_KEY)
+        if rules_problem:
+            print(f"  Writing:              STOPPED (writer.email_rules: {rules_problem})")
         hold = await state.current_sends_held()
         if hold:
             from harvey.sending_mode import held_message
             waiting = len(await state.get_outbox(status="approved", limit=500))
-            _, detail = held_message(hold, waiting=waiting)
-            print("  Sending:              NOT SENDING (couldn't read your inbox)")
+            title, detail = held_message(hold, waiting=waiting)
+            print(f"  Sending:              NOT SENDING ({title.split(': ', 1)[-1]})")
             print(textwrap.fill(detail, width=72, initial_indent="                        ",
                                 subsequent_indent="                        "))
         from harvey.integrations.precleared import current_hold, hold_message
@@ -386,6 +390,30 @@ def cmd_usage(args):
         )
 
     asyncio.run(_usage())
+
+
+def cmd_companies(args):
+    """Write the company register to a CSV and summarise it."""
+    from collections import Counter
+    from datetime import date
+    from harvey.config import load_config
+    from harvey.paths import PROJECT_ROOT
+    from harvey.register import build_register, sqlite_query, to_csv
+    from harvey.state import DB_PATH
+
+    if not DB_PATH.exists():
+        print("\n  No database yet: run 'harvey discover' or 'harvey run' first.\n")
+        return
+    rows = asyncio.run(build_register(sqlite_query(DB_PATH), load_config()))
+    out = Path(args.out) if args.out else (
+        PROJECT_ROOT / "data" / "exports" / f"company-register-{date.today():%Y-%m-%d}.csv")
+    out.parent.mkdir(parents=True, exist_ok=True)
+    # utf-8-sig so spreadsheet apps open non-ASCII company names correctly.
+    out.write_text(to_csv(rows), encoding="utf-8-sig")
+    print(f"\n  Company register: {len(rows)} companies → {out}")
+    for status, n in Counter(r["status"] for r in rows).most_common():
+        print(f"    {status:<18} {n}")
+    print()
 
 
 def cmd_export(args):
@@ -1019,6 +1047,13 @@ def main():
     sub.add_argument("--status", default="", help="Comma-separated pipeline statuses (e.g. new,queued); opted-out contacts stay excluded")
     sub.add_argument("--all", action="store_true", help="Export the raw list without filters, including opted-out contacts (not for outreach)")
     sub.set_defaults(func=cmd_export)
+
+    # harvey companies
+    sub = subparsers.add_parser(
+        "companies", help="Export the company register: every company, why it fits, and why it wasn't contacted"
+    )
+    sub.add_argument("--out", default="", help="Output file (default: data/exports/company-register-<date>.csv)")
+    sub.set_defaults(func=cmd_companies)
 
     # harvey gmail auth|test
     sub = subparsers.add_parser("gmail", help="Gmail provider setup")

@@ -88,3 +88,138 @@ def test_conversation_status_rejects_bad_input(client):
     assert client.post("/api/conversations/c1/status", json={"status": "needs_human"}).status_code == 400
     assert client.post("/api/conversations/c1/status", json=["closed"]).status_code == 400
     assert client.post("/api/conversations/nope/status", json={"status": "closed"}).status_code == 404
+
+
+def test_awaiting_reply_cards_are_opt_in(client):
+    _seed(client.db_path)
+    # Default: replies only, as before. Ben was emailed but never answered.
+    assert [c["id"] for c in client.get("/api/conversations").json()] == ["c1"]
+
+
+def test_awaiting_reply_lists_everyone_emailed_who_has_not_replied(client):
+    _seed(client.db_path)
+    _sql(client.db_path, "INSERT INTO prospects (id, company, email, status) VALUES ('p3', 'Acme Bins', 'info@acme.example', 'contacted')")
+    for oid, step, status, subject, sent_at in [
+        ("o8", 1, "sent", "first note", "2026-10-12T09:00:00"),
+        ("o9", 2, "sent", "second note", "2026-10-15T09:00:00"),
+        ("o10", 3, "pending_review", "not sent yet", None),
+    ]:
+        _sql(client.db_path, "INSERT INTO outbox (id, prospect_id, campaign_id, kind, step, to_email, subject, body, "
+             "status, sent_at, send_at) VALUES (?, 'p3', 'k1', 'sequence', ?, 'info@acme.example', ?, 'Hi.', ?, ?, "
+             "'2026-10-19T09:00:00')", (oid, step, subject, status, sent_at))
+
+    rows = client.get("/api/conversations?awaiting=1").json()
+    # The real conversation keeps its place; awaiting cards follow, newest send first.
+    assert [r["id"] for r in rows] == ["c1", "awaiting-p3", "awaiting-p2"]
+    by_id = {r["id"]: r for r in rows}
+
+    acme = by_id["awaiting-p3"]
+    assert acme["status"] == "awaiting_reply" and acme["company"] == "Acme Bins"
+    assert acme["prospect_email"] == "info@acme.example"
+    assert [(e["step"], e["subject"]) for e in acme["emails"]] == [(1, "first note"), (2, "second note")]
+    assert acme["thread"] == [] and acme["draft"] is None
+    assert acme["updated_at"] == "2026-10-15T09:00:00"
+
+    ben = by_id["awaiting-p2"]
+    assert ben["first_name"] == "Ben" and [e["subject"] for e in ben["emails"]] == ["hello Ben"]
+    # Iris replied, so her emails stay in her real conversation, not in a second card.
+    assert not any(r["prospect_id"] == "p1" and r["status"] == "awaiting_reply" for r in rows)
+
+
+def test_awaiting_reply_creates_no_conversation_rows(client):
+    _seed(client.db_path)
+    client.get("/api/conversations?awaiting=1")
+    with sqlite3.connect(client.db_path) as conn:
+        assert conn.execute("SELECT COUNT(*) FROM conversations").fetchone()[0] == 1
+    conn.close()
+
+
+# ── Review follow-ups ──
+
+def _emailed(db, pid, status="contacted", email_status="verified", sent="sent"):
+    asyncio.run(StateManager(str(db)).init_db())
+    _sql(db, "INSERT INTO prospects (id, company, email, status, email_status) VALUES (?, 'Co', ?, ?, ?)",
+         (pid, pid + "@co.example", status, email_status))
+    _sql(db, "INSERT INTO outbox (id, prospect_id, campaign_id, kind, step, to_email, subject, body, "
+             "status, sent_at, send_at) VALUES (?, ?, 'k1', 'sequence', 1, ?, 's', 'Hi.', ?, "
+             "'2026-10-12T09:00:00', '2026-10-12T09:00:00')",
+         ("o-" + pid, pid, pid + "@co.example", sent))
+
+
+def _awaiting(client):
+    return [r["prospect_id"] for r in client.get("/api/conversations?awaiting=1").json()
+            if r["status"] == "awaiting_reply"]
+
+
+def test_only_people_still_waiting_on_a_reply_are_awaiting(client):
+    db = client.db_path
+    _emailed(db, "waiting")
+    for status in ("replied", "opted_out", "lost", "meeting", "closed"):
+        _emailed(db, status, status=status)
+    _emailed(db, "bounced", email_status="invalid")
+    assert _awaiting(client) == ["waiting"]
+
+
+def test_a_deleted_contact_is_not_awaiting(client):
+    asyncio.run(StateManager(str(client.db_path)).init_db())
+    _sql(client.db_path, "INSERT INTO outbox (id, prospect_id, campaign_id, kind, step, to_email, subject, "
+         "body, status, sent_at, send_at) VALUES ('gone', 'nobody', 'k1', 'sequence', 1, 'x@co.example', 's', "
+         "'b', 'sent', '2026-10-12T09:00:00', '2026-10-12T09:00:00')")
+    assert _awaiting(client) == []
+
+
+def test_a_conversation_outside_the_latest_100_still_counts(client):
+    db = client.db_path
+    _emailed(db, "old")
+    _sql(db, "INSERT INTO conversations (id, prospect_id, campaign_id, channel, status, updated_at) "
+             "VALUES ('oldc', 'old', 'k1', 'email', 'closed', '2020-01-01')")
+    for i in range(100):
+        _sql(db, "INSERT INTO conversations (id, prospect_id, campaign_id, channel, status, updated_at) "
+                 "VALUES (?, ?, 'k1', 'email', 'closed', '2026-10-20')", (f"c{i}", f"q{i}"))
+    assert _awaiting(client) == []
+
+
+def test_a_colleague_of_someone_who_replied_is_not_awaiting(client):
+    db = client.db_path
+    _emailed(db, "jane")
+    _emailed(db, "sam")
+    _emailed(db, "other")
+    _sql(db, "UPDATE prospects SET company_id = 'acme' WHERE id IN ('jane', 'sam')")
+    _sql(db, "INSERT INTO conversations (id, prospect_id, campaign_id, channel, status, updated_at) "
+             "VALUES ('j', 'jane', 'k1', 'email', 'open', '2026-10-20')")
+    assert _awaiting(client) == ["other"]
+
+
+def _render_actions(convo):
+    """Run app.js's convoActions under node with the real escaping helpers."""
+    import re
+    import shutil
+    import subprocess
+    from pathlib import Path
+    import pytest
+
+    node = shutil.which("node")
+    if not node:
+        pytest.skip("node is not installed")
+    source = (Path(__file__).resolve().parent.parent / "harvey" / "web" / "app.js").read_text(encoding="utf-8")
+    parts = []
+    for pattern in (r"^function escHtml\(.*?^}\n", r"^function jsq\(.*?^}\n",
+                    r"^function icon\(.*?^}\n", r"^function convoActions\(.*?^}\n"):
+        match = re.search(pattern, source, re.S | re.M)
+        assert match, pattern
+        parts.append(match.group(0))
+    script = "\n".join(parts) + f"\nprocess.stdout.write(convoActions({json.dumps(convo)}));"
+    return subprocess.run([node, "-e", script], capture_output=True, text=True, encoding="utf-8",
+                          check=True, timeout=30).stdout
+
+
+def test_an_escalation_from_someone_who_opted_out_cant_be_handed_back():
+    html = _render_actions({"id": "c1", "status": "needs_human", "prospect_status": "opted_out",
+                            "prospect_id": "p1", "prospect_email": "i@x.test"})
+    assert "Opted out, and Harvey handed this to you" in html
+    assert "Hand back to Harvey" not in html
+    assert "Close</button>" in html and "Why opted out?" in html
+    # Anyone else's escalation can still go back to Harvey.
+    html = _render_actions({"id": "c2", "status": "needs_human", "prospect_status": "replied",
+                            "prospect_id": "p2", "prospect_email": "b@x.test"})
+    assert "Hand back to Harvey" in html and "Why opted out?" not in html

@@ -45,7 +45,7 @@ CHOICES = ("connected", "other")
 KEY_REJECTED = ("TrulyInbox rejected the API key. Create a workspace key in TrulyInbox "
                 "(Settings > API keys) and connect it again.")
 MISSING_SCOPE = ("The TrulyInbox key is missing a scope. Create a workspace key with "
-                 "accounts:read, warmup:read and analytics:read.")
+                 "accounts:read, warmup:read, analytics:read and workspace:read.")
 NO_API_PLAN = "Your TrulyInbox plan doesn't include API access. API access starts on Starter."
 PAUSED = "Your TrulyInbox subscription is paused. Resume it in TrulyInbox."
 WRONG_WORKSPACE = "This key belongs to a different TrulyInbox workspace."

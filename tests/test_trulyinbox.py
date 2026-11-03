@@ -288,3 +288,8 @@ async def test_an_ip_lockout_is_not_called_a_bad_key():
 def test_the_status_line_is_honest(health, error, choice, words):
     h = _health() if health else None
     assert words in ti.describe_status(h, error, choice)
+
+
+def test_the_missing_scope_message_names_every_scope_connect_asks_for():
+    for scope in ("accounts:read", "warmup:read", "analytics:read", "workspace:read"):
+        assert scope in ti.MISSING_SCOPE

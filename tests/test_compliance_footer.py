@@ -559,3 +559,360 @@ async def test_template_lines_with_merge_tags_are_recognised_when_quoted(state):
     handler.brain = RecordingBrain("interested")
     await handler._run_native()
     assert handler.brain.prompts  # our pitch's "attorney" didn't escalate
+
+
+# ── Hebrew ──
+
+HEBREW_LINE = 'לא רלוונטי? השיבו "הסר" ולא אפנה שוב.'
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("body", [
+    "הסר",
+    "הסירו",
+    "'הסר'",
+    "הסר בבקשה",
+    "הסר, תודה",
+    "הסר\n\nנשלח מה-iPhone שלי",
+    "\u200fהסר\u200f",                       # direction marks around it
+    "הָסֵר",                                  # with vowel points
+    "תורידו אותי מהרשימה בבקשה.",
+    "אפשר להסיר אותי מהרשימה?",
+    "ותורידו אותנו מרשימת התפוצה",
+    "תמחקו את המייל שלי",
+    "תפסיקו לשלוח לי מיילים.",
+    "נא לא לפנות אליי שוב.",
+    "אל תכתבו לי יותר.",
+    "אל תשלחו לי עוד",
+    "אני לא רוצה לקבל יותר מיילים",
+    "לא תודה",
+    "לא מעוניין, תודה.",
+    "לא מעוניינת כרגע, תודה רבה",
+    "תודה, אבל אנחנו לא מעוניינים.",
+], ids=["bare", "bare-plural", "quoted", "please", "thanks", "iphone-signature", "rlm",
+        "niqqud", "take-me-off", "remove-me", "and-take-us-off", "delete-my-email",
+        "stop-sending", "dont-contact-again", "dont-write", "dont-send-more",
+        "dont-want-emails", "no-thanks", "not-interested-thanks", "not-interested-for-now",
+        "thanks-not-interested"])
+async def test_hebrew_opt_outs_are_caught_without_the_model(state, body):
+    status, prompts = await _reply(state, body)
+    assert status == "opted_out" and prompts == []
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("body", [
+    "לא",
+    "הסרתי את הקובץ המצורף, אפשר לשלוח שוב?",
+    "מעוניין, תודה! מתי נוח לדבר?",
+    "זה חודשי, כן או לא, תודה",
+    "מקווה שלא\nתודה",
+    "לא מעוניין לשלם מראש, תודה. אפשר חודשי?",
+    "תודה, לא מעוניין בחבילה הגדולה אבל הקטנה נשמעת טוב",
+    "הסר את סעיף 4 ואני חותם",
+    "אני מבקש הסרה של סעיף הקנס",
+    "הספק הקודם הפסיק לשלוח לנו דוחות, אתם עושים את זה?",
+    "אל תשלחו את החוזה עד שנדבר",
+    "אנחנו עושים הסרת שיער בלייזר, זה מתאים?",
+    "לא רציתי להטריד, אבל יש לי שאלה על המחיר",
+], ids=["no-alone", "i-removed", "interested-thanks", "yes-or-no-thanks", "hope-not-then-thanks",
+        "not-paying-upfront", "not-the-big-package", "remove-a-clause", "removal-of-a-clause",
+        "supplier-stopped", "dont-send-the-contract-yet", "hair-removal", "didnt-want-to-bother"])
+async def test_ordinary_hebrew_is_not_an_opt_out(state, body):
+    status, prompts = await _reply(state, body)
+    assert status != "opted_out" and prompts
+
+
+@pytest.mark.asyncio
+async def test_quoting_our_hebrew_footer_is_not_an_opt_out(state):
+    sent = "הודעה קצרה ופשוטה. שאלה?\n\n" + ADDRESS + "\n" + HEBREW_LINE
+    status, prompts = await _reply_after_sending(
+        state, "כן, בואו נדבר ביום שלישי.\n\nב-יום ג׳ Harvey כתב:\n> " + sent.replace("\n", "\n> "),
+        sent_bodies=[sent], line=HEBREW_LINE)
+    assert status != "opted_out" and prompts
+
+
+def test_every_reply_an_opt_out_line_can_ask_for_is_caught():
+    from harvey.agents.handler import _opt_out_reason
+    from harvey.config import HEBREW_OPT_OUT_WORDS, OPT_OUT_WORDS
+    for word in OPT_OUT_WORDS + HEBREW_OPT_OUT_WORDS:
+        assert _opt_out_reason(word, word), word
+
+
+def test_opt_out_line_can_ask_in_hebrew():
+    import pydantic
+    for good in (HEBREW_LINE, "להסרה השיבו הסר", "להסרה השב 'הסר'",
+                 'ואם זה לא בשבילכם, תגידו לי "לא תודה" ולא אכתוב שוב.',
+                 "השיבו במייל חוזר ״הסר״ ונסיר אתכם.", "ואם לא מתאים, פשוט ענו לא, תודה.",
+                 'בלי לחץ: השיבו "הסר" ולא אפנה שוב.'):
+        assert ComplianceConfig(opt_out_line=good).opt_out_line == good
+    for bad in (
+        "ואם זה לא בשבילכם, תגידו לי ולא אכתוב שוב.",   # names no reply Harvey catches
+        'השיבו "הסרתי"',
+        "תודה שקראתם!",
+        "להסרה לחצו כאן",
+        'להסרה השיבו "הסר" או לחצו כאן',
+        "להסרה: https://example.com/u",
+        "להסרה כתבו ל-remove@example.com",
+    ):
+        with pytest.raises(pydantic.ValidationError):
+            ComplianceConfig(opt_out_line=bad)
+
+
+# ── Review follow-ups ──
+
+from harvey.agents.handler import OurText, _opt_out_reason  # noqa: E402
+
+@pytest.mark.parametrize("reply", [
+    "למה לא, תודה",                # why not, thanks: they're interested
+    "למה לא, תודה רבה!",
+    "אשמח לשמוע. אם לא, תודה בכל מקרה",  # if not, thanks anyway
+    "ואם לא, תודה",
+    "עדיין לא, תודה ששאלת",        # not yet, thanks for asking
+    "עוד לא, תודה",
+])
+def test_hebrew_no_that_isnt_no_thanks_keeps_the_lead(reply):
+    assert _opt_out_reason(reply, reply) is None
+
+
+@pytest.mark.parametrize("reply", ["לא תודה", "לא, תודה", "בינתיים לא, תודה", "‏לא תודה‏"])
+def test_hebrew_no_thanks_still_opts_out(reply):
+    assert _opt_out_reason(reply, reply)["rule"] == "no_thanks"
+
+
+@pytest.mark.parametrize("reply", [
+    "אל תפנו אליי לפני ספטמבר, אז נדבר",   # not before September
+    "בבקשה לא לפנות אליי בשבת",            # not on Shabbat
+    "אל תיצרו קשר לפני יום ראשון",         # not before Sunday
+    "אל תשלח לי מייל, תתקשר אליי",         # don't email, call me
+    "אני לא מעוניין לקבל הודעות בוואטסאפ, מייל עדיף",  # no WhatsApp, email's better
+    "אפשר להוריד אותנו לחבילה הבסיסית?",   # move us down to the basic package
+    "אפשר להוריד מהרשימה את סעיף 4?",      # take item 4 off the list
+    "נא להפסיק את המנוי הישן ולעבור לתוכנית החדשה",  # cancel the old plan, move to the new
+    "אם תפסיקו לשלוח חשבוניות ידניות זה יעזור",  # if you stop sending manual invoices
+    "אל תסירו אותי מהרשימה",               # don't remove me
+    "אל תפסיקו לשלוח לי עדכונים",          # don't stop sending updates
+    "מדוע לא, תודה",                       # why not, thanks
+])
+def test_hebrew_that_only_looks_like_an_opt_out_is_left_to_the_model(reply):
+    assert _opt_out_reason(reply, reply) is None
+
+
+@pytest.mark.parametrize("reply", [
+    "אפשר להוריד אותי מהרשימה?", "תפסיקו לשלוח לי", "נא להפסיק", "נא להפסיק לשלוח",
+    "אל תפנו אליי יותר", "הסירו אותי מהרשימה בבקשה. תודה", "נסו לפני כן משהו אחר. תורידו אותי",
+])
+def test_hebrew_opt_outs_still_caught_after_tightening(reply):
+    assert _opt_out_reason(reply, reply) is not None
+
+
+# ── Spanish opt-outs ──
+
+@pytest.mark.parametrize("reply", [
+    "No, gracias.", "no gracias", "BAJA", "Baja, por favor", "Darme de baja", "De baja, gracias",
+    "Por favor no me escriba más.", "No me escribas", "no nos contacten", "No me envíes más correos.",
+    "no me envies mas", "No me manden publicidad", "No me vuelvan a escribir.",
+    "Denme de baja de su lista.", "Quiero darme de baja", "Quiero dar de baja mi correo",
+    "Dejen de escribirme.", "Deja de enviar correos.", "Dejen de molestar",
+    "Sáquenme de su lista.", "Quítenme de la lista de correo", "Elimínenme", "Bórrenme de su base de datos",
+    "No quiero recibir más correos.", "No deseamos recibir sus mensajes",
+    "Quiero desuscribirme", "Cancelar mi suscripción",
+    "No me interesa.", "No me interesa, gracias", "No nos interesa por ahora.",
+    "No estamos interesados, saludos.", "no estoy interesada",
+    "Todavía no me interesa? No. No me interesa.",
+    "Les pido que me den de baja.", "Le pido que no me escriba más.",
+    "No me interesa\n\nSaludos\nJuan Pérez", "No estamos interesados\n\nAtte.\nMaría",
+    "No me interesa\nEnviado desde mi iPhone",
+    "Denme de baja\n\nJuan\nTeléfono: +1 555 0100",
+    "Por favor bórrenme de su lista\n--\nAna\nWhatsApp +1 555 0100",
+    "No me escriban más\nJuan\nLlámenos al 555-0100",
+    "No me escriban más, ni me llamen.", "No me interesa, ni ahora ni después.",
+    "No me escriban más, ya se lo dije antes.",
+    "No tengo interés", "No tenemos interés.", "No, muchas gracias",
+    "No vuelvan a escribirme", "Retírenme de su lista", "Eliminen mi correo de su lista",
+    "Por favor eliminar mi correo de su base de datos", "Paren de escribirme", "Basta de correos",
+    "No no me interesa",
+])
+def test_spanish_opt_outs(reply):
+    assert _opt_out_reason(reply, reply) is not None
+
+
+@pytest.mark.parametrize("reply", [
+    "¡Cómo no, gracias!", "Sí o no, gracias", "Todavía no, gracias", "¿Por qué no? Gracias",
+    "No, gracias a usted por escribir", "Si no, gracias de todos modos",
+    "Queremos dar de baja a nuestro proveedor actual, ¿qué ofrecen?",
+    "Hay que dar de baja una línea",
+    "No me interesa el plan anual, pero sí el mensual.",
+    "No me interesa, pero el otro plan sí.",
+    "Si no me interesa, ¿puedo cancelar?",
+    "¿Y si no me interesa?",
+    "No estoy interesado en el plan grande, ¿tienen uno menor?",
+    "No me escriba hasta enero.", "No me escriba por aquí, mejor por WhatsApp.",
+    "No me envíe la propuesta por correo, llámeme.",
+    "Todavía no me envíen nada hasta que hablemos",
+    "¿Por qué no me escriben?", "Pablo no me escribe desde mayo.",
+    "Sáquenme de dudas: ¿cuánto cuesta?", "Sáqueme de una duda",
+    "Si dejan de enviar la factura, avíseme.",
+    "No me des de baja, por favor",
+    "Me interesa, ¿cuánto cuesta el plan anual?",
+    "La tendencia es a la baja.", "Estoy de baja hasta el lunes.",
+    "Sácame la cotización", "Sáquenme una cita para el jueves", "Quítenme el IVA",
+    "Bórrame el archivo anterior y mándame el nuevo", "Elimíname el cargo duplicado de la factura",
+    "Quítenme de copia, el encargado es Juan.", "Sáquenme de este hilo, lo lleva mi socio.",
+    "No me envíe más de dos opciones.", "No me escriba el lunes, estoy fuera; el martes sí.",
+    "No me escribas a este correo, escríbeme a ventas@acme.example",
+    "No me interesa ahora, escríbeme en enero.",
+])
+def test_spanish_that_is_not_an_opt_out(reply):
+    assert _opt_out_reason(reply, reply) is None
+
+
+def test_a_long_spanish_reply_is_quick():
+    import time
+    text = "no saquenme " * 20000
+    started = time.monotonic()
+    _opt_out_reason(text, text)
+    assert time.monotonic() - started < 2
+
+
+@pytest.mark.asyncio
+async def test_a_spanish_opt_out_reaches_the_handler(state):
+    status, _ = await _reply(state, "No, gracias.")
+    assert status == "opted_out"
+
+
+def test_spanish_mobile_signature_doesnt_hide_a_bare_opt_out():
+    reply = "BAJA\n\nEnviado desde mi iPhone"
+    assert _opt_out_reason(reply, reply)["rule"] == "only_words"
+
+
+def test_our_own_spanish_footer_quoted_back_is_not_an_opt_out():
+    line = '¿No le interesa? Responda "no, gracias" y no volveré a escribirle.'
+    ours = OurText([line])
+    their = ours.remove(f"Me interesa, ¿cuánto cuesta?\n> {line}")
+    assert _opt_out_reason(their, "Me interesa, ¿cuánto cuesta?") is None
+
+
+def test_spanish_opt_out_lines_are_accepted():
+    for line in ('¿No le interesa? Responda "no, gracias" y no volveré a escribirle.',
+                 "Para no recibir más correos, responda BAJA.",
+                 'Si prefiere no recibir más, conteste "baja".',
+                 "Si no quiere más correos, responda con BAJA."):
+        assert ComplianceConfig(opt_out_line=line).opt_out_line == line
+
+
+# ── Hebrew escalation ──
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("body", [
+    "העברתי את המייל לעורך הדין שלי.",
+    "עורכת הדין שלי תהיה איתכם בקשר.",
+    'העברתי לעו"ד.',
+    "עוֹרֵךְ דִּין יטפל בזה",                    # with vowel points
+    "‏עוד מייל אחד ואני אתבע אתכם.‏",  # direction marks around it
+    "אגיש נגדכם תביעה בתביעות קטנות.",
+    "תקבלו ממני תביעה משפטית.",
+    "ננקוט נגדכם בהליכים משפטיים.",
+    "ניפגש בבית המשפט.",
+    "זו הטרדה.",
+    "מדובר בהטרדה, וזה לא בסדר",
+    "אגיש עליכם תלונה במשטרה.",
+    "כבר שלחתי תלונה על ספאם.",
+    "זה בניגוד לחוק הספאם.",
+    "אפנה לרשות להגנת הפרטיות.",
+    "דבר פרסומת בלי הסכמה, פיצוי ללא הוכחת נזק.",
+    "סימנתי אתכם כספאם.",
+], ids=["my-lawyer", "my-lawyer-f", "acronym", "niqqud", "sue-you-rlm", "small-claims",
+        "lawsuit", "legal-action", "see-you-in-court", "harassment", "its-harassment",
+        "police-complaint", "spam-complaint", "spam-law", "privacy-authority",
+        "statutory-damages", "marked-as-spam"])
+async def test_hebrew_legal_threats_escalate_without_the_model(state, body):
+    status, prompts = await _reply(state, body)
+    assert status != "opted_out" and prompts == []  # no model call, no auto-reply
+    assert len(await state.get_conversations_by_status("needs_human")) == 1
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("body", [
+    "אנחנו מגישים תביעות ביטוח כל יום, זה יעזור?",
+    "אגיש תביעה לחברת הביטוח ואחזור אליכם.",
+    "את התביעה עליכם להגיש דרך הקופה?",
+    "סליחה על ההטרדה, כמה זה עולה?",
+    "סליחה אם זה מהווה הטרדה, אבל מה המחיר?",
+    "עוד שאלה: יש חוזה?",
+    "המרפאה קרובה לבית המשפט, קל להגיע.",
+    "מה שמטריד אותי זה המחיר.",
+    "אנחנו מקפידים על הגנת הפרטיות של המטופלים.",
+    "המייל שלכם הגיע לי לספאם, אבל נשמע מעניין.",
+], ids=["insurance-claims", "claim-to-insurer", "you-must-file", "sorry-to-bother",
+        "if-its-a-bother", "one-more-question", "near-the-court", "what-bothers-me",
+        "patient-privacy", "landed-in-spam"])
+async def test_ordinary_hebrew_does_not_escalate(state, body):
+    status, prompts = await _reply(state, body)
+    assert status != "opted_out" and prompts  # the model read it
+
+
+@pytest.mark.asyncio
+async def test_a_hebrew_pitch_mentioning_lawyers_doesnt_escalate_when_quoted(state):
+    sent = "אנחנו עוזרים למשרדי עורכי דין למלא את היומן. נדבר?"
+    status, prompts = await _reply_after_sending(
+        state, "כן, בואו נדבר.\n\nב-יום ג׳ Harvey כתב:\n> " + sent, sent_bodies=[sent])
+    assert status != "opted_out" and prompts  # not escalated over our own "עורכי דין"
+
+
+@pytest.mark.asyncio
+async def test_a_hebrew_legal_threat_after_an_opt_out_goes_to_you(state):
+    pid = await seed_prospect(state, status="opted_out")
+    provider = FakeProvider()
+    provider.inbound = [InboundMessage(
+        provider_id="in1", from_email="jane@acme.com", subject="Re: hello there",
+        body="ביקשתי שתסירו אותי. עורכת הדין שלי תהיה בקשר.")]
+    await make_handler(state, provider)._run_native()
+    assert [c.prospect_id for c in await state.get_conversations_by_status("needs_human")] == [pid]
+
+
+# ── An opt-out that also threatens ──
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("body", [
+    "Stop emailing me. My attorney will be in touch.",
+    "תפסיקו לשלוח לי מיילים. עורכת הדין שלי תהיה בקשר.",
+], ids=["english", "hebrew"])
+async def test_an_opt_out_with_a_legal_threat_is_honoured_and_goes_to_you(state, body):
+    from tests.test_outbox_native import _logged
+    status, prompts = await _reply(state, body)
+    assert status == "opted_out" and prompts == []  # honoured, nothing drafted
+    [convo] = await state.get_conversations_by_status("needs_human")
+    assert convo.intent == "unsubscribe" and convo.stage == "closed_lost"
+    [opt_out] = await _logged(state, "opt_out")
+    assert opt_out["rule"] == "phrase" and opt_out["conversation_id"] == convo.id
+    assert len(await _logged(state, "escalation")) == 1
+
+
+@pytest.mark.asyncio
+async def test_a_plain_opt_out_is_closed_not_handed_to_you(state):
+    from tests.test_outbox_native import _logged
+    status, _ = await _reply(state, "תורידו אותי מהרשימה.")
+    assert status == "opted_out"
+    assert await state.get_conversations_by_status("needs_human") == []
+    assert await _logged(state, "escalation") == []
+
+
+# ── Hebrew escalation: review follow-ups ──
+
+@pytest.mark.parametrize("reply", [
+    "עורך-דין יטפל בזה", "עורךֿדין יטפל בזה".replace("ֿ", "־"), "עורכת-דין שלי תדבר איתכם",
+    "אפנה לבית-המשפט", "נפגש בבית-המשפט",
+    "עו׳׳ד שלי בתמונה",
+    "אני אתבע את העסק", "אתבע את החברה שלכם", "אתבע על זה", "אתבע אם לא תפסיקו",
+    "אלך למשטרה", "נפנה למשטרה", "אפנה למשטרה",
+    "הפסיקו להטריד אותי", "תפסיקו להטריד אותי",
+])
+def test_more_ways_to_say_a_hebrew_legal_threat(reply):
+    from harvey.agents.handler import _escalates, _flat
+    assert _escalates(_flat(reply))
+
+
+@pytest.mark.parametrize("reply", ["עוד-שאלה קטנה", "בית-ספר ליד המשרד", "אתבונן בזה", "תפסיקו לדאוג, נדבר"])
+def test_hyphens_and_near_words_dont_escalate(reply):
+    from harvey.agents.handler import _escalates, _flat
+    assert not _escalates(_flat(reply))
