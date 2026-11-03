@@ -1,0 +1,11 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Troubleshooting guide
+    url: https://github.com/ethanplusai/sellbird/blob/main/docs/troubleshooting.md
+    about: Common problems and their fixes.
+  - name: Report a security problem
+    url: https://github.com/ethanplusai/sellbird/security/advisories/new
+    about: Report vulnerabilities privately, not as an issue.
+  - name: Hosted Sellbird
+    url: https://sellbird.ai
+    about: Questions about the hosted version at sellbird.ai.

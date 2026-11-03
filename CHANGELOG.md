@@ -24,6 +24,15 @@ minor versions can still change behaviour.
   Alex. Messages saved before the rename still count as ours in reply
   history.
 - **Logo.** The dashboard shows the Sellbird swallow and favicon.
+- **License: AGPL-3.0.** From 0.4.0 Sellbird is licensed under the GNU
+  Affero General Public License v3.0 only. Releases up to 0.3.x stay MIT, and
+  that code keeps its MIT notice in `NOTICE`. New commits are signed off
+  under the Developer Certificate of Origin (see `CONTRIBUTING.md`).
+- **A shorter README.** The front page covers what Sellbird does, the quick
+  start and upgrading from Harvey. The detailed sections moved unchanged into
+  `docs/`, with a new dashboard recording and screenshots. Added
+  `SECURITY.md`, `CODE_OF_CONDUCT.md`, `SUPPORT.md` and issue and pull
+  request templates.
 
 ### Added
 
