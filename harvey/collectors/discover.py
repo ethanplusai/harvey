@@ -1455,6 +1455,11 @@ class ScavioSearch(ScavioProvider):
         return out
 
 
+# Imported here, not at the top: the module subclasses DiscoveryProvider and
+# builds Business records, so both must already be defined in this file.
+from harvey.collectors.google_maps_scraper import GoogleMapsScraper  # noqa: E402
+
+
 PROVIDERS: dict[str, DiscoveryProvider] = {
     p.key: p for p in (
         OpenStreetMap(),
@@ -1462,6 +1467,7 @@ PROVIDERS: dict[str, DiscoveryProvider] = {
         DataForSEOListings(),
         DataForSEOSerp(),
         DataForSEOMaps(),
+        GoogleMapsScraper(),
         Serper(),
         ScavioMaps(),
         ScavioSearch(),
