@@ -519,6 +519,12 @@ MIGRATIONS: list[str] = [
     -- knows about the recipient. Empty until then.
     ALTER TABLE prospects ADD COLUMN timezone TEXT DEFAULT '';
     """,
+    # ── v15: the company's own page that published the address ──
+    """
+    -- Empty for an address built from a pattern or found elsewhere; with
+    -- channels.email.published_only, those are never sent cold email.
+    ALTER TABLE prospects ADD COLUMN email_source_url TEXT DEFAULT '';
+    """,
 ]
 
 BRAIN_PROVIDERS = ("claude", "codex")
@@ -753,6 +759,7 @@ class StateManager:
         d["phone_verified"] = bool(d.get("phone_verified", 0))
         d["email_status"] = d.get("email_status") or ""
         d["timezone"] = d.get("timezone") or ""
+        d["email_source_url"] = d.get("email_source_url") or ""
         return Prospect(**d)
 
     async def add_prospect(self, prospect: Prospect) -> str:
@@ -767,10 +774,10 @@ class StateManager:
                 """INSERT OR IGNORE INTO prospects
                    (id, company_id, first_name, last_name, email, email_verified,
                     email_status, phone, phone_verified, linkedin_url, title,
-                    seniority, department, source, source_url, status, score,
-                    personalization_notes, company, industry, company_size,
-                    created_at, updated_at)
-                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                    seniority, department, source, source_url, email_source_url,
+                    status, score, personalization_notes, company, industry,
+                    company_size, created_at, updated_at)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
                 (
                     prospect.id, prospect.company_id,
                     prospect.first_name, prospect.last_name,
@@ -780,6 +787,7 @@ class StateManager:
                     prospect.linkedin_url, prospect.title,
                     prospect.seniority, prospect.department,
                     prospect.source, prospect.source_url,
+                    prospect.email_source_url,
                     prospect.status, prospect.score,
                     prospect.personalization_notes,
                     prospect.company, prospect.industry, prospect.company_size,
@@ -923,14 +931,16 @@ class StateManager:
     async def update_prospect_email(
         self, prospect_id: str, email: str, email_status: str
     ):
-        """Set a prospect's email + honesty status (verified/risky/guess/invalid)."""
+        """Set a prospect's email + honesty status (verified/risky/guess/invalid).
+        A different address loses the page that published the old one."""
         async with self._connect() as db:
             await db.execute(
                 """UPDATE prospects
-                   SET email = ?, email_status = ?, email_verified = ?, updated_at = ?
+                   SET email_source_url = CASE WHEN email = ? THEN email_source_url ELSE '' END,
+                       email = ?, email_status = ?, email_verified = ?, updated_at = ?
                    WHERE id = ?""",
                 (
-                    _norm(email), email_status,
+                    _norm(email), _norm(email), email_status,
                     1 if email_status == "verified" else 0,
                     _utcnow().isoformat(), prospect_id,
                 ),

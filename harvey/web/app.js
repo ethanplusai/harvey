@@ -1704,6 +1704,12 @@ function renderDeskContext(ctx) {
   const who = [ctx.contact, ctx.contact_title].filter(Boolean).map(escHtml).join(' &middot; ');
   const email = [ctx.email_status, ctx.score ? 'score ' + ctx.score : '']
     .filter(Boolean).map(escHtml).join(' &middot; ');
+  // Where the company printed this address; none means it was built from a pattern.
+  const sourceHref = safeHref(ctx.email_source_url);
+  const emailSource = sourceHref
+    ? '<a href="' + sourceHref + '" target="_blank" rel="noopener noreferrer">' +
+        escHtml(ctx.email_source_url.replace(/^https?:\/\//i, '')) + ' &#8599;</a>'
+    : '<span class="muted">not published on their site (built from a pattern)</span>';
   const signals = Object.entries(ctx.signals || {})
     .map(([k, v]) => escHtml(k) + ': <b>' + escHtml(v) + '</b>').join('<br>');
   return '<div class="desk-context">' +
@@ -1714,6 +1720,7 @@ function renderDeskContext(ctx) {
     row('Found via', escHtml(Object.prototype.hasOwnProperty.call(CONTACT_SOURCES, ctx.contact_source)
       ? CONTACT_SOURCES[ctx.contact_source] : ctx.contact_source)) +
     row('Email', email) +
+    row('Address source', emailSource) +
     row('Signals', signals) +
     row('Campaign', ctx.campaign ? escHtml(ctx.campaign) +
       ' <span class="muted">(how they were found, not a fact about them)</span>' : '') +

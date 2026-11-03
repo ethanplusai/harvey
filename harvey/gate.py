@@ -36,6 +36,7 @@ MERGE_TAG_RE = re.compile(r"\{\{\s*\w+\s*\}\}|\{\s*\w+\s*\}(?!\})")
 URL_RE = re.compile(r"https?://\S+", re.IGNORECASE)
 
 DELIVERABLE_STATUSES = {"verified", "risky"}
+UNPUBLISHED_ADDRESS = "address not published on the company's own website (published_only)"
 
 
 @dataclass
@@ -176,11 +177,13 @@ def pre_send_check(
     kind: str = "sequence",
     postal_address: str = "",
     do_not_contact=(),
+    published_only: bool = False,
 ) -> GateResult:
     """Run every deterministic check. Returns ok=False with reasons on any hit.
 
     postal_address: when set, a cold (sequence) email must carry it (CAN-SPAM).
     do_not_contact: addresses and domains that must never be emailed at all.
+    published_only: a cold email needs an address the company published itself.
     """
     reasons: list[str] = []
     subject = (subject or "").strip()
@@ -205,6 +208,8 @@ def pre_send_check(
             reasons.append(
                 f"email_status '{prospect.email_status or 'guess'}' is not deliverable"
             )
+        if kind == "sequence" and published_only and not prospect.email_source_url:
+            reasons.append(UNPUBLISHED_ADDRESS)
 
     # Content sanity
     if not subject:
