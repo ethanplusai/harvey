@@ -518,15 +518,73 @@ async def test_instantly(request: Request):
 # ── Companies ──
 
 
+# The Companies tab shows the best-fit companies, up to this many; the CSV has all.
+COMPANIES_TAB_LIMIT = 2000
+
+
 @app.get("/api/companies")
 async def get_companies():
-    """All companies with contact counts."""
+    """Companies with contact counts, fit score and register status, best fit first."""
     rows = await query_db("""
         SELECT c.*,
             (SELECT COUNT(*) FROM prospects p WHERE p.company_id = c.id) as contact_count
-        FROM companies c ORDER BY c.created_at DESC LIMIT 200
+        FROM companies c ORDER BY c.created_at DESC
     """)
-    return rows
+    try:
+        from harvey.config import load_config
+        from harvey.register import build_register
+        register = {r["id"]: r for r in await build_register(query_db, load_config())}
+        for c in rows:
+            r = register.get(c["id"])
+            if r:
+                c["fit"], c["fit_reasons"] = r["fit"], r["fit_reasons"]
+                c["register_status"], c["register_why"] = r["status"], r["why_not_contacted"]
+        rows.sort(key=lambda c: c.get("fit", 0), reverse=True)
+    except Exception as e:
+        # A config that won't load must not take the Companies tab down with it.
+        logger.warning(f"Company fit unavailable: {e}")
+    return rows[:COMPANIES_TAB_LIMIT]
+
+
+@app.get("/api/export/companies.csv")
+async def export_companies():
+    """The company register: every company, why it fits, why it wasn't contacted."""
+    from harvey.config import load_config
+    from harvey.register import build_register, to_csv
+    try:
+        text = to_csv(await build_register(query_db, load_config()))
+    except Exception as e:
+        logger.warning("Company register export failed: %s", e)
+        return PlainTextResponse(f"Company register export failed: {e}", status_code=500)
+    return PlainTextResponse(
+        "﻿" + text,
+        media_type="text/csv",
+        headers={"Content-Disposition": 'attachment; filename="company-register.csv"'},
+    )
+
+
+@app.get("/api/companies/{company_id}/profile")
+async def get_company_profile(company_id: str):
+    """One company's facts for its detail card: the register row plus what
+    Harvey observed on its site (latest value per signal, with the page)."""
+    rows = await query_db("SELECT * FROM companies WHERE id = ?", (company_id,))
+    if not rows:
+        return JSONResponse({"error": "not found"}, status_code=404)
+    observations = await query_db(
+        "SELECT o.signal_code, o.value_text, o.value_num, o.evidence_url, o.observed_at, "
+        "COALESCE(s.label, o.signal_code) AS label FROM observations o "
+        "LEFT JOIN signal_codes s ON s.code = o.signal_code "
+        "WHERE o.company_id = ? AND o.prospect_id = '' ORDER BY o.observed_at DESC LIMIT 200",
+        (company_id,),
+    )
+    register = {}
+    try:
+        from harvey.config import load_config
+        from harvey.register import build_register
+        register = next(iter(await build_register(query_db, load_config(), company_id)), {})
+    except Exception as e:
+        logger.warning(f"Company profile register unavailable: {e}")
+    return {"company": rows[0], "register": register, "observations": observations}
 
 
 @app.get("/api/companies/{company_id}/contacts")
@@ -1507,7 +1565,7 @@ async def undo_opt_out(prospect_id: str, request: Request):
 
 
 @app.get("/api/conversations")
-async def get_conversations():
+async def get_conversations(awaiting: bool = False):
     rows = await query_db("""
         SELECT c.*, p.first_name, p.last_name, p.email as prospect_email, p.company,
                p.status as prospect_status
@@ -1542,7 +1600,46 @@ async def get_conversations():
                          for e in emails.get(row.get("prospect_id"), [])
                          if not camp or e.get("campaign_id") == camp]
         row["draft"] = drafts.get(row["id"])
+    if awaiting:
+        rows += await _awaiting_reply()
     return rows
+
+
+async def _awaiting_reply() -> list[dict]:
+    """Prospects Harvey emailed who haven't replied yet, shaped like a
+    conversation so the tab can show every sent email, not only the ones
+    that got an answer. Read-only: no conversation row is created, and the
+    card moves to the real conversation the moment a reply arrives."""
+    waiting: dict[str, dict] = {}
+    # Only people still waiting: anyone whose company has a conversation (even
+    # one past the tab's latest 100), a bounced address, or who's otherwise done
+    # isn't. Bounded because this runs on every load of the tab.
+    sent = await query_db(
+        "SELECT o.prospect_id, o.step, o.subject, o.body, o.sent_at, "
+        "p.first_name, p.last_name, p.email AS prospect_email, p.company, "
+        "p.status AS prospect_status FROM outbox o "
+        "JOIN prospects p ON p.id = o.prospect_id "
+        "WHERE o.kind = 'sequence' AND o.status = 'sent' "
+        "AND p.status NOT IN ('replied', 'opted_out', 'lost', 'meeting', 'closed') "
+        "AND COALESCE(p.email_status, '') != 'invalid' "
+        "AND NOT EXISTS (SELECT 1 FROM conversations c JOIN prospects q ON q.id = c.prospect_id "
+        "WHERE q.id = p.id OR (q.company_id = p.company_id AND COALESCE(p.company_id, '') != '')) "
+        "ORDER BY o.sent_at DESC LIMIT 2000")
+    for e in reversed(sent):
+        pid = e["prospect_id"]
+        row = waiting.setdefault(pid, {
+            "id": "awaiting-" + pid, "prospect_id": pid, "campaign_id": "",
+            "channel": "email", "intent": "", "stage": "", "status": "awaiting_reply",
+            "thread": [], "draft": None, "emails": [],
+            "first_name": e.get("first_name") or "", "last_name": e.get("last_name") or "",
+            "prospect_email": e.get("prospect_email") or "", "company": e.get("company") or "",
+            "prospect_status": e.get("prospect_status") or "",
+        })
+        row["emails"].append({"step": e["step"], "subject": e["subject"],
+                              "body": e["body"], "sent_at": e["sent_at"]})
+        row["created_at"] = row.get("created_at") or e["sent_at"]
+        row["updated_at"] = e["sent_at"]
+    return sorted(waiting.values(), key=lambda r: r.get("updated_at") or "", reverse=True)
 
 
 @app.post("/api/conversations/{convo_id}/status")
@@ -2072,6 +2169,17 @@ async def get_today():
                 "detail": (str(brain.get("reason") or "It can't be used right now.")[:300] +
                            " Replies and queued emails are untouched; Harvey resumes "
                            "once it's fixed. harvey status --check says what's wrong."),
+                "action": "Open the log", "tab": "controls",
+            })
+
+        from harvey.agents.writer import EMAIL_RULES_PROBLEM_KEY
+        rules_problem = await state.get_setting(EMAIL_RULES_PROBLEM_KEY)
+        if rules_problem:
+            items.append({
+                "key": "email-rules", "tone": "bad",
+                "title": "Harvey isn't writing emails: your email rules can't be used",
+                "detail": (f"{rules_problem}. Fix the file, or clear writer.email_rules "
+                           "to use Harvey's built-in rules."),
                 "action": "Open the log", "tab": "controls",
             })
 

@@ -204,6 +204,47 @@ def operator_timezone(config) -> str:
     return getattr(quiet, "timezone", "") or "UTC"
 
 
+class SignatureConfig(BaseModel):
+    """A logo under every email (see harvey/integrations/signature.py).
+
+    Empty ``logo``: no signature, and email goes out as plain text, as
+    before. Gmail, Microsoft and SMTP only.
+    """
+
+    logo: str = ""            # PNG, JPEG or GIF; relative to the project folder, or absolute
+    width: int = 120          # display width in pixels
+    alt: str = ""             # shown when images are off; empty → persona.company
+    link: str = ""            # optional https:// address the logo opens
+    direction: str = "auto"   # "rtl" for Hebrew or Arabic email, "ltr", or "auto"
+
+    @field_validator("logo", "alt", "link", mode="before")
+    @classmethod
+    def _blank_is_empty(cls, v):
+        return "" if v is None else str(v).strip()
+
+    @field_validator("width")
+    @classmethod
+    def _sane_width(cls, v: int) -> int:
+        if not 16 <= v <= 600:
+            raise ValueError("signature.width must be between 16 and 600 pixels.")
+        return v
+
+    @field_validator("link")
+    @classmethod
+    def _web_link(cls, v: str) -> str:
+        if v and not re.match(r"https?://[^\s\"<>]+$", v):
+            raise ValueError(f"signature.link '{v}' must be a web address (https://...).")
+        return v
+
+    @field_validator("direction", mode="before")
+    @classmethod
+    def _known_direction(cls, v):
+        v = (str(v) if v is not None else "auto").strip().lower() or "auto"
+        if v not in ("auto", "rtl", "ltr"):
+            raise ValueError("signature.direction must be rtl, ltr or auto.")
+        return v
+
+
 class EmailChannelConfig(BaseModel):
     enabled: bool = True
     # "instantly" (legacy), "gmail" (Gmail/Workspace via API — recommended),
@@ -233,11 +274,18 @@ class EmailChannelConfig(BaseModel):
     # zone (see SendWindowConfig). None: no window, as before. Native
     # providers only; Instantly schedules its own sends.
     send_window: SendWindowConfig | None = None
+    # A logo under every email (see SignatureConfig). Native providers only.
+    signature: SignatureConfig = SignatureConfig()
 
     @field_validator("warmup", mode="before")
     @classmethod
     def _blank_warmup(cls, v):
         return WarmupConfig() if v is None else v
+
+    @field_validator("signature", mode="before")
+    @classmethod
+    def _blank_signature(cls, v):
+        return SignatureConfig() if v is None else v
 
     @field_validator("max_daily_sends")
     @classmethod
@@ -377,9 +425,25 @@ DEFAULT_OPT_OUT_LINE = 'Not interested? Reply "no thanks" and I won\'t email aga
 # opt_out_line must ask for one of them ("Reply STOP", 'reply "no thanks"').
 OPT_OUT_WORDS = ("no thanks", "no thank you", "unsubscribe", "stop", "remove me",
                  "opt out")
+# The same in Hebrew ('השיבו "הסר"', 'תגידו לי "לא תודה"').
+HEBREW_OPT_OUT_WORDS = ("הסר", "הסירו", "הסרה", "לא תודה", "הסירו אותי", "תורידו אותי")
+# The same in Spanish ('Responda "no, gracias"', 'Responda BAJA').
+SPANISH_OPT_OUT_WORDS = ("no gracias", "baja", "darme de baja")
+_OPT_OUT_WORD_RE = "(?:" + "|".join(
+    r"[\s,]+".join(map(re.escape, w.split()))
+    for w in OPT_OUT_WORDS + HEBREW_OPT_OUT_WORDS + SPANISH_OPT_OUT_WORDS) + ")"
 _ASKS_FOR_OPT_OUT_RE = re.compile(
-    r"\breply(?:\s+with)?\s*[\"'\u201c\u2018]?\s*(?:"
-    + "|".join(re.escape(w) for w in OPT_OUT_WORDS) + r")\b", re.IGNORECASE)
+    r"\b(?:reply(?:\s+with)?|(?:responda|responde|respondan|conteste|contesta|escriba)(?:\s+con)?)"
+    r"\s*[\"'\u201c\u2018]?\s*" + _OPT_OUT_WORD_RE + r"\b", re.IGNORECASE)
+# Reply / answer / write / tell me, then a few words at most ("במייל חוזר").
+_ASKS_FOR_OPT_OUT_HE_RE = re.compile(
+    r"(?<!\w)ו?(?:השיב[וי]?|השב|תשיב[וי]?|ענ[הוי]|תענ[הוי]|כתוב|כתב[וי]|תכתוב|תכתב[וי]"
+    r"|הגב|הגיב[וי]|תגיב[וי]?|שלח[וי]?|תשלח[וי]?|תגיד[וי]?|אמור|אמר[וי])"
+    r"(?:\s+[^\s\"'\u05f3\u05f4\u201c\u201d\u2018\u2019]+){0,3}?"
+    r"\s*[\"'\u05f3\u05f4\u201c\u201d\u2018\u2019]?\s*" + _OPT_OUT_WORD_RE + r"(?!\w)",
+    re.IGNORECASE)
+# "Click" in Hebrew: a footer has no link to click.
+_HEBREW_CLICK_RE = re.compile(r"(?<!\w)ו?(?:לחצו|לחצי|לחץ\s+(?:כאן|על)|הקליקו|הקליקי|הקלק)(?!\w)")
 
 
 class ComplianceConfig(BaseModel):
@@ -388,7 +452,8 @@ class ComplianceConfig(BaseModel):
     # CAN-SPAM requires a postal address you receive mail at (a street
     # address, PO box or virtual mailbox) and a working way to opt out.
     postal_address: str = ""
-    # Must ask for wording Harvey recognises as an opt-out (OPT_OUT_WORDS).
+    # Must ask for wording Harvey recognises as an opt-out (OPT_OUT_WORDS,
+    # HEBREW_OPT_OUT_WORDS).
     # "" leaves it off (and harvey warns).
     opt_out_line: str = DEFAULT_OPT_OUT_LINE
     # Companies this operator will never email: competitors, existing
@@ -439,16 +504,18 @@ class ComplianceConfig(BaseModel):
         lowered = v.lower()
         if not v:
             return v
-        if any(bit in lowered for bit in ("http", "www.", "click", "@")):
+        if (any(bit in lowered for bit in ("http", "www.", "click", "@"))
+                or _HEBREW_CLICK_RE.search(v)):
             raise ValueError(
                 "opt_out_line can't contain a link or an email address: cold email "
                 "allows one link, and opting out must be as simple as replying."
             )
-        if not _ASKS_FOR_OPT_OUT_RE.search(v):
+        if not (_ASKS_FOR_OPT_OUT_RE.search(v) or _ASKS_FOR_OPT_OUT_HE_RE.search(v)):
             raise ValueError(
                 "opt_out_line must ask for a reply Harvey recognises as an opt-out, "
-                'e.g. Reply "no thanks" / Reply STOP. Recognised: '
-                + ", ".join(f'"{w}"' for w in OPT_OUT_WORDS) + "."
+                'e.g. Reply "no thanks" / Reply STOP, in Hebrew השיבו "הסר", or in Spanish Responda BAJA. Recognised: '
+                + ", ".join(f'"{w}"' for w in OPT_OUT_WORDS + HEBREW_OPT_OUT_WORDS
+                            + SPANISH_OPT_OUT_WORDS) + "."
             )
         return v
 
@@ -594,6 +661,57 @@ class WriterConfig(BaseModel):
     # or HARVEY_HUMANIZER_SKILL). Off by default: installing the skill for
     # your own Claude Code use never changes what Harvey sends on its own.
     humanizer: bool = False
+    # Your own rules for the emails Harvey drafts, as a markdown file:
+    # length, structure, what to say about the product, links, subject lines,
+    # sign-off. When set, it replaces the Writer's built-in shape (email 1
+    # under 75 words, an observation and a question, no pitch). A path
+    # relative to the Harvey folder; skills/email_rules.md is gitignored.
+    # The FACTS rule, the send gate and do-not-contact still apply. A file
+    # that is set but can't be read stops writing until it's fixed.
+    email_rules: str = ""
+
+    @field_validator("email_rules", mode="before")
+    @classmethod
+    def _blank_rules(cls, v):
+        if v is None:
+            return ""
+        return v.strip() if isinstance(v, str) else v
+
+
+# Long enough for a full house style with examples; anything bigger is
+# probably the wrong file and would crowd out the facts in every prompt.
+MAX_EMAIL_RULES_CHARS = 20_000
+
+
+class EmailRulesError(ConfigError):
+    """writer.email_rules names a file Harvey can't use."""
+
+
+def load_email_rules(config) -> str:
+    """The operator's email rules (writer.email_rules), or "" when none are set.
+
+    Raises EmailRulesError when a file is set but missing, unreadable, empty
+    or too long: the Writer then writes nothing rather than fall back to the
+    built-in shape the operator chose to replace.
+    """
+    raw = str(getattr(getattr(config, "writer", None), "email_rules", "") or "").strip()
+    if not raw:
+        return ""
+    path = Path(raw).expanduser()
+    if not path.is_absolute():
+        path = PROJECT_ROOT / path
+    try:
+        text = read_user_text(path).strip()
+    except FileNotFoundError:
+        raise EmailRulesError(f"{raw} doesn't exist") from None
+    except OSError as e:
+        raise EmailRulesError(f"{raw} can't be read ({e})") from None
+    if not text:
+        raise EmailRulesError(f"{raw} is empty")
+    if len(text) > MAX_EMAIL_RULES_CHARS:
+        raise EmailRulesError(
+            f"{raw} is {len(text):,} characters; the limit is {MAX_EMAIL_RULES_CHARS:,}")
+    return text
 
 
 class HarveyConfig(BaseModel):

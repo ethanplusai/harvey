@@ -2614,6 +2614,10 @@ class StateManager:
             ) as cursor:
                 open_conversations = (await cursor.fetchone())[0]
             async with db.execute(
+                "SELECT COUNT(*) FROM conversations WHERE status = 'needs_human' AND intent = 'ooo'"
+            ) as cursor:
+                auto_reply_handoffs = (await cursor.fetchone())[0]
+            async with db.execute(
                 "SELECT claude_calls, codex_calls FROM usage_log WHERE date = ?", (today,)
             ) as cursor:
                 usage_row = await cursor.fetchone()
@@ -2631,7 +2635,10 @@ class StateManager:
             "recent_unusable_prospects": await self.count_recent_unusable_prospects(),
             "draft_campaigns": draft_campaigns,
             "active_campaigns": active_campaigns,
+            # The kill switch: native sending stages nothing while it's set.
+            "sending_paused": bool(await self.get_setting("sending_paused")),
             "open_conversations": open_conversations,
+            "auto_reply_handoffs": auto_reply_handoffs,
             "usage_today": usage_today,  # Claude calls (kept for compatibility)
             "usage_today_by_provider": {"claude": usage_today, "codex": codex_today},
             # Companies discovered but not yet read. The heartbeat profiles
