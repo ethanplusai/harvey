@@ -56,3 +56,25 @@ def test_load_env_reads_the_finder_settings(monkeypatch):
     monkeypatch.setenv("EMAIL_FINDERS", "apollo")
     env = load_env()
     assert (env.prospeo_api_key, env.apollo_api_key, env.email_finders) == ("pk", "ak", "apollo")
+
+
+def test_saved_keys_show_only_a_masked_hint(client):
+    client.post("/api/settings/env", json={
+        "REOON_API_KEY": "reoon-key-0000-abcd", "APOLLO_API_KEY": "apollo-key-0000-wxyz",
+        "PROSPEO_API_KEY": "short"})
+    data = client.get("/api/settings").json()
+    assert data["reoon_api_key_hint"] == "••••abcd"
+    assert data["apollo_api_key_hint"] == "••••wxyz"
+    assert data["prospeo_api_key_hint"] == "••••"        # too short to show any of it
+    assert data["zerobounce_api_key_hint"] == ""         # not set
+    body = str(data)
+    for secret in ("reoon-key-0000", "apollo-key-0000", "short"):
+        assert secret not in body
+
+
+def test_settings_page_puts_finders_in_the_verification_card(client):
+    html = client.get("/").text
+    card = html[html.index("Email verification"):html.index('<div class="subhead">Optional</div>')]
+    assert "<h3>Verifiers</h3>" in card and "<h3>Email finders" in card
+    for field in ("reoon-key", "zerobounce-key", "hunter-key", "prospeo-key", "apollo-key"):
+        assert f"toggleVisibility('{field}')" in card
