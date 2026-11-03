@@ -58,3 +58,21 @@ history.
 Every test or verification email goes to an address you own, set up for that
 purpose. Never to an address from a database, an export, a reply or a fixture.
 Tests never send real email: use the fake providers in `tests/`.
+
+## License and sign-off
+
+Sellbird is licensed under the GNU Affero General Public License v3.0 only
+(see `LICENSE`). Code from the MIT-licensed Harvey releases (0.3.x and
+earlier) keeps its MIT notice in `NOTICE`.
+
+By contributing, you agree that your contribution is licensed under the
+project's license. Sign off every commit to certify that you wrote it or have
+the right to submit it, under the
+[Developer Certificate of Origin](https://developercertificate.org/):
+
+```sh
+git commit -s -m "Describe the change"
+```
+
+That adds a `Signed-off-by: Your Name <you@example.com>` line. Use the name and
+email you commit with; a GitHub noreply address is fine.

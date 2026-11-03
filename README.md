@@ -849,7 +849,7 @@ See [CHANGELOG.md](CHANGELOG.md). Current release: **0.2.1**.
 
 ## License
 
-MIT
+[AGPL-3.0](LICENSE). Versions up to 0.3.x (Harvey) were released under MIT; see [NOTICE](NOTICE).
 
 TrulyInbox links in this project are affiliate links: the maintainer may earn a commission, at no extra cost to you.
 
