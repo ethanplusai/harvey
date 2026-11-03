@@ -105,6 +105,17 @@ usage:
     end: "07:00"
     timezone: "America/New_York"
 
+# Optional: which subscription Harvey thinks with. Claude (via Claude Code) is
+# the default and needs no settings. Alternatives, one at a time:
+#   brain:
+#     provider: codex      # your ChatGPT plan, via the Codex CLI (macOS/Linux)
+#     model: gpt-5.5
+#     reasoning_effort: "" # codex only: minimal | low | medium | high | xhigh
+#   brain:
+#     provider: opencode   # your OpenCode plan, via the OpenCode CLI (v2.x,
+#     model: opencode/gpt-5.3-codex   # macOS/Linux; provider/model refs only)
+# There is never a fallback between providers; each call uses exactly this one.
+
 # Optional: check each new recipient with Precleared (precleared.dev) before
 # the first cold email: may cold marketing email go to this address under UK
 # PECR, US CAN-SPAM, Canada's CASL, Germany's UWG and France's rules? Any other

@@ -1445,18 +1445,27 @@ async function loadLogs() {
 // Calls today per subscription — each labelled with the provider it ran on.
 function brainCallChips(data) {
   const chip = (label, n) => '<span class="chip">' + label + ' calls today <b>' + escHtml(String(n || 0)) + '</b></span>';
-  const codex = data.codex_calls_today || 0;
+  const count = {
+    claude: data.claude_calls_today || 0,
+    codex: data.codex_calls_today || 0,
+    opencode: data.opencode_calls_today || 0,
+  };
+  const label = {claude: 'Claude', codex: 'Codex', opencode: 'OpenCode'};
   const st = data.brain_status || {};
   // A paused brain must not look healthy: say so, and why.
   const paused = st.status === 'paused'
     ? '<span class="chip" title="' + escHtml(st.reason || '') + '">' +
-      escHtml(st.provider === 'codex' ? 'Codex' : 'Brain') + ' <b>paused</b>: ' +
+      escHtml(label[st.provider] || 'Brain') + ' <b>paused</b>: ' +
       escHtml((st.reason || '').slice(0, 120)) + '</span>'
     : '';
-  if (data.brain_provider === 'codex') {
-    return paused + chip('Codex', codex) + (data.claude_calls_today ? chip('Claude', data.claude_calls_today) : '');
-  }
-  return paused + chip('Claude', data.claude_calls_today) + (codex ? chip('Codex', codex) : '');
+  // The active provider leads (always shown); other subscriptions that
+  // served calls today get a chip after it.
+  const providers = ['claude', 'codex', 'opencode'].filter(p => count[p]);
+  const active = label[data.brain_provider] ? data.brain_provider : null;
+  if (active && !providers.includes(active)) providers.unshift(active);
+  else if (active) { providers.splice(providers.indexOf(active), 1); providers.unshift(active); }
+  if (!active && !providers.length) return paused + chip('Claude', 0);
+  return paused + providers.map(p => chip(label[p], count[p])).join('');
 }
 
 function fmtTokens(n) {
@@ -1480,13 +1489,24 @@ function emailTag(p) {
 
 // Quota gauges for the ACTIVE provider only: Claude's are the numbers
 // `/usage` shows in Claude Code; Codex's are the ChatGPT plan's limits.
-// When they can't be read, say so rather than hiding the card.
+// OpenCode exposes no gauge at all, so its card explains what Harvey can
+// and does count instead. When gauges can't be read, say so rather than
+// hiding the card.
 function quotaCardHtml(data) {
   const provider = data && data.quota_provider;
   if (!provider) return '';
-  const title = provider === 'codex' ? 'Codex (ChatGPT plan) Quota' : 'Claude Subscription Quota';
+  const title = provider === 'codex' ? 'Codex (ChatGPT plan) Quota'
+    : provider === 'opencode' ? 'OpenCode (plan) Usage'
+    : 'Claude Subscription Quota';
   let html = '<h2>' + escHtml(title) + '</h2>';
   if (!data.quota || !Object.keys(data.quota).length) {
+    if (provider === 'opencode') {
+      const why = "OpenCode doesn't expose subscription gauges, so there's no " +
+        "percent bar here. Harvey counts its own OpenCode calls in the totals " +
+        "below and pauses on its own when OpenCode announces a plan limit " +
+        "during a call.";
+      return html + '<p class="muted">' + escHtml(why) + '</p>';
+    }
     const why = provider === 'codex'
       ? "Quota unavailable: Harvey couldn't read your ChatGPT plan's limits (check codex login, the Codex CLI version, and network)."
       : "Quota unavailable: Harvey couldn't read your Claude subscription's limits (check claude login and network).";

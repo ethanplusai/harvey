@@ -603,21 +603,23 @@ class UsageConfig(BaseModel):
         return v
 
 
-BRAIN_PROVIDERS = ("claude", "codex")
+BRAIN_PROVIDERS = ("claude", "codex", "opencode")
 CODEX_REASONING_EFFORTS = ("minimal", "low", "medium", "high", "xhigh")
 
 # Model names are passed to a CLI, so they must look like a model name and
-# never like a flag ("-x") or anything a shell would treat specially.
-_MODEL_NAME_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._:/\[\]-]{0,127}$")
+# never like a flag ("-x") or anything a shell would treat specially. '#'
+# stays in the set: OpenCode variants are spelled provider/model#variant.
+_MODEL_NAME_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._:/\[\]#-]{0,127}$")
 
 
 class BrainConfig(BaseModel):
     """Which subscription Harvey thinks with.
 
     ``claude`` (default) runs Claude Code headless on your Claude plan.
-    ``codex`` runs Codex on your ChatGPT plan. There is never an automatic
-    fallback between them, and an explicit ``model`` only affects Harvey —
-    your own Claude Code / Codex settings are never read or changed.
+    ``codex`` runs Codex on your ChatGPT plan. ``opencode`` runs OpenCode on
+    your OpenCode plan. There is never an automatic fallback between them,
+    and an explicit ``model`` only affects Harvey — your own Claude Code /
+    Codex / OpenCode settings are never read or changed.
     """
 
     provider: str = "claude"
@@ -653,6 +655,27 @@ class BrainConfig(BaseModel):
                 f"Use one of: {', '.join(CODEX_REASONING_EFFORTS)}."
             )
         return v
+
+    @model_validator(mode="after")
+    def _valid_provider_pairing(self):
+        # OpenCode models are the CLI's own provider/model refs (optionally
+        # with a #variant); a bare model name would not survive 'opencode
+        # run --model'.
+        if self.provider == "opencode" and self.model and "/" not in self.model:
+            raise ValueError(
+                f"'{self.model}' isn't an OpenCode model ref. brain.model for "
+                "provider 'opencode' must be provider/model (optionally "
+                "provider/model#variant), e.g. 'opencode/gpt-5.3-codex'."
+            )
+        # Effort is a Codex CLI option; spelling it for OpenCode would be
+        # silently dropped (variants belong in the model ref there instead).
+        if self.provider == "opencode" and self.reasoning_effort:
+            raise ValueError(
+                "brain.reasoning_effort only applies to provider 'codex'. "
+                "For OpenCode, put the variant in the model ref "
+                "(provider/model#variant) or clear reasoning_effort."
+            )
+        return self
 
 
 class WriterConfig(BaseModel):

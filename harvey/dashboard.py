@@ -838,11 +838,12 @@ async def get_stats():
         # get_usage_today use date.today()); SQLite's date('now') is UTC and
         # can select a different day's counts on either side of UTC midnight.
         usage = await query_db(
-            "SELECT claude_calls, codex_calls FROM usage_log WHERE date = ?",
-            (date.today().isoformat(),),
+            "SELECT claude_calls, codex_calls, opencode_calls FROM usage_log "
+            "WHERE date = ?", (date.today().isoformat(),),
         )
         usage_today = (usage[0]["claude_calls"] or 0) if usage else 0
         codex_today = (usage[0]["codex_calls"] or 0) if usage else 0
+        opencode_today = (usage[0]["opencode_calls"] or 0) if usage else 0
 
         return {
             "prospects": {"total": prospect_total, "by_status": prospect_map},
@@ -852,6 +853,7 @@ async def get_stats():
             "actions_total": action_count,
             "claude_calls_today": usage_today,
             "codex_calls_today": codex_today,
+            "opencode_calls_today": opencode_today,
             "brain_provider": _active_provider(),
             "brain_status": await _brain_status(),
         }
@@ -898,7 +900,8 @@ def _active_provider() -> str:
 def _quota_client_for(provider: str, model: str = ""):
     """One cached quota reader per provider (and Codex model). Each reads
     only its own subscription, so a Claude gauge is never shown as Codex or
-    vice versa, and Codex shows the bucket metering the configured model."""
+    vice versa, and Codex shows the bucket metering the configured model.
+    OpenCode has none: it exposes no subscription gauge (None)."""
     key = (provider, model if provider == "codex" else "")
     if key not in _quota_clients:
         if provider == "codex":
@@ -952,6 +955,17 @@ async def get_usage():
     except Exception as e:
         logger.debug("Quota lookup failed: %s", e)
 
+    # Calls today per subscription (same local-date rule as increment_usage),
+    # so the Usage tab can say which plan each batch ran on.
+    row = await query_db(
+        "SELECT claude_calls, codex_calls, opencode_calls FROM usage_log "
+        "WHERE date = ?", (date.today().isoformat(),))
+    calls_today = {
+        "claude": (row[0]["claude_calls"] or 0) if row else 0,
+        "codex": (row[0]["codex_calls"] or 0) if row else 0,
+        "opencode": (row[0]["opencode_calls"] or 0) if row else 0,
+    }
+
     return {
         "provider": provider,
         "quota": quota,
@@ -959,6 +973,7 @@ async def get_usage():
         # "unavailable" for the active provider instead of hiding the gauge.
         "quota_provider": provider,
         "quota_status": ("available" if quota else "unavailable") if provider else "",
+        "calls_today": calls_today,
         "by_provider": by_provider,
         "totals": totals,
         "by_day": by_day,

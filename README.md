@@ -4,7 +4,7 @@
 
 Harvey finds businesses worth selling to, learns something specific about each one, writes cold email that references it, sends it, reads the replies, and works the conversation toward a meeting. It runs on your machine, in a loop, on its own.
 
-The unusual part: **there is no model API bill.** Harvey uses your Claude Pro or Max subscription through Claude Code, or your ChatGPT subscription through Codex. Model calls use the plan you already pay for, without an API key or per-token API billing. Claude is the default; [Codex is an opt-in provider on macOS and Linux](#using-a-chatgpt-plan-instead-codex).
+The unusual part: **there is no model API bill.** Harvey uses your Claude Pro or Max subscription through Claude Code, or your ChatGPT subscription through Codex, or your OpenCode plan through the OpenCode CLI. Model calls use the plan you already pay for, without an API key or per-token API billing. Claude is the default; [Codex is an opt-in provider on macOS and Linux](#using-a-chatgpt-plan-instead-codex), and so is [OpenCode](#using-an-opencode-plan-instead).
 
 ```
 $ harvey run
@@ -46,6 +46,7 @@ confirmed signals, searching contacts, and the same screen in dark mode:
 - [How the data is stored](#how-the-data-is-stored)
 - [Configuration](#configuration)
 - [Using a ChatGPT plan instead (Codex)](#using-a-chatgpt-plan-instead-codex)
+- [Using an OpenCode plan instead](#using-an-opencode-plan-instead)
 - [Legal and deliverability](#legal-and-deliverability)
 - [Troubleshooting](#troubleshooting)
 - [Project structure](#project-structure)
@@ -58,7 +59,7 @@ confirmed signals, searching contacts, and the same screen in dark mode:
 
 Every other autonomous sales agent bills you per token. That is the whole reason they cost what they cost: an agent that thinks in a loop, all day, is an agent that burns API credits in a loop, all day. Vendors solve this by thinking less — shorter prompts, cheaper models, fewer passes.
 
-Harvey uses the subscription-backed CLI for the provider you choose: `claude` for Claude Code, or an isolated `codex app-server` for Codex. Both return text with model tools disabled. Harvey handles the prospecting and mail operations itself.
+Harvey uses the subscription-backed CLI for the provider you choose: `claude` for Claude Code, an isolated `codex app-server` for Codex, or an isolated `opencode run` for OpenCode. All three return text with model tools disabled. Harvey handles the prospecting and mail operations itself.
 
 Claude calls run with none of your own Claude Code setup: no `CLAUDE.md` (yours, the project's or any parent folder's), no hooks, skills, plugins, MCP servers or settings files, no tools, in an empty temporary folder, and nothing saved to your Claude transcripts. Your login (subscription or `claude setup-token`) and any admin-managed policy still apply. This needs a Claude CLI with `--safe-mode`; with an older one Harvey pauses instead of sending prompts unisolated and says to run `claude update`. To check this offline against your installed CLI, with no credentials or network: `HARVEY_CLAUDE_CLI_TESTS=1 pytest tests/test_claude_cli_isolation.py`.
 
@@ -109,7 +110,7 @@ Profiling and outbox draining ride along on **every** cycle regardless, because 
 ### Prerequisites
 
 - **Python 3.11+** — check with `python3 --version`. macOS ships 3.9; if that's what you have, `brew install python@3.13` first.
-- An active **Claude Pro or Max** subscription, with the CLI logged in (`claude login`) — or, opt-in, a **ChatGPT plan with the Codex CLI** ([see below](#using-a-chatgpt-plan-instead-codex))
+- An active **Claude Pro or Max** subscription, with the CLI logged in (`claude login`) — or, opt-in, a **ChatGPT plan with the Codex CLI** or an **OpenCode plan with the OpenCode CLI** (both macOS/Linux only; [Codex](#using-a-chatgpt-plan-instead-codex), [OpenCode](#using-an-opencode-plan-instead))
 - A mailbox to send from — Gmail/Workspace recommended, on a *dedicated secondary domain*. Microsoft 365 works too ([setup](docs/microsoft365.md))
 - A warmup service on that mailbox — we recommend [TrulyInbox](https://trulyinbox.com/?via=harvey). It warms a new mailbox before cold email, keeps it out of spam after, and Harvey reads its inbox rate to tell you when you're ready ([Warmup](#warmup-with-trulyinbox))
 
@@ -611,12 +612,13 @@ channels:
   email:      { provider: gmail | microsoft | smtp | instantly, max_daily_sends, require_approval,
                 send_to_risky, max_bounce_rate, warmup, send_window, signature }
 usage:        { max_daily_claude_percent, heartbeat_interval_minutes, quiet_hours }
-brain:        { provider: claude | codex, model, reasoning_effort }   # optional; claude by default
+brain:        { provider: claude | codex | opencode, model, reasoning_effort }   # optional; claude by default
+              # codex: gpt-5.5 etc., opencode: provider/model refs like opencode/gpt-5.3-codex
 writer:       { humanizer }   # optional; true adds one editing pass per batch using ~/.claude/skills/humanizer/SKILL.md
               # email_rules: your own markdown rules for the emails' shape (see The skills library)
 ```
 
-`max_daily_claude_percent` caps whichever subscription `brain.provider` uses (the name predates Codex support).
+`max_daily_claude_percent` caps whichever subscription `brain.provider` uses (the name predates Codex and OpenCode support).
 
 If `harvey.local.yaml` exists it wins. It's gitignored, so a fork can carry real product configuration while the tracked `harvey.yaml` stays a template — nobody publishes their positioning and pricing by accident.
 
@@ -679,6 +681,39 @@ What to know:
 - **When Codex can't be used, Harvey pauses rather than guessing.** Before each heartbeat, Harvey checks everything a call needs except the prompt itself: the Codex CLI version, the isolation, your login (expired or due for renewal), your ChatGPT account, and that your configured model can run with no tools. No prompt is sent, so nothing is used from your plan beyond a quick account check. If something is wrong, the whole cycle is skipped: no reply is read or marked handled, nothing is drafted or sent. The log line, `harvey status`, and the dashboard's Actions card say "Codex paused" and why. If Codex stops working part-way through a cycle (for example the plan hits its usage limit), the reply being handled is left exactly as it was for a clean retry, not escalated, half-recorded or lost, and that cycle sends nothing. Fix the cause (usually `codex login`), and Harvey resumes on its next heartbeat: a renewed login or reinstalled CLI is noticed immediately, a usage-limit pause ends after an hour, and other fixes are picked up within 30 minutes. `harvey status --check` runs the same check on demand and exits non-zero if it fails. Brief failures (a crash or timeout) just skip one cycle. Harvey never falls back to Claude or an API key.
 - **Requirements.** **macOS or Linux**, Codex CLI **0.159.3** exactly, and Node.js for its npm package. **Windows isn't supported for Codex:** Harvey refuses it there before reading your login; use the Claude provider on Windows. Harvey checks the Codex version before every call and refuses any other version, including newer ones, because a different Codex can add tools Harvey's lockdown doesn't know about. Support for a new version comes with a Harvey update. Live use with a real ChatGPT account has been verified on macOS and ARM64 Linux. The offline suites also passed on x86-64 Linux under CPU emulation; CI covers Linux and macOS. The Docker image ships the Claude CLI only, so Codex isn't supported in Docker. To re-verify the lockdown offline against your installed CLI, with no credentials or network: `HARVEY_CODEX_CLI_TESTS=1 pytest tests/test_codex_cli_surface.py`.
 - **Overhead.** Each call checks the CLI version, starts Codex once without your login to verify its configuration, reads the model catalog, then starts it again to run the prompt; each heartbeat's check does the same without the prompt. That adds a few seconds per call, and one Brain's Codex calls run one at a time.
+
+---
+
+## Using an OpenCode plan instead
+
+Claude is the default and needs no change. If you have an [OpenCode](https://opencode.ai) plan (with OpenCode AI or a connected provider), Harvey can think through the **OpenCode CLI** instead — still a subscription, not per-token API billing on Harvey's side. macOS and Linux only, like Codex.
+
+```bash
+curl -fsSL https://opencode.ai/install | bash   # or: npm install -g opencode-ai, or: brew install sst/tap/opencode
+opencode auth login                             # sign in with the provider your model needs (OpenCode AI subscription, etc.)
+```
+
+Then either pick **opencode** in `harvey setup` (it suggests `opencode/gpt-5.3-codex`), or add to your config:
+
+```yaml
+brain:
+  provider: opencode
+  model: opencode/gpt-5.3-codex   # a provider/model ref, as 'opencode models' lists them
+```
+
+OpenCode models are spelled `provider/model`, optionally `provider/model#variant` — there is no `reasoning_effort` option here; a variant goes into the model ref itself (`reasoning_effort` is a Codex-only option and a config error for OpenCode). Without an explicit model, Harvey uses its verified default rather than OpenCode's "recent pick", which would read your own OpenCode state.
+
+What to know:
+
+- **It's one or the other.** Harvey uses exactly the provider you configure. If OpenCode fails, the call fails with a clear log message; it never falls back to Claude, Codex, or an API key. An OpenCode-only machine doesn't need Claude installed.
+- **Your OpenCode setup is left alone.** Each call runs one throwaway `opencode` process with a private temporary HOME, config, data, cache and state directory and an empty workspace — so your own `opencode.json`, agents, plugins, MCP servers, sessions, prompt history and logs are never loaded, and Harvey never writes anything into your OpenCode data.
+- **No tools, verified before every prompt.** Harvey writes a private config that denies permissions (`{"*": "deny"}`) for a text-only `harvey` agent, then — before any prompt is sent — asks the CLI itself to prove it: its agent report must show `harvey` as a primary agent whose *last-matching* permission rule resolves to deny for every tool and the wildcard, and its config report must list only configuration inside the throwaway runtime (an operator config layer anywhere else stops the call) with sharing disabled. During the turn, any attempted tool call in the event stream kills the runtime at once and fails the call. Everything after that point — including a useful-looking answer that arrived before a tool attempt — is thrown away.
+- **Your login only goes to its own provider.** The runtime's session database starts empty; Harvey copies into it only the active credential of the one provider your configured model names (`opencode/gpt-5.3-codex` → OpenCode AI's `opencode` integration; API-key providers fall back to that provider's entry in `auth.json`). Nothing but those rows lands there, and the copy is deleted with the runtime. Your login file/data is read read-only, never written.
+- **Models and errors.** If the plan's free usage is spent, OpenCode says when it resets and Harvey pauses OpenCode calls until then. A model that isn't signed in, isn't on the plan, or isn't available in your country stops calls (with the fix in the message) until you change the model or sign in — these don't self-heal mid-cycle, because the config is the fix.
+- **Quota.** Unlike Claude and Codex, OpenCode exposes no subscription gauge Harvey could read, so there's no percent bar: the budget gate (`usage.max_daily_claude_percent`) always falls back to Harvey's own daily call counter for OpenCode, and the dashboard says so on the Usage tab. OpenCode calls still record real tokens and the plan's metered cost when OpenCode reports one.
+- **When OpenCode can't be used, Harvey pauses rather than guessing.** Before each heartbeat, Harvey checks everything a call needs except the prompt itself: CLI version and flags, the isolation attestations above, the login the model needs, and the model ref's shape. Nothing is sent, so nothing is spent. The log line, `harvey status`, and the dashboard say "OpenCode paused" and why; a fixed cause (a sign-in, a reinstalled or updated CLI) is picked up within 30 minutes, and `harvey status --check` runs the same check on demand. Brief failures (a crash or timeout) just skip one cycle. Harvey never falls back to another provider or an API key.
+- **Requirements.** **macOS or Linux** (Claude is the provider on Windows, where OpenCode runs under WSL), OpenCode CLI **v2.x** — any 2.x is checked for the exact flags and behaviour Harvey's isolation relies on, and a v3 is refused until Harvey verifies it. Live use with a real OpenCode plan has been verified on macOS.
+- **Overhead.** Each call probes the CLI version and flags and two offline reports before sending anything, so it adds a few seconds per call; one Brain's OpenCode calls run one at a time.
 
 ---
 
@@ -754,6 +789,8 @@ another service* on the dashboard) and Harvey stops suggesting it.
 
 **Codex calls fail** — Read the log line; every Codex error says what to do. "Not logged in" or "expired or is due for renewal" → use Codex once or run `codex login` with ChatGPT. "Hasn't been verified with Harvey" → install the supported Codex version named in the message. "Isolation could not be verified" → a Codex config layer outside your `~/.codex` (for example a managed or `/etc/codex` config) forces a tool, hook, MCP server, instructions or custom endpoint back on; Harvey refuses to send prompts until it's gone. Model catalog errors → choose an available model ID from the catalog shown in the message, or leave `brain.model` blank to select a listed model. Harvey never switches to Claude on its own.
 
+**OpenCode calls fail** (`brain.provider: opencode`) — the log line says why. "No active login for provider …" → run `opencode auth login` with the provider your model needs. "Isn't an OpenCode model ref" / "no-route" → set `brain.model` to a `provider/model` ref that's on your plan (`opencode models` lists them). A region-blocked model → pick one available in your country. "Isolation could not be verified" → an OpenCode config layer outside Harvey's throwaway runtime or sharing not disabled; Harvey refuses to send prompts until that's gone. Harvey never switches providers on its own.
+
 **Discovery finds nothing** — Confirm signals first (`harvey signals --confirm free`); nothing is collected until you do. If you're on the free OpenStreetMap source, it only covers mapped trades and is thin for service-area businesses — `harvey discover --providers` shows the alternatives.
 
 **Overpass is throttling** — It's free volunteer infrastructure. Harvey walks three mirrors before giving up. Wait a few minutes, or use a paid provider for bulk work.
@@ -776,6 +813,7 @@ harvey/
 ├── brain.py             # Claude/Codex provider selection + skills + usage
 ├── claude_runtime.py    # Isolated Claude CLI calls (safe mode, no tools, clean dir)
 ├── codex.py             # Isolated Codex subscription runtime
+├── opencode_runtime.py  # Isolated OpenCode subscription runtime
 ├── state.py             # SQLite schema, migrations, observations, cohorts
 ├── signals.py           # the 23-signal catalog Harvey proposes
 ├── pipeline.py          # DISCOVER → PROFILE chaining

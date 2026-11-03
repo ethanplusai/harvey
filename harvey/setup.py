@@ -121,6 +121,11 @@ def _check_codex_cli() -> bool:
     return shutil.which("codex") is not None
 
 
+def _check_opencode_cli() -> bool:
+    """Check if OpenCode CLI is installed and accessible."""
+    return shutil.which("opencode") is not None
+
+
 async def _test_claude(brain: Brain) -> bool:
     """Test that the configured brain answers (Claude or Codex)."""
     response = await brain.think(
@@ -135,31 +140,52 @@ def _ask_brain_config() -> BrainConfig:
     _print_harvey("I think with an AI subscription you already pay for:")
     print("    claude — your Claude plan, via Claude Code (default)")
     print("    codex  — your ChatGPT plan, via the Codex CLI")
+    print("    opencode — your OpenCode plan, via the OpenCode CLI")
     while True:
-        provider = _ask("Which one? (claude/codex)", default="claude").lower()
-        if provider == "codex":
-            from harvey.codex import CodexError, require_supported_platform
+        provider = _ask("Which one? (claude/codex/opencode)",
+                        default="claude").lower()
+        if provider in ("codex", "opencode"):
+            # Both refuse Windows (Claude is the provider there); say it here
+            # so the wizard asks again instead of failing later.
+            err_cls = None
             try:
+                if provider == "codex":
+                    from harvey.codex import CodexError, require_supported_platform
+                    err_cls = CodexError
+                else:
+                    from harvey.opencode_runtime import (
+                        OpenCodeError, require_supported_platform,
+                    )
+                    err_cls = OpenCodeError
                 require_supported_platform()
-            except CodexError as e:
+            except err_cls as e:
                 print(f"    ({e})")
                 continue
-        if provider in ("claude", "codex"):
+        if provider in ("claude", "codex", "opencode"):
             break
-        print("    (type claude or codex)")
+        print("    (type claude, codex or opencode)")
     if provider == "codex":
         from harvey.codex import SUGGESTED_MODEL
         print(f"    {SUGGESTED_MODEL} is the Codex model Harvey has verified as text-only")
         print("    (no code-execution tools). Press Enter to use it, or type another.")
+    if provider == "opencode":
+        from harvey.opencode_runtime import OPENCODE_SUGGESTED_MODEL
+        print(f"    {OPENCODE_SUGGESTED_MODEL} is the OpenCode model Harvey has "
+              "verified as text-only")
+        print("    (no tools). Press Enter to use it, or type another — a variant "
+              "is written into")
+        print("    the ref itself, as provider/model#variant (see 'opencode models').")
     while True:
         if provider == "codex":
             model = _ask("Model", default=SUGGESTED_MODEL, required=False)
+        elif provider == "opencode":
+            model = _ask("Model", default=OPENCODE_SUGGESTED_MODEL, required=False)
         else:
             model = _ask("Model (leave blank for the default)", required=False)
         try:
             return BrainConfig(provider=provider, model=model)
         except ValidationError:
-            print("    (that doesn't look like a model name — try again or leave blank)")
+            print("    (that doesn't look like a model name — try again)")
 
 
 async def _test_instantly(api_key: str) -> bool:
@@ -242,6 +268,8 @@ class SetupWizard:
         self.brain_config = _ask_brain_config()
         if self.brain_config.provider == "codex":
             await self._check_codex()
+        elif self.brain_config.provider == "opencode":
+            await self._check_opencode()
         else:
             await self._check_claude()
 
@@ -319,6 +347,60 @@ class SetupWizard:
             print("✗ Failed")
             _print_harvey("Codex is installed but the test call failed. The log")
             _print_harvey("above says why (login, plan limits, or isolation).")
+            if not _ask_yes_no("Continue anyway?", default=False):
+                raise SystemExit(1)
+        self._check_python_packages()
+
+    async def _check_opencode(self):
+        """Verify the OpenCode CLI, its version and flags, and the login the
+        configured model's provider needs — then one real call through the
+        same isolated runtime Harvey uses for every prompt."""
+        from harvey.opencode_runtime import (
+            OPENCODE_INSTALL_HINT, OPENCODE_SUGGESTED_MODEL, OpenCodeError,
+            check_cli, check_native_login, parse_model_ref,
+        )
+
+        print("\n  Checking OpenCode CLI...", end=" ")
+        if _check_opencode_cli():
+            print("✓ Found")
+        else:
+            print("✗ Not found")
+            _print_harvey("I need the OpenCode CLI to think with your OpenCode plan:")
+            print(f"         {OPENCODE_INSTALL_HINT}")
+            print("\n         Then run 'opencode auth login', sign in with the")
+            print("         provider your model needs, and re-run this setup.")
+            raise SystemExit(1)
+
+        print("  Checking OpenCode CLI version and flags...", end=" ")
+        try:
+            print(f"✓ {check_cli()}")
+        except OpenCodeError as e:
+            print("✗ Not supported")
+            _print_harvey(str(e))
+            raise SystemExit(1)
+
+        print("  Checking the model's OpenCode login...", end=" ")
+        try:
+            check_native_login(parse_model_ref(
+                self.brain_config.model or OPENCODE_SUGGESTED_MODEL))
+        except OpenCodeError as e:
+            print("✗ Not ready")
+            _print_harvey(str(e))
+            raise SystemExit(1)
+
+        # A real call through the same isolated, tool-less runtime every
+        # prompt uses (the runtime borrows the login; nothing of Harvey's is
+        # written to the operator's OpenCode data).
+        print("  Testing OpenCode (isolated, no tools)...", end=" ", flush=True)
+        state = StateManager()
+        await state.init_db()
+        brain = Brain(state, self.brain_config)
+        if await _test_claude(brain):
+            print("✓ Working")
+        else:
+            print("✗ Failed")
+            _print_harvey("OpenCode is installed but the test call failed. The")
+            _print_harvey("log above says why (login, plan limits, or isolation).")
             if not _ask_yes_no("Continue anyway?", default=False):
                 raise SystemExit(1)
         self._check_python_packages()
