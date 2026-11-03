@@ -206,9 +206,8 @@ svg.icon { width: 16px; height: 16px; flex: none; stroke: currentColor; fill: no
 .brand h1 { font-size: 17px; font-weight: 650; letter-spacing: -0.025em; line-height: 1.15; }
 /* The swallow and the lowercase wordmark, as on sellbird.ai. */
 .brand-lockup { display: inline-flex; align-items: center; gap: 7px; font-size: 21px; font-weight: 550; letter-spacing: -0.04em; line-height: 1; }
-.brand-lockup svg { width: 28px; height: 18px; flex: none; color: #244B62; }
-:root[data-theme="dark"] .brand-lockup svg { color: #8FB8CF; }
-@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) .brand-lockup svg { color: #8FB8CF; } }
+.brand-lockup a { display: inline-flex; align-items: center; gap: 7px; color: var(--text); text-decoration: none; border-radius: var(--r-sm); }
+.brand-lockup svg { width: 28px; height: 18px; flex: none; }
 .brand .tagline { font-size: var(--fs-caption); color: var(--text-3); line-height: 1.2; }
 
 nav { display: flex; flex-direction: column; gap: var(--sp-4); }
@@ -250,6 +249,17 @@ nav button.active .icon { color: var(--accent); }
 .status-dot.running { background: var(--good); box-shadow: 0 0 0 3px var(--good-bg); }
 .status-dot.offline { background: var(--bad); box-shadow: 0 0 0 3px var(--bad-bg); }
 .foot-actions { display: flex; gap: 6px; }
+
+/* Appearance: one icon per choice, the current one pressed. */
+.theme-switch { display: inline-flex; gap: 2px; padding: 2px; border-radius: var(--r-sm); background: var(--surface); box-shadow: var(--btn-shadow); }
+.theme-switch button {
+  width: 26px; height: 24px; display: grid; place-items: center; border: none; border-radius: calc(var(--r-sm) - 2px);
+  background: transparent; color: var(--text-3); cursor: pointer;
+  transition-property: background-color, color; transition-duration: 150ms; transition-timing-function: ease-out;
+}
+.theme-switch .icon { width: 14px; height: 14px; }
+.theme-switch button[aria-pressed="true"] { background: var(--surface-2); color: var(--text); }
+@media (hover: hover) { .theme-switch button:hover { color: var(--text); } }
 
 main.content { min-width: 0; padding: var(--sp-6) var(--sp-6) 96px; }
 .content-inner { max-width: var(--content-w); margin: 0 auto; }

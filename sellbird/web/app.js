@@ -16,15 +16,13 @@ function applyTheme(mode) {
   const root = document.documentElement;
   if (mode === 'auto') root.removeAttribute('data-theme');
   else root.setAttribute('data-theme', mode);
-  const btn = document.getElementById('theme-btn');
-  if (btn) btn.textContent = mode;
+  document.querySelectorAll('[data-theme-opt]').forEach((b) =>
+    b.setAttribute('aria-pressed', String(b.dataset.themeOpt === mode)));
 }
 
-function cycleTheme() {
-  const now = localStorage.getItem('sellbird-theme') || 'auto';
-  const next = THEMES[(THEMES.indexOf(now) + 1) % THEMES.length];
-  try { localStorage.setItem('sellbird-theme', next); } catch { /* private mode */ }
-  applyTheme(next);
+function setTheme(mode) {
+  try { localStorage.setItem('sellbird-theme', mode); } catch { /* private mode */ }
+  applyTheme(mode);
 }
 
 (function initTheme() {
