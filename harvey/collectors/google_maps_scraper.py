@@ -115,12 +115,12 @@ class GoogleMapsScraper(DiscoveryProvider):
     cost_note = "free (your computer and time)"
     free_tier = "no limit imposed by a vendor"
     signup_url = "https://github.com/gosom/google-maps-scraper/releases"
-    env_keys = ("GMAPS_SCRAPER_PATH",)
+    env_keys = ("gmaps_scraper_path",)
     caveat = ("Slower than an API, and it depends on Google's page layout. "
               "Google's terms do not permit scraping Maps.")
 
     async def fetch(self, client, env, query):
-        exe = env.get("GMAPS_SCRAPER_PATH", "")
+        exe = env.get("gmaps_scraper_path", "")
         if not os.path.isfile(exe):
             raise RuntimeError(
                 f"GMAPS_SCRAPER_PATH points to {exe!r}, which is not a file. "

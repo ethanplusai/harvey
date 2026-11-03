@@ -46,8 +46,8 @@ def test_registered_as_a_listings_provider():
 
 def test_needs_the_binary_path_before_it_is_configured():
     provider = D.PROVIDERS["gmaps_scraper"]
-    assert provider.missing_keys({}) == ["GMAPS_SCRAPER_PATH"]
-    assert provider.missing_keys({"GMAPS_SCRAPER_PATH": "C:/tools/scraper.exe"}) == []
+    assert provider.missing_keys({}) == ["gmaps_scraper_path"]
+    assert provider.missing_keys({"gmaps_scraper_path": "C:/tools/scraper.exe"}) == []
 
 
 def test_parse_maps_fields_and_marks_website_presence():
@@ -113,7 +113,7 @@ def test_args_without_coordinate_omit_geo():
 @pytest.mark.asyncio
 async def test_fetch_fails_loudly_when_binary_is_missing(tmp_path):
     provider = GoogleMapsScraper()
-    env = {"GMAPS_SCRAPER_PATH": str(tmp_path / "missing.exe")}
+    env = {"gmaps_scraper_path": str(tmp_path / "missing.exe")}
     async with httpx.AsyncClient() as client:
         with pytest.raises(RuntimeError, match="not a file"):
             await provider.fetch(client, env, _query())

@@ -734,6 +734,7 @@ class EnvConfig(BaseModel):
     dataforseo_login: str = ""
     dataforseo_password: str = ""
     dataforseo_sandbox: str = ""   # any truthy value routes to the free sandbox
+    gmaps_scraper_path: str = ""   # full path to the local Google Maps scraper binary
     linkedin_email: str = ""
     linkedin_password: str = ""
     hunter_api_key: str = ""
@@ -852,6 +853,7 @@ def load_env() -> EnvConfig:
         dataforseo_login=os.getenv("DATAFORSEO_LOGIN", "").strip(),
         dataforseo_password=os.getenv("DATAFORSEO_PASSWORD", "").strip(),
         dataforseo_sandbox=os.getenv("DATAFORSEO_SANDBOX", "").strip(),
+        gmaps_scraper_path=os.getenv("GMAPS_SCRAPER_PATH", "").strip(),
         linkedin_email=os.getenv("LINKEDIN_EMAIL", "").strip(),
         linkedin_password=os.getenv("LINKEDIN_PASSWORD", "").strip(),
         hunter_api_key=os.getenv("HUNTER_API_KEY", "").strip(),
