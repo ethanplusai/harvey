@@ -10,6 +10,9 @@
 // query string, never another host.
 
 const AUTH_KEY = 'sellbird-dashboard-token';
+// The key under Harvey, Sellbird's old name: a tab open across the update
+// keeps its token instead of being signed out.
+const LEGACY_AUTH_KEY = 'harvey-dashboard-token';
 const AUTH_TOKEN_RE = /^[A-Za-z0-9_-]{43,128}$/;
 
 (function takeFragmentToken() {
@@ -21,7 +24,14 @@ const AUTH_TOKEN_RE = /^[A-Za-z0-9_-]{43,128}$/;
 })();
 
 function authToken() {
-  try { return sessionStorage.getItem(AUTH_KEY) || ''; } catch { return ''; }
+  try {
+    let token = sessionStorage.getItem(AUTH_KEY);
+    if (!token) {
+      token = sessionStorage.getItem(LEGACY_AUTH_KEY);
+      if (token) { sessionStorage.setItem(AUTH_KEY, token); sessionStorage.removeItem(LEGACY_AUTH_KEY); }
+    }
+    return token || '';
+  } catch { return ''; }
 }
 
 function setAuthToken(token) {

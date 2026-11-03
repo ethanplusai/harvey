@@ -29,7 +29,13 @@ function cycleTheme() {
 
 (function initTheme() {
   let saved = 'auto';
-  try { saved = localStorage.getItem('sellbird-theme') || 'auto'; } catch { /* ignore */ }
+  try {
+    // Carry the choice over from Harvey, Sellbird's old name.
+    const legacy = localStorage.getItem('harvey-theme');
+    if (legacy && !localStorage.getItem('sellbird-theme')) localStorage.setItem('sellbird-theme', legacy);
+    if (legacy) localStorage.removeItem('harvey-theme');
+    saved = localStorage.getItem('sellbird-theme') || 'auto';
+  } catch { /* ignore */ }
   applyTheme(THEMES.includes(saved) ? saved : 'auto');
 })();
 

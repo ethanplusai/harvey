@@ -62,3 +62,8 @@ sellbird.local.yaml
 # Backups and in-progress writes from `sellbird train` hold the same config.
 sellbird.local.yaml.*
 sellbird.yaml.*
+# The same files under Harvey, Sellbird's old name, in clones from before the
+# rename (Sellbird moves them over on first run; see sellbird/legacy.py).
+harvey.local.yaml
+harvey.local.yaml.*
+harvey.yaml.*

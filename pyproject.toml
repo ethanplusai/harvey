@@ -4,12 +4,12 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "sellbird"
-version = "0.3.0"
-description = "Autonomous AI sales agent. Always Be Closing."
+version = "0.4.0"
+description = "Sellbird: the open-source outreach platform. Finds companies and the people who decide, writes personal cold email, sends it and handles replies."
 readme = "README.md"
 requires-python = ">=3.11"
 license = "MIT"
-keywords = ["sales", "ai-agent", "cold-email", "prospecting", "autonomous-agent", "claude"]
+keywords = ["sales", "outreach", "ai-agent", "cold-email", "prospecting", "autonomous-agent", "claude"]
 classifiers = [
     "Development Status :: 4 - Beta",
     "Intended Audience :: Developers",
@@ -47,9 +47,11 @@ Changelog = "https://github.com/ethanplusai/sellbird/blob/main/CHANGELOG.md"
 
 [project.scripts]
 sellbird = "sellbird.cli:main"
+# The old name, kept for a while so existing installs keep working (harvey/).
+harvey = "harvey.cli:main"
 
 [tool.setuptools.packages.find]
-include = ["sellbird*"]
+include = ["sellbird*", "harvey*"]
 
 # The dashboard's HTML/CSS/JS are real files served from disk, and its fonts
 # are vendored so a local tool renders correctly with the network off.

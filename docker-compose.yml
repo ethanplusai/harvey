@@ -3,8 +3,8 @@ services:
     build:
       context: .
       args:
-        SELLBIRD_UID: ${SELLBIRD_UID:-1000}
-        SELLBIRD_GID: ${SELLBIRD_GID:-1000}
+        SELLBIRD_UID: ${SELLBIRD_UID:-${HARVEY_UID:-1000}}
+        SELLBIRD_GID: ${SELLBIRD_GID:-${HARVEY_GID:-1000}}
     # Supported on native Linux. Keep the dashboard's loopback-only bind.
     network_mode: host
     command: ["dashboard"]

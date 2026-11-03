@@ -16,4 +16,8 @@ if sys.version_info < (3, 11):  # pragma: no cover - version guard
         f"    source .venv/bin/activate && pip install -e ."
     )
 
-"""Sellbird — Autonomous Sales Agent. Always Be Closing."""
+# Sellbird used to be called Harvey. Honour HARVEY_* settings before any
+# module reads its SELLBIRD_* counterpart at import time (see sellbird/legacy.py).
+from sellbird.legacy import adopt_legacy_env  # noqa: E402
+
+LEGACY_ENV = adopt_legacy_env()

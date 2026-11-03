@@ -970,6 +970,19 @@ def cmd_sending(args):
     asyncio.run(_run())
 
 
+def _carry_over_from_harvey():
+    """Move a Harvey-era install's files to their new names and say so once."""
+    import sellbird
+    from sellbird.legacy import migrate_files
+    notes = migrate_files()
+    if sellbird.LEGACY_ENV:
+        notes.append("Using your HARVEY_* settings as "
+                     + ", ".join(sellbird.LEGACY_ENV)
+                     + ". Rename them when convenient.")
+    for note in notes:
+        print(f"Sellbird (formerly Harvey): {note}", file=sys.stderr)
+
+
 def main():
     from sellbird.textio import utf8_stdio
     utf8_stdio()
@@ -1149,6 +1162,7 @@ def main():
     sub.set_defaults(func=cmd_usage)
 
     args = parser.parse_args()
+    _carry_over_from_harvey()
     args._project_root = project_root
 
     if args.command is None:
