@@ -1,6 +1,6 @@
 # Harvey
 
-> **About this version.** This is a copy of [Harvey](https://github.com/ethanplusai/harvey) by Ethan Rogers (MIT licence), with a few additions: an **Email Review** window for sending emails by hand one at a time (Dashboard → Outbox → *Open Email Review window*), mobile and WhatsApp numbers read from each company's website (office landlines are left out), a LinkedIn button on every lead, and a setting to email named people only (`icp.company_inboxes: false`). Everything else works as described below.
+> **About this version.** This is a copy of [Harvey](https://github.com/ethanplusai/harvey) by Ethan Rogers (MIT licence), with a few additions: an **Email Review** window for sending emails by hand one at a time (Dashboard → Outbox → *Open Email Review window*), mobile and WhatsApp numbers read from each company's website (office landlines are left out), a LinkedIn button on every lead, and a setting to email named people only (`icp.company_inboxes: false`). Everything else works as described below. **New here? Follow the [step-by-step guide](GUIDE.md).**
 
 **An autonomous sales agent that runs on your Claude Code or Codex subscription.**
 
