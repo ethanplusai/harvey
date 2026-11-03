@@ -20,6 +20,7 @@ Each person comes back as a dict:
 import html as html_lib
 import json
 import re
+import unicodedata
 from urllib.parse import unquote, urljoin, urlparse
 
 from harvey.collectors.profile import (
@@ -52,16 +53,60 @@ software sports medicine fitness salon spa dental medical clinic insurance finan
 properties inc llc pllc ltd corp co
 coach pastor father mother judge mayor senator governor captain sergeant sheriff officer
 uncle aunt grandpa grandma mom dad memory memoriam late former
+""".split()) | frozenset("""
+le la les un une des du de au aux et ou en pour par sur avec dans chez notre nos votre vos
+nous vous mon ma mes son sa ses leur leurs qui que quoi
+cabinet cabinets avocat avocats avocate avocates associé associés associée associées associe
+associes maître maitre maîtres notaire notaires docteur docteurs médecin médecins dentiste
+dentistes clinique cliniques équipe equipe accueil bienvenue contact contactez découvrir
+découvrez rendez-vous prendre honoraires domaines domaine compétences competences expertise
+expertises intervention interventions mentions légales legales politique confidentialité
+actualités actualites publications presse droit droits conseil conseils contentieux affaires
+social sociale famille pénal penal immobilier travail fiscal société societe sociétés
+barreau ordre agence réseau groupe tribunal justice juridique juridiques client clients
+fondateur fondatrice gérant gérante président présidente dirigeant dirigeante collaborateur
+collaboratrice juriste assistante secrétaire stagiaire madame monsieur mme mlle
+selarl selas sas sasu sarl scp aarpi eurl sel sa
 """.split())
 
 # Particles that sit lower-case inside a surname ("Van de Wal", "de la Cruz").
-_PARTICLES = frozenset("van von de der den del della di da la le du dos das st".split())
-_HONORIFIC = re.compile(r"^(?:dr|mr|mrs|ms|miss|prof|rev|hon)\.?\s+", re.I)
+_PARTICLES = frozenset("van von de der den del della di da la le du dos das des st".split())
+# French honorifics ("Maître", "Me", "Docteur", "Mme") count too: lawyers and
+# doctors are named that way on their own sites.
+_HONORIFIC = re.compile(
+    r"^(?:(?i:dr|mr|mrs|ms|miss|prof|rev|hon|ma[iî]tre|docteur|mme|mlle|pr)\.?|Me\.?|M\.)\s+")
 # Credentials and suffixes that follow a name: "John Smith, DDS", "Calvin Marsh, Esq."
 _CREDENTIAL = (r"(?:dds|dmd|md|do|dvm|od|phd|jd|esq|cpa|pe|ra|rn|np|pa|mba|ms|ma|"
                r"facs|fagd|ccc-slp|jr|sr|ii|iii|iv)")
 _CREDENTIAL_TAIL = re.compile(rf"(?:\s*,?\s+{_CREDENTIAL}\.?)+\s*$", re.I)
-_NAME_TOKEN = re.compile(r"^[A-Z][a-z]+(?:[-'’][A-Z]?[a-z]+)*\.?$|^[A-Z]\.$|^[A-Z]$")
+# Upper and lower case letters, accented ones included ("Jérôme Ferrand").
+_UP = "A-ZÀ-ÖØ-Þ"
+_LO = "a-zß-öø-ÿ"
+_NAME_TOKEN = re.compile(rf"^[{_UP}][{_LO}]+(?:[-'’][{_UP}]?[{_LO}]+)*\.?$|^[{_UP}]\.$|^[{_UP}]$")
+_FIRST_TOKEN = re.compile(rf"^[{_UP}][{_LO}]+(?:[-'’][{_UP}]?[{_LO}]+)*$")
+_LAST_TOKEN = re.compile(rf"^[{_UP}][{_LO}{_UP}]*(?:[-'’][{_UP}]?[{_LO}{_UP}]+)*$")
+_VOWELS = re.compile(r"[AEIOUYÀ-ÆÈ-ÏÒ-ÖØ-Ü]")
+
+
+def fold(text: str) -> str:
+    """Lower case without accents: "AVOCAT ASSOCIE" and "avocat associé" match."""
+    decomposed = unicodedata.normalize("NFKD", text or "")
+    return "".join(c for c in decomposed if not unicodedata.combining(c)).lower()
+
+
+def _shouted_surname(token: str, honorific: bool, first: str) -> bool:
+    """A surname in capitals ("Lise VERNIER") is the French convention, not
+    an acronym ("Ray HVAC"), when an honorific or an accented first name says
+    so, or when it reads like a word: four letters or more, two vowels."""
+    if not token.isupper() or len(token) < 2:
+        return False
+    if honorific or not first.isascii():
+        return True
+    return len(token) >= 4 and len(_VOWELS.findall(token)) >= 2
+
+
+def _title_case(token: str) -> str:
+    return re.sub(rf"[{_UP}{_LO}]+", lambda m: m.group(0).capitalize(), token)
 
 
 def _word_ok(token: str) -> bool:
@@ -82,6 +127,7 @@ def split_person_name(text: str) -> tuple[str, str] | None:
     text = html_lib.unescape(text or "").replace("\xa0", " ")
     text = re.sub(r"\s+", " ", text).strip(" ,.-|–—")
     text = re.sub(r"(?i)^(?:meet|introducing)\s+", "", text)
+    honorific = bool(_HONORIFIC.match(text))
     text = _HONORIFIC.sub("", text)
     text = _CREDENTIAL_TAIL.sub("", text).strip(" ,")
     tokens = text.split()
@@ -90,8 +136,11 @@ def split_person_name(text: str) -> tuple[str, str] | None:
     if any(ch.isdigit() for ch in text) or "@" in text:
         return None
     first = tokens[0]
-    if not re.match(r"^[A-Z][a-z]+(?:[-'’][A-Z]?[a-z]+)*$", first) or not _word_ok(first):
+    if not _FIRST_TOKEN.match(first) or not _word_ok(first):
         return None
+    # "Lise VERNIER", "Éric de LA FONTAINE": capitals become "Vernier".
+    tokens = [first] + [_title_case(t) if _shouted_surname(t, honorific, first) else t
+                        for t in tokens[1:]]
     rest = tokens[1:]
     # Surname: any particles that start it, then capitalised words.
     start = len(rest) - 1
@@ -103,7 +152,7 @@ def split_person_name(text: str) -> tuple[str, str] | None:
         if not (_NAME_TOKEN.match(t) and (len(t.strip(".")) == 1 or _word_ok(t))):
             return None
     last_word = surname[-1]
-    if not re.match(r"^[A-Z][a-zA-Z]*(?:[-'’][A-Z]?[a-zA-Z]+)*$", last_word) or len(last_word) < 2:
+    if not _LAST_TOKEN.match(last_word) or len(last_word) < 2:
         return None
     if last_word.isupper() and len(last_word) > 2:      # "RAY T", "HVAC"
         return None
@@ -126,15 +175,28 @@ def is_person_name(text: str) -> bool:
 _OWNER_FAMILY = ("owner", "co-owner", "founder", "co-founder", "cofounder", "president",
                  "ceo", "chief executive", "chief executive officer", "principal",
                  "proprietor", "managing partner", "founding partner", "managing member",
-                 "owner/operator", "owner-operator")
+                 "owner/operator", "owner-operator",
+                 # French, compared without accents (see fold)
+                 "fondateur", "fondatrice", "cofondateur", "cofondatrice", "co-fondateur",
+                 "co-fondatrice", "gerant", "gerante", "president", "presidente", "dirigeant",
+                 "dirigeante", "associe", "associee", "associe fondateur", "associee fondatrice",
+                 "associe gerant", "associee gerante", "avocat associe", "avocate associee",
+                 "avocat fondateur", "avocate fondatrice", "notaire associe", "notaire associee",
+                 "titulaire", "proprietaire", "directeur general", "directrice generale")
 _OWNER_TITLE = re.compile(
     r"\b(?:co-?owner|owner|co-?founder|founder|proprietor|ceo|chief executive(?: officer)?|"
     r"president|managing (?:partner|member)|founding (?:partner|attorney|dentist|doctor)|"
-    r"principal(?! (?:designer|engineer|consultant|architect|associate|scientist|developer)))\b", re.I)
+    r"principal(?! (?:designer|engineer|consultant|architect|associate|scientist|developer))|"
+    # French: "Avocat associé", "Associée fondatrice", "Gérante", "Président".
+    r"co-?fondat(?:eur|rice)s?|fondat(?:eur|rice)s?|g[ée]rante?s?|pr[ée]sidente?s?|"
+    r"dirigeante?s?|associ[ée]e?s?|propri[ée]taire|titulaire|"
+    r"direct(?:eur|rice) g[ée]n[ée]rale?)\b", re.I)
 # Words that make an owner title about someone else ("Assistant to the CEO")
-# or a rank below it ("Vice President", "VP").
+# or a rank below it ("Vice President", "VP", "Avocat collaborateur").
 _SUBORDINATE = re.compile(r"\b(?:vice[- ]president|vp|svp|evp|assistant(?: to)?|"
-                          r"executive assistant|to the|deputy|associate|aide)\b", re.I)
+                          r"executive assistant|to the|deputy|associate|aide|"
+                          r"vice[- ]pr[ée]sidente?|collaborat(?:eur|rice)s?|assistante?s?|"
+                          r"stagiaire|juriste|secr[ée]taire|adjointe?)\b", re.I)
 _PROFESSIONAL = re.compile(
     r"\b(?:dds|dmd|md|dvm|od|esq|cpa|attorney|lawyer|dentist|orthodontist|"
     r"periodontist|endodontist|doctor|dr|physician|veterinarian|optometrist|"
@@ -146,7 +208,8 @@ _PARTNER_ONLY = re.compile(r"^(?:senior |founding |managing |name |equity )?part
 # "Retired President", "Founder (1952-2001)", "the late", "Emeritus".
 _FORMER = re.compile(
     r"(?i)\b(?:former|formerly|past|retired|late|emerit(?:us|a)|deceased|in memory|memoriam|"
-    r"ex-|one-time|onetime)\b|\b(?:1[89]|20)\d{2}\s*[-–—]\s*(?:1[89]|20)\d{2}\b")
+    r"ex-|one-time|onetime|ancien(?:ne)?s?|honoraires?|retrait[ée]e?s?|d[ée]c[ée]d[ée]e?s?)\b"
+    r"|\b(?:1[89]|20)\d{2}\s*[-–—]\s*(?:1[89]|20)\d{2}\b")
 
 
 def is_owner_title(title: str) -> bool:
@@ -180,14 +243,14 @@ def title_matches(title: str, targets, owner: bool = False) -> bool:
     targets = [t.strip().lower() for t in (targets or []) if t and t.strip()]
     if not targets or _FORMER.search(title):
         return False
-    owner_targets = [t for t in targets if t in _OWNER_FAMILY or t == "partner"]
+    owner_targets = [t for t in targets if fold(t) in _OWNER_FAMILY or t == "partner"]
     if owner_targets and (owner or is_owner_title(title)):
         return True
     if not title:
         return False
     for t in targets:
-        cleaned = _clean_for_target(title, t)
-        if re.search(rf"(?<![\w-]){re.escape(t)}(?![\w])", cleaned):
+        cleaned = fold(_clean_for_target(title, t))
+        if re.search(rf"(?<![\w-]){re.escape(fold(t))}(?![\w])", cleaned):
             return True
     return False
 
@@ -255,7 +318,7 @@ def surname_on_the_door(last_name: str, domain: str, site_name: str = "") -> boo
     """The person's surname is in the business name: "Ashby & Kerr",
     hollisfamilydental.test. Owners name their practices after themselves."""
     blob = _business_blob(domain, site_name)
-    for part in re.findall(r"[A-Za-z]+", last_name or ""):
+    for part in re.findall(r"[a-z]+", fold(last_name)):
         p = part.lower()
         if len(p) >= 4 and p not in _GENERIC_BUSINESS_WORDS and p in blob:
             return True
@@ -376,7 +439,10 @@ _SEPARATED = re.compile(r"^(?P<name>[^,|–—\-]{4,45}?)\s*(?:,|\||–|—|\s-\
 _STRONG_ROLE = re.compile(
     r"\b(?:owner|co-?owner|founder|co-?founder|president|ceo|cfo|coo|cto|cmo|cro|chief|principal|"
     r"partner|proprietor|director|manager|attorney|lawyer|dds|dmd|md|esq|cpa|dentist|"
-    r"orthodontist|officer|head of|vp|vice president|superintendent|estimator|administrator)\b", re.I)
+    r"orthodontist|officer|head of|vp|vice president|superintendent|estimator|administrator|"
+    r"avocate?s?|associ[ée]e?s?|fondat(?:eur|rice)|g[ée]rante?|pr[ée]sidente?|dirigeante?|"
+    r"direct(?:eur|rice)|notaire|docteur|m[ée]decin|dentiste|chirurgien(?:ne)?|"
+    r"expert-comptable)\b", re.I)
 
 
 def _person(first, last, title, *, source, evidence, url="", owner=False, full_name=""):
@@ -532,6 +598,35 @@ _PROSE = (
     # "the office of Dr. Maren Hollis Pryor", "the practice of Dr. ..."
     (re.compile(rf"(?i:\b(?:the\s+)?(?:office|practice|clinic)\s+of)\s+Dr\.?\s+{_NAME_RE}"), "Owner"),
 )
+
+# French sites: accented names, surnames in capitals ("Maître Jean DUPONT").
+# The honorific stays inside the name group so split_person_name knows the
+# capitals are a surname, not an acronym.
+_FR_CAP = rf"[{_UP}][{_LO}]+(?:[-'’][{_UP}]?[{_LO}]+)*"
+_FR_SURNAME = rf"(?:{_FR_CAP}|[{_UP}]{{2,}}(?:[-'’][{_UP}]+)*)"
+_FR_HONORIFIC = r"(?:(?i:ma[iî]tre|docteur|dr)\.?|Me)"
+_FR_NAME = (rf"(?P<name>(?:{_FR_HONORIFIC}\s+)?{_FR_CAP}(?:\s+(?i:de|du|des|la|le|d'))*"
+            rf"\s+{_FR_SURNAME}(?:\s+{_FR_SURNAME})?)")
+_FR_OWNER_WORD = (r"(?P<title>(?i:(?:avocate?|notaire)\s+(?:associ[ée]e?|fondat(?:eur|rice))|"
+                  r"associ[ée]e?\s+(?:fondat(?:eur|rice)|g[ée]rante?)|co-?fondat(?:eur|rice)|"
+                  # "président" with its accent only: "Tom Reeve, President of the
+                  # Ridgeport Roofing Association" is English, and someone else's.
+                  r"fondat(?:eur|rice)|g[ée]rante?|présidente?(?!\s+(?:de|du|des|d')\b)|dirigeante?))")
+_PROSE_FR = (
+    # "fondé en 1998 par Maître Jean DUPONT", "Cabinet créé par Me Sophie Martin"
+    (re.compile(rf"(?i:\b(?:fond|cr[ée])[ée]e?s?\s+(?:en\s+\d{{4}}\s+)?par)\s+"
+                rf"(?:(?i:l'avocate?|son\s+fondat(?:eur|rice))\s+)?{_FR_NAME}"), "Fondateur"),
+    # "dirigé par Pierre Lambert", "géré depuis 2010 par Me Martin"
+    (re.compile(rf"(?i:\b(?:dirig|g[ée]r)[ée]e?\s+(?:depuis\s+\d{{4}}\s+)?par)\s+{_FR_NAME}"), "Dirigeant"),
+    # "Sophie Martin, avocate associée", "Jean DUPONT, fondateur du cabinet"
+    (re.compile(rf"{_FR_NAME}\s*,\s*{_FR_OWNER_WORD}\b"), None),
+)
+# "Maître Anaïs Morand défend vos intérêts": a lawyer of the firm. The owner
+# only when her surname is on the door (morand-avocat.test), as for a solo practice.
+# French honorifics only: an English "Dr. Linda Smith" at smith-dental keeps
+# the rule that a surname on the door never makes anyone the owner.
+_MAITRE = re.compile(rf"(?<!\w)(?P<name>(?:(?i:ma[iî]tre|docteur)|Me)\s+{_FR_CAP}(?:\s+(?i:de|du|des|la|le|d'))*"
+                     rf"\s+{_FR_SURNAME}(?:\s+{_FR_SURNAME})?)")
 _FIRST_PERSON = re.compile(r"(?i)\bI\s+(?:founded|started|opened|own|established|launched)\b")
 # "Renata founded Ashby & Kerr", "Joelle started the Penrose & Vance Law Firm":
 # a first name only, resolved against the full names the site lists.
@@ -543,13 +638,15 @@ _FIRST_NAME_FOUNDER = re.compile(
 _ROLE_ONLY = re.compile(r"(?i)(?:and\s+)?(?:ceo|cfo|coo|cto|cmo|president|owner|founder|co-?founder|"
                        r"principal|partner|chief\s+\w+(?:\s+officer)?|general manager)")
 # A person the site remembers rather than employs.
-_DEPARTED = r"(?:passed away|died|retired|was laid to rest|is missed|rest in peace)"
+_DEPARTED = (r"(?:passed away|died|retired|was laid to rest|is missed|rest in peace|"
+             r"d[ée]c[ée]d[ée]e?|disparue?|nous a quitt[ée]s?|parti(?:e)? (?:à|a) la retraite)")
 
 
 def _departed(person: dict, text: str) -> bool:
     first, last = re.escape(person["first_name"]), re.escape(person["last_name"].split()[-1])
     return bool(re.search(
-        rf"(?i)(?:\bthe late|in (?:loving )?memory of|remembering)\s+(?:dr\.?\s+)?{first}\b"
+        rf"(?i)(?:\bthe late|in (?:loving )?memory of|remembering|(?:en|à la) m[ée]moire de)"
+        rf"\s+(?:dr\.?\s+|ma[iî]tre\s+|me\s+)?{first}\b"
         rf"|\b{first}\b(?:\s+\w+\.?){{0,3}}?(?:\s+{last})?\s*,?[^.]{{0,40}}?\b{_DEPARTED}", text))
 
 
@@ -567,13 +664,19 @@ def people_from_prose(html: str, domain: str, site_name: str = "", url: str = ""
     html = drop_quoted(html)
     found, seen = [], set()
 
-    def add(raw_name, title, sentence):
+    def name_of(raw_name):
         split = split_person_name(raw_name)
-        if not split:
-            # A third capitalised word may be the start of the next phrase
-            # ("Roy Danner President"): retry on the first two words.
-            words = raw_name.split()
-            split = split_person_name(" ".join(words[:2])) if len(words) > 2 else None
+        # A last capitalised word may be the start of the next phrase ("Roy
+        # Danner President", "Maître Lise Vernier Avocat"): drop it and retry.
+        words = raw_name.split()
+        for k in range(len(words) - 1, 1, -1):
+            if split:
+                break
+            split = split_person_name(" ".join(words[:k]))
+        return split
+
+    def add(raw_name, title, sentence, owner=False):
+        split = name_of(raw_name)
         if not split:
             return
         key = (split[0].lower(), split[1].lower())
@@ -581,7 +684,7 @@ def people_from_prose(html: str, domain: str, site_name: str = "", url: str = ""
             return
         seen.add(key)
         found.append(_person(*split, title, source="prose", evidence=sentence, url=url, full_name=raw_name,
-                             owner=is_owner_title(title)))
+                             owner=owner or is_owner_title(title)))
 
     for sentence in _sentences(html):
         for regex, fixed in _PROSE:
@@ -604,6 +707,15 @@ def people_from_prose(html: str, domain: str, site_name: str = "", url: str = ""
                         and not names_business(m_org.group(1), domain, site_name):
                     continue
                 add(groups["name"], title, sentence)
+        for regex, fixed in _PROSE_FR:
+            for m in regex.finditer(sentence):
+                add(m.group("name"), fixed or _title_word(m.groupdict().get("title") or ""), sentence)
+        for m in _MAITRE.finditer(sentence):
+            split = name_of(m.group("name"))
+            if split:
+                title = "Médecin" if fold(m.group("name")).startswith(("doc", "dr")) else "Avocat"
+                add(m.group("name"), title, sentence,
+                    owner=surname_on_the_door(split[1], domain, site_name))
 
     # "I founded the Fairbanks Law Firm" on a bio page: the person is the one
     # the page is about, named in its <title> or first heading.
@@ -707,9 +819,13 @@ def find_people(pages: list[tuple[str, str]], domain: str, site_name: str = "") 
 
 _LINK_WEIGHTS = (
     (3, r"team|meet|leadership|staff|people|doctors?|dentists?|attorneys?|"
-        r"lawyers?|physicians?|providers?|owners?|founders?|principals?|partners|who-?we-?are|bios?"),
-    (2, r"about|story|history|company|firm|practice|family"),
-    (1, r"contact"),
+        r"lawyers?|physicians?|providers?|owners?|founders?|principals?|partners|who-?we-?are|bios?|"
+        # French menus: "Notre équipe", "Les avocats", "Qui sommes-nous"
+        r"[ée]quipes?|avocats|associ[ée]s|notaires|m[ée]decins|praticiens|fondat(?:eur|rice)s?|"
+        r"qui[- ]?sommes[- ]?nous|portraits?"),
+    (2, r"about|story|history|company|firm|practice|family|"
+        r"cabinet|pr[ée]sentation|[àa][- ]propos|histoire|agence"),
+    (1, r"contact|nous[- ]contacter|contactez[- ]nous"),
 )
 # A keyword counts in a whole path segment ("/our-team/", "/attorneys/",
 # "/meet-the-dentists.html") or a short menu label ("Meet the Team") — not
@@ -757,7 +873,8 @@ def menu_links(html: str, page_url: str, limit: int = 5) -> list[str]:
         label = text if len(text.split()) <= 4 else ""
         score = 0
         for weight, pattern in _LINK_WEIGHTS:
-            whole = rf"^(?:our-|the-|meet-(?:the-|our-)?|about-)?(?:{pattern})(?:-(?:us|team|page|bios?|staff))?$"
+            whole = (rf"^(?:our-|the-|meet-(?:the-|our-)?|about-|notre-|nos-|le-|la-|les-|l-)?"
+                     rf"(?:{pattern})(?:-(?:us|team|page|bios?|staff))?$")
             if any(re.search(whole, seg) for seg in segments) \
                     or (segments and re.match(r"^meet-", segments[-1]) and weight == 3) \
                     or re.search(rf"(?:^|[^a-z])(?:{pattern})(?:$|[^a-z])", label):

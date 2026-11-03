@@ -9,6 +9,19 @@ minor versions can still change behaviour.
 
 ### Added
 
+- **French sites: decision makers found.** The people finder reads French
+  small-business sites: honorifics (Maître, Me, Docteur, Mme), accented names,
+  surnames in capitals ("Lise VERNIER" becomes Vernier, while an acronym such
+  as "HVAC" still isn't a surname), French titles compared with or without
+  accents (avocat associé, associée fondatrice, gérante, président, dirigeant,
+  notaire associé, titulaire) with collaborateur, juriste, assistante,
+  stagiaire, adjoint, honoraire and ancien kept out of the owner family,
+  French founder sentences ("fondé en 1998 par…", "dirigé par…"), departures
+  ("décédé", "parti à la retraite") and French menus (Notre équipe, Le
+  cabinet, Qui sommes-nous, Nous contacter). A lawyer named "Maître X" is the
+  owner only when X is on the door (the domain), as at a solo practice.
+  English sites behave as before.
+
 - **Company fit and the company register.** The Companies tab now sorts by a
   0-100 fit score worked out from what Harvey already holds: the ICP sector
   match, a contact with a target title, the best email found, and an open
