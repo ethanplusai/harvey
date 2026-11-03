@@ -853,16 +853,16 @@ What prospects do instead of buying a solution like ours:
         company = product_info.get("company_name", "Your Company")
         product = product_info.get("product_name", "Your Product")
         tone = product_info.get("tone", "professional, consultative, confident")
-        # "www.acme.com" should yield sellbird@acme.com, not sellbird@www.acme.com
+        # "www.acme.com" should yield alex@acme.com, not alex@www.acme.com
         email_domain = domain.removeprefix("www.")
 
         return {
             "persona": {
-                "name": "Sellbird",
+                "name": "Alex",
                 "company": company,
                 "role": "Business Development",
-                "email": f"sellbird@{email_domain}",
-                "linkedin": f"linkedin.com/in/sellbird-{email_domain.replace('.', '-')}",
+                "email": f"alex@{email_domain}",
+                "linkedin": f"linkedin.com/in/alex-{email_domain.replace('.', '-')}",
                 "tone": tone,
             },
             "product": {

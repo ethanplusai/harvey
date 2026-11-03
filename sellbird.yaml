@@ -1,9 +1,9 @@
 persona:
-  name: "Sellbird"
+  name: "Alex"
   company: "Your Company"
   role: "Business Development"
-  email: "sellbird@yourcompany.com"
-  linkedin: "linkedin.com/in/sellbird-yourcompany"
+  email: "alex@yourcompany.com"
+  linkedin: "linkedin.com/in/alex-yourcompany"
   tone: "professional, consultative, confident"
 
 product:

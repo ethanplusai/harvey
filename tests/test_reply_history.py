@@ -140,3 +140,12 @@ async def test_the_prompt_counts_only_sellbirds_own_agreements(state):
     await handler._generate_response("question", convo.thread[-1].content, prospect, convo)
     assert "from Sellbird" in brain.prompts[0]
     assert "claims Sellbird" in brain.prompts[0]
+
+
+def test_messages_saved_under_harvey_are_still_ours():
+    # Databases from before the rename store our messages with sender "harvey".
+    thread = [Message(sender="harvey", content="Our intro"),
+              Message(sender="prospect", content="Tell me more")]
+    text = conversation_history(thread, "Priya")
+    assert "[Message 1 of 2, from Sellbird]" in text
+    assert "[Message 2 of 2, from Priya]" in text

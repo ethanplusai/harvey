@@ -12,7 +12,7 @@ def _utcnow() -> datetime:
 
 
 class Message(BaseModel):
-    sender: str  # "sellbird" or "prospect"
+    sender: str  # "prospect" is them; anything else ("sellbird", or "harvey" from before the rename) is us
     content: str
     timestamp: datetime = Field(default_factory=_utcnow)
 

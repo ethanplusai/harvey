@@ -520,7 +520,7 @@ class SetupWizard:
 
         _print_sellbird("What persona should I use for outreach?\n")
 
-        persona_name = _ask("My name (what prospects see)", default="Sellbird")
+        persona_name = _ask("My name (what prospects see)", default="Alex")
         persona_email = _ask("My email address")
         persona_role = _ask("My title/role", default="Business Development")
 

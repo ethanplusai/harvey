@@ -487,7 +487,9 @@ def conversation_history(thread, prospect_name: str) -> str:
         content = (m.content or "").strip()
         if len(content) > cap:
             content = content[:cap].rstrip() + " [...cut]"
-        who = "Sellbird" if m.sender == "sellbird" else prospect_name
+        # Only "prospect" is them: messages saved under Harvey, the old name,
+        # carry sender "harvey" and are still ours.
+        who = prospect_name if m.sender == "prospect" else "Sellbird"
         quoted = "\n".join("> " + line for line in (content.splitlines() or [""]))
         return f"[Message {i + 1} of {total}, from {who}]\n{quoted}"
 
@@ -500,8 +502,8 @@ def conversation_history(thread, prospect_name: str) -> str:
     older = newest_first[HISTORY_ALWAYS_RECENT:]
     kept = set(recent)
     used = sum(len(blocks[i]) + 1 for i in recent)
-    for i in ([i for i in older if thread[i].sender != "sellbird"]
-              + [i for i in older if thread[i].sender == "sellbird"]):
+    for i in ([i for i in older if thread[i].sender == "prospect"]
+              + [i for i in older if thread[i].sender != "prospect"]):
         cost = len(blocks[i]) + 1
         if used + cost <= HISTORY_BUDGET_CHARS:
             kept.add(i)

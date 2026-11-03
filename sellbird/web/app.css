@@ -204,6 +204,11 @@ svg.icon { width: 16px; height: 16px; flex: none; stroke: currentColor; fill: no
 }
 .brand { display: flex; flex-direction: column; gap: 2px; padding: 4px 8px; }
 .brand h1 { font-size: 17px; font-weight: 650; letter-spacing: -0.025em; line-height: 1.15; }
+/* The swallow and the lowercase wordmark, as on sellbird.ai. */
+.brand-lockup { display: inline-flex; align-items: center; gap: 7px; font-size: 21px; font-weight: 550; letter-spacing: -0.04em; line-height: 1; }
+.brand-lockup svg { width: 28px; height: 18px; flex: none; color: #244B62; }
+:root[data-theme="dark"] .brand-lockup svg { color: #8FB8CF; }
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) .brand-lockup svg { color: #8FB8CF; } }
 .brand .tagline { font-size: var(--fs-caption); color: var(--text-3); line-height: 1.2; }
 
 nav { display: flex; flex-direction: column; gap: var(--sp-4); }

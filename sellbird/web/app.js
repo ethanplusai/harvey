@@ -2568,7 +2568,7 @@ function convoCard(c) {
         '<span class="te-when">' + relTime(it.email.sent_at) + '</span></div>' +
         '<div class="te-body">' + escHtml(it.email.body) + '</div></div>';
     }
-    const m = it.msg, sent = m.sender === 'sellbird';
+    const m = it.msg, sent = m.sender !== 'prospect';  // 'harvey' (the old name) is ours too
     return '<div class="thread-msg ' + (sent ? 'sent' : 'received') + '"><div class="sender">' +
       (sent ? 'Sellbird' : escHtml(first)) + ' &middot; ' + relTime(m.timestamp) + '</div>' +
       escHtml(m.content) + '</div>';
