@@ -30,7 +30,7 @@ by this user with no group/other permissions and a well-formed value;
 otherwise the API stays locked (fail closed) and the error says what to do.
 
 On Windows, POSIX permission bits mean nothing: the file gets whatever ACL
-the folder grants, and Sellbird doesn't pretend otherwise (see README).
+the folder grants, and Sellbird doesn't pretend otherwise (see docs/dashboard.md).
 
 This does not protect against code already running as the same OS user,
 which can read the token file (or the database) directly.

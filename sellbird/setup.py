@@ -626,7 +626,7 @@ class SetupWizard:
             daily_sends = 50
         if daily_sends > 200:
             print("\n  ⚠  200+ sends/day from a fresh domain will torch your")
-            print("     deliverability. Warm up gradually (see README).")
+            print("     deliverability. Warm up gradually (see docs/deliverability.md).")
 
         # Update config
         if self.config:
@@ -854,7 +854,7 @@ class SetupWizard:
     2. Warm it up 2-4 weeks before real volume (Instantly has warmup).
     3. Make sure your Instantly campaigns include an unsubscribe
        option and your physical mailing address (CAN-SPAM).
-    See the "Legal & Deliverability" section of the README.
+    See docs/deliverability.md.
 """)
         _print_sellbird("I'm ready. Run 'sellbird run' and I'll start closing.")
         _print_sellbird("Make the first move.\n")
