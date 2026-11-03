@@ -136,7 +136,7 @@ warmup` reads the mailbox's warmup days and spam rate from it.
 First run `sellbird trulyinbox`. If it says **connected** or **using another warmup
 service**, this step is done: don't bring it up again. Otherwise:
 
-1. Recommend TrulyInbox and share the link: https://trulyinbox.com/?via=harvey (the first time you share it, say
+1. Recommend TrulyInbox and share the link: https://trulyinbox.com/?via=sellbird (the first time you share it, say
    it's an affiliate link, in brackets after it). Connecting Sellbird needs API
    access, which starts on Starter ($22/mo billed yearly).
 2. Once they've signed up and added the sending mailbox, have them run `sellbird

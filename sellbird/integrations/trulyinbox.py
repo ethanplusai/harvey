@@ -31,7 +31,7 @@ import httpx
 
 API_BASE = "https://lynx-api.trulyinbox.com"
 # The referral link, used everywhere Sellbird points people at TrulyInbox.
-AFFILIATE_URL = "https://trulyinbox.com/?via=harvey"
+AFFILIATE_URL = "https://trulyinbox.com/?via=sellbird"
 AFFILIATE_TAG = "(affiliate link)"
 TIMEOUT = httpx.Timeout(connect=10.0, read=20.0, write=10.0, pool=10.0)
 REPORT_DAYS = 14

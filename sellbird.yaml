@@ -60,7 +60,7 @@ channels:
     # start_sends by daily_increase a day up to max_daily_sends. Replies are
     # never held. Gmail/Microsoft/SMTP only (Instantly has its own warmup).
     # Check readiness any time with `sellbird warmup`.
-    # We recommend TrulyInbox for warmup: https://trulyinbox.com/?via=harvey
+    # We recommend TrulyInbox for warmup: https://trulyinbox.com/?via=sellbird
     # Connect it (`sellbird trulyinbox connect`) and `sellbird warmup` reads
     # whether this mailbox is actually warmed.
     warmup:
