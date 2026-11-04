@@ -21,6 +21,9 @@ from harvey.integrations.mail_provider import NATIVE_PROVIDERS
 from harvey.models.campaign import Campaign, EmailStep
 from harvey.state import WRITABLE_EMAIL_STATUSES, StateManager
 from harvey.sending_mode import sync_sending_mode
+from harvey.industry_plays import (
+    load_plays_quietly, play_block, play_for_prospect, sells_services, services_block,
+)
 from harvey.startups import startup_facts
 from harvey.untrusted import UNTRUSTED_RULE, fence
 
@@ -122,6 +125,7 @@ class Writer:
 
         # Load foundational skills for this agent
         self.skills = self.brain.load_skills_for_agent("writer")
+        self._industry_plays = None   # re-read each run, so edits apply next cycle
         try:
             self.email_rules = load_email_rules(self.config)
         except EmailRulesError as e:
@@ -320,6 +324,32 @@ class Writer:
         text = self.brain.load_skill("selling_to_startups") if hasattr(self.brain, "load_skill") else ""
         return "\n\nSELLING TO STARTUP FOUNDERS\n" + text if text else ""
 
+    def _plays(self) -> list:
+        """The operator's industry plays ([] unless product.offering is
+        services). Read once per run; a broken file is logged and skipped."""
+        if getattr(self, "_industry_plays", None) is None:
+            self._industry_plays = (load_plays_quietly(self.config)
+                                    if sells_services(self.config) else [])
+        return self._industry_plays
+
+    def _play_for(self, prospect, company):
+        """The play matching this prospect's industry, or None."""
+        return play_for_prospect(self._plays(), prospect, company)
+
+    async def _company_of(self, prospect):
+        if not getattr(prospect, "company_id", ""):
+            return None
+        try:
+            return await self.state.get_company(prospect.company_id)
+        except Exception:
+            return None
+
+    def _services_section(self, play) -> str:
+        """The services playbook and the matching play ("" for a product)."""
+        if not sells_services(self.config):
+            return ""
+        return services_block(self.brain) + play_block(play)
+
     async def _feedback_block(self, prospect_ids: list[str]) -> str:
         """The owner's notes from the dashboard's Feedback buttons, as prompt
         text ("" when there are none). Never lets a failed read stop writing."""
@@ -397,6 +427,7 @@ class Writer:
             prompt += "\n\n" + self.skills
         if startup is not None:
             prompt += self._startup_playbook()
+        prompt += self._services_section(self._play_for(prospect, company))
         prompt += await self._feedback_block([prospect.id])
         rules = getattr(self, "email_rules", "")
         prompt += operator_rules_block(rules)
@@ -492,6 +523,13 @@ Pricing: {self.config.product.pricing}"""
         backed = [await self._startup(p.company_id) for p in prospects]
         if prospects and all(b is not None for b in backed):
             prompt += self._startup_playbook()
+        # The template goes to the whole batch: a play only when every
+        # prospect in it matches the same one (batches are per industry, so
+        # this is the usual case).
+        plays = [self._play_for(p, await self._company_of(p)) for p in prospects] \
+            if self._plays() else []
+        shared = plays[0] if plays and all(p is plays[0] for p in plays) else None
+        prompt += self._services_section(shared)
         # Campaign notes only: this template goes to the whole batch, so a
         # note about one person ("met her at the expo") must never reach it.
         prompt += await self._feedback_block([])

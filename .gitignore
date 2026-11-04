@@ -23,6 +23,9 @@ linkedin_cookies.json
 skills/product_knowledge.md
 # Your own email rules (writer.email_rules) — product-specific
 skills/email_rules.md
+# What you offer each industry (writer.industry_plays), drafted by training
+skills/industry_plays.md
+skills/industry_plays.suggested.md
 
 # Local agent tooling
 .agents/

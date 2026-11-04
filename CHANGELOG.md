@@ -9,6 +9,19 @@ minor versions can still change behaviour.
 
 ### Added
 
+- **Selling services, with an angle per industry.** A firm that sells work it
+  does for each client (development, consulting, accounting, design) can set
+  `product.offering: services`. The writer and reply handler then use the new
+  `skills/selling_services.md` and the section of `writer.industry_plays` that
+  matches each prospect's industry: what the firm offers that industry, its
+  proof, and what not to say. `match:` words find a section; `roles:` join
+  `icp.hiring_signals` for job-board profiling. `harvey train` works out the
+  offering from the site and, for a services firm, drafts
+  `skills/industry_plays.md` from it (bounded, and loud when the reply can't be
+  read). Retraining never overwrites that file or an offering you set. Manual
+  setup asks one question, and `skills/industry_plays.example.md` shows plays
+  for a development firm, a consulting firm and an accounting firm. Product
+  sellers see no change.
 - **Company fit and the company register.** The Companies tab now sorts by a
   0-100 fit score worked out from what Harvey already holds: the ICP sector
   match, a contact with a target title, the best email found, and an open

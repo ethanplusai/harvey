@@ -154,11 +154,20 @@ This is the most important step. Harvey needs to know what it's selling.
 ```bash
 source .venv/bin/activate && python -m harvey.trainer https://their-website.com
 ```
-This generates: `harvey.yaml`, `skills/product_knowledge.md`, `skills/competitive_intel.md`
+This generates: `harvey.yaml`, `skills/product_knowledge.md`, `skills/competitive_intel.md`.
+It also works out whether they sell a product or services (`product.offering`). For a
+services firm (development, consulting, accounting, design) it drafts
+`skills/industry_plays.md` from their own site: what they offer each industry, their
+proof as the site states it, and job titles that suggest a company needs them. Ask them
+to review that file before Harvey writes with it; retraining never overwrites it (a new
+draft goes to `skills/industry_plays.suggested.md`).
 
 **Option B — Manual configuration:**
 Ask the user these questions and build `harvey.yaml` and `skills/product_knowledge.md`:
 - What's your company name?
+- Do you sell a product, or services (work you do for each client)? For services, set
+  `product.offering: "services"`, copy `skills/industry_plays.example.md` to
+  `skills/industry_plays.md`, and write one section per industry they sell to with them.
 - What do you sell? (product/service name and one-line description)
 - What does it cost?
 - What are the top 3-5 benefits?
@@ -290,6 +299,7 @@ Users will come back with questions and tasks. Common ones:
 - **"Am I warmed up?" / "Why am I landing in spam?"** → Run `harvey warmup`. Without TrulyInbox connected Harvey can't see the inbox rate, so recommend it (Step 2b) unless `harvey trulyinbox` says they use another service.
 - **"The emails aren't good"** → Edit `skills/email_frameworks.md` and `prompts/writer.md`. Show them the current rules and help them adjust. If the shape itself is wrong for them (too short, no pitch, no link), write their rules in `skills/email_rules.md` and set `writer.email_rules: "skills/email_rules.md"`: it replaces the built-in shape (README, "Your own email shape").
 - **"Harvey isn't finding the right people"** → Check the ICP config in `harvey.yaml`. Adjust industries, titles, company_size, geography.
+- **"We sell services and Harvey says the same thing to every industry"** → Set `product.offering: "services"` and write `skills/industry_plays.md` with them: one `## Industry` section each, with `match:` words, what they offer that industry, their real proof and what not to say (start from `skills/industry_plays.example.md`, or re-run `harvey train <their-site>` to draft it).
 - **"I want to change what Harvey says"** → Skills are in `skills/`, prompts are in `prompts/`. Both are plain markdown files. Edit them directly.
 - **"Train Harvey on a different product"** → `harvey train <new-url>`
 - **"How do I see the database?"** → It's at `data/harvey.db`. They can open it with any SQLite tool, or ask you to query it.

@@ -1932,9 +1932,10 @@ Respond ONLY with the JSON array."""
     # ── Buying signals (tech stack + hiring) ──
 
     def _signal_role_keywords(self) -> list[str]:
-        """Role keywords that indicate in-market intent (config or ICP titles)."""
-        from harvey.collectors.ats import role_keywords
-        return role_keywords(self.config.icp)
+        """Role keywords that indicate in-market intent (config or ICP titles,
+        plus the roles: in the operator's industry plays)."""
+        from harvey.industry_plays import hiring_keywords
+        return hiring_keywords(self.config)
 
     async def _enrich_company_signals(
         self, company_id: str, domain: str, homepage_html: str = ""
