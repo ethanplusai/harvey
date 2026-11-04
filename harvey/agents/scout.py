@@ -314,8 +314,16 @@ class Scout:
 
             if resp is not None:
                 last_status = resp.status_code
+                try:
+                    final_host = self._host(str(resp.url))
+                except (AttributeError, RuntimeError, ValueError):
+                    final_host = self._host(url)
+                if self._active_search and final_host in ("consent.google.com", "consent.youtube.com"):
+                    self._last_fetch_error = "consent_required"
+                    return None
                 text = getattr(resp, "text", "") or ""
-                ddg_challenge = ("duckduckgo.com" in self._host(url)
+                host = self._host(url)
+                ddg_challenge = ((host == "duckduckgo.com" or host.endswith(".duckduckgo.com"))
                                  and "anomaly-modal" in text.lower())
                 if ddg_challenge or (resp.status_code in (200, 202, 403, 429, 503)
                                     and self._looks_blocked(text, resp.status_code)):
@@ -574,6 +582,8 @@ class Scout:
 
         if results:
             logger.debug(f"Google returned {len(results)} results")
+        elif not re.search(r"no (?:more )?results|did not match any", resp.text, re.I):
+            self._last_search_error = "unrecognized_html"
         return results[:MAX_RESULTS_PER_QUERY]
 
     # ── Strategy -1: Hunter named contacts (quota-gated) ──

@@ -161,3 +161,22 @@ async def test_backend_exception_does_not_log_keys_or_abort_fallback(caplog):
     assert await scout._web_search("example")
     assert "fake-sensitive-value" not in caplog.text
     assert "SCOUT_SEARCH_ERROR engine=serper reason=backend_exception" in caplog.text
+
+
+@pytest.mark.asyncio
+async def test_google_consent_is_not_empty_search(monkeypatch, caplog):
+    import harvey.agents.scout as module
+    scout = scout_for(engine="google", fallback=False)
+    response = httpx.Response(200, text="<html>Consent</html>",
+                              request=httpx.Request("GET", "https://consent.google.com/ml?continue=test"))
+    client = SimpleNamespace(request=AsyncMock(return_value=response))
+
+    @asynccontextmanager
+    async def factory(**kw):
+        yield client
+
+    monkeypatch.setattr(module, "public_http_client", factory)
+    assert await scout._web_search("example") == []
+    assert "SCOUT_SEARCH_ERROR engine=google reason=consent_required" in caplog.text
+    assert "SCOUT_SEARCH_EMPTY" not in caplog.text
+    client.request.assert_awaited_once()
