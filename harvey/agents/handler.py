@@ -27,6 +27,9 @@ from harvey.integrations.mail_provider import (
 from harvey.models.conversation import Conversation, Message
 from harvey.state import COLLEAGUE_REPLIED, REVIEW_NEXT_REPLY_KEY, StateManager
 from harvey.sending_mode import sync_sending_mode
+from harvey.industry_plays import (
+    load_plays_quietly, play_block, play_for_prospect, sells_services, services_block,
+)
 from harvey.startups import startup_facts
 from harvey.untrusted import UNTRUSTED_RULE, fence
 
@@ -1236,6 +1239,19 @@ Respond with ONLY the category label, nothing else."""
 
         return current_stage
 
+    async def _play_for(self, prospect):
+        """The industry play for this prospect, or None (also on any error)."""
+        plays = load_plays_quietly(self.config)
+        if not plays:
+            return None
+        company = None
+        if getattr(prospect, "company_id", ""):
+            try:
+                company = await self.state.get_company(prospect.company_id)
+            except Exception:
+                company = None
+        return play_for_prospect(plays, prospect, company)
+
     async def _generate_response(
         self, intent: str, reply_text: str, prospect, convo: Conversation
     ) -> str:
@@ -1267,6 +1283,12 @@ Product: {self.config.product.name} — {self.config.product.description}"""
             playbook = self.brain.load_skill("selling_to_startups")
             if playbook:
                 prompt += "\n\nSELLING TO STARTUP FOUNDERS\n" + playbook
+        # A services firm answers with its services playbook and the play for
+        # this prospect's industry. Optional too: a failed lookup only costs
+        # the angle.
+        if sells_services(self.config):
+            prompt += services_block(self.brain) + play_block(
+                await self._play_for(prospect))
 
         prompt += f"""
 

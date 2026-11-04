@@ -22,8 +22,12 @@ When an agent runs, it calls `brain.load_skills_for_agent("agent_name")` which c
 | `product_knowledge.md` | x | x | x | x | x |
 | `competitive_intel.md` | | x | x | | |
 | `selling_to_startups.md` | | x* | x* | | |
+| `selling_services.md` | | x** | x** | | |
+| `industry_plays.md` | | x** | x** | | |
 
 \* Only for prospects whose company is a startup by its own site's account (the `YC_BACKED` or `ACCELERATOR` signal, or a `FUNDING_ROUND` from the last 18 months), not loaded for everyone.
+
+\*\* Only when `product.offering` is `services`. From `industry_plays.md` (`writer.industry_plays`), only the one section matching the prospect's industry is used.
 
 ## Built-in Skills
 
@@ -31,6 +35,8 @@ When an agent runs, it calls `brain.load_skills_for_agent("agent_name")` which c
 - **`lead_qualification.md`** — BANT screening, ICP scoring, MEDDIC framework, disqualification criteria
 - **`account_navigation.md`** — Multi-contact handling, entry point strategy, multi-threading rules
 - **`selling_to_startups.md`** — Writing to early-stage founders: who reads, timing around a YC or accelerator batch and Demo Day, writing to companies that just raised (and when a raise is too old to mention), what not to do, handling their replies. Used automatically for YC-backed, accelerator-backed and recently funded prospects.
+- **`selling_services.md`** — For firms that sell work they do for each client (software and AI development, consulting, accounting, design, legal): selling outcomes rather than hours, reasons to write now, proof without inventing it, the engagement ladder, price and procurement, common objections, and the professional verdicts never to give from public information. Used when `product.offering` is `services`.
+- **`industry_plays.example.md`** — An example of the operator's industry plays (`writer.industry_plays`): what a firm offers each industry, matched to each prospect's industry. Copy it to `industry_plays.md` and edit it, or let `harvey train` draft one from your website.
 - **`signal_playbook.md`** — Turning buying signals (hiring, tech stack, funding) into the email's first line; which signal wins when there are several; using a job posting as the hook without guessing or implying inside knowledge
 - **`email_frameworks.md`** — Cold email copywriting rules, banned AI patterns, 2026 reply-rate data (length, offer CTAs, cadence, no tracking), 5 frameworks (AIDA, PAS, BAB, QVC, 3Ps)
 - **`sales_methodology.md`** — ABC Loop, conversation flow, tone calibration, ethical guidelines

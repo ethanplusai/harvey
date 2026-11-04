@@ -20,6 +20,10 @@ from dotenv import load_dotenv
 
 from harvey.brain import Brain
 from harvey.config import BrainConfig, load_brain_config
+from harvey.industry_plays import (
+    DEFAULT_PLAYS_PATH, MAX_TRAINED_PLAYS, SUGGESTED_PLAYS_PATH,
+    render_trained_plays, save_trained_plays,
+)
 from harvey.public_http import UnsafeURLError, public_http_client
 from harvey.state import StateManager
 
@@ -339,6 +343,12 @@ LEARNED_FIELDS = {
     "product": ("name", "description", "pricing", "key_benefits", "objection_responses"),
     "icp": ("industries", "company_size", "titles", "geography"),
 }
+# Learned only when the config doesn't say yet: once the operator has set
+# (or corrected) them, retraining leaves them alone.
+LEARNED_IF_ABSENT = {
+    "product": ("offering",),
+    "writer": ("industry_plays",),
+}
 # The shipped template's placeholder company: a persona still carrying it
 # was never set up, so training fills in the whole persona.
 UNTRAINED_COMPANY = "Your Company"
@@ -369,6 +379,12 @@ def merge_trained_config(learned: dict, existing: dict | None) -> dict:
     for section, keys in LEARNED_FIELDS.items():
         for key in keys:
             if key in learned.get(section, {}):
+                merged[section][key] = copy.deepcopy(learned[section][key])
+    for section, keys in LEARNED_IF_ABSENT.items():
+        for key in keys:
+            if key in (learned.get(section) or {}) and not (merged.get(section) or {}).get(key):
+                if not isinstance(merged.get(section), dict):
+                    merged[section] = {}
                 merged[section][key] = copy.deepcopy(learned[section][key])
     if untrained:
         merged["persona"].update(copy.deepcopy(learned.get("persona", {})))
@@ -526,7 +542,14 @@ class Trainer:
 
         # Step 6: Generate config + skills
         print("[6/6] Building configuration and product knowledge...")
-        config = self._build_config(product_info, icp_info, objections, domain)
+        offering = offering_from(product_info)
+        plays_file, plays_problem = None, ""
+        if offering == "services":
+            print("      You sell services: drafting what you offer each industry...")
+            plays_file, plays_problem = await self._draft_industry_plays(
+                product_info, icp_info)
+        config = self._build_config(product_info, icp_info, objections, domain,
+                                    offering=offering, plays_drafted=plays_file is not None)
 
         # Write config (relative paths resolve against the project root,
         # so training works no matter what directory it's launched from)
@@ -548,6 +571,7 @@ class Trainer:
         print(f"{'='*60}")
         print(f"\n  Product:      {config['product']['name']}")
         print(f"  Company:      {config['persona']['company']}")
+        print(f"  Offering:     {config['product'].get('offering', offering)}")
         print(f"  ICP titles:   {', '.join(config['icp']['titles'])}")
         print(f"  Industries:   {', '.join(config['icp']['industries'])}")
         print(f"  Pages crawled: {len(self.scraped_pages)}")
@@ -556,6 +580,22 @@ class Trainer:
         print(f"    - skills/product_knowledge.md")
         if competitive_intel.get("competitors"):
             print(f"    - skills/competitive_intel.md")
+        if plays_file is not None:
+            print(f"    - {plays_file.relative_to(PROJECT_ROOT).as_posix()}")
+            if plays_file.name == Path(SUGGESTED_PLAYS_PATH).name:
+                print(f"\n  Your {DEFAULT_PLAYS_PATH} was kept as it is. The new draft is in")
+                print(f"  {SUGGESTED_PLAYS_PATH}: copy what you want from it.")
+            else:
+                print(f"\n  Review {DEFAULT_PLAYS_PATH} before Harvey writes with it: it says")
+                print("  what you offer each industry, and the writer will repeat it.")
+        kept = config["product"].get("offering", "product")
+        if offering != kept:
+            print(f"\n  Your site reads as '{offering}', but your config says product.offering:")
+            print(f"  {kept}, so that was kept. Change it in {config_path.name} if it's wrong.")
+        if plays_problem:
+            print(f"\n  ! Industry plays not drafted: {plays_problem}.")
+            print(f"  ! Harvey writes without an industry angle until you re-run training or")
+            print(f"  ! copy skills/industry_plays.example.md to {DEFAULT_PLAYS_PATH} and edit it.")
         if config["persona"].get("email") == guessed_email:
             print(f"\n  Review {config_path} and adjust as needed — especially the")
             print(f"  persona name/email, which I guessed from your domain.")
@@ -602,8 +642,16 @@ Extract the following and return as JSON:
   "social_proof": ["any case studies, testimonials, notable customers, or stats mentioned"],
   "integrations": ["tools and platforms this integrates with"],
   "use_cases": ["specific use case 1", "use case 2", "use case 3"],
-  "tone": "describe the brand's communication tone in 3-4 words"
+  "tone": "describe the brand's communication tone in 3-4 words",
+  "offering": "services or product (see below)"
 }}
+
+"offering" is "services" when the company mainly sells work it does for each
+client: software, AI or product development, consulting, accounting or tax,
+legal, design or research, an agency, staffing or managed services. It is
+"product" when it mainly sells a product, an app or a subscription that
+customers use themselves. A product company that also offers onboarding or
+support is still "product".
 
 Be thorough — you have access to the full website. Extract everything relevant."""
 
@@ -842,12 +890,66 @@ What prospects do instead of buying a solution like ours:
         skills_path.write_text(cards, encoding="utf-8")
         print(f"      Generated: skills/competitive_intel.md")
 
+    async def _draft_industry_plays(self, product_info: dict, icp_info: dict):
+        """Draft skills/industry_plays.md from the operator's own site.
+
+        Returns (path written, "") or (None, why not). Bounded on purpose: a
+        long reply that gets cut off is unparseable JSON, and one bad reply
+        must say so loudly rather than leave an empty file behind (#166).
+        """
+        industries = [i.strip() for i in (icp_info.get("industries") or [])
+                      if isinstance(i, str) and i.strip()][:MAX_TRAINED_PLAYS]
+        all_content = self._get_all_content(max_chars=40000)
+        prompt = f"""This website belongs to a firm that sells services. Work out what
+it offers each industry it serves, using only what the website says.
+
+Company: {product_info.get('company_name', '')}
+What it sells: {product_info.get('product_description', '')}
+Industries it targets (from its site): {', '.join(industries) or 'work them out from the site'}
+
+WEBSITE CONTENT ({len(self.scraped_pages)} pages):
+{all_content}
+
+Return JSON: {{"plays": [ ... ]}} with AT MOST {MAX_TRAINED_PLAYS} entries, one per
+industry, each:
+{{
+  "industry": "the industry, 1-4 words (e.g. Insurance, Accounting firms, SaaS)",
+  "match": ["3-6 lowercase words or short phrases that identify this industry in a
+            business listing or a company's description, e.g. insurer, underwriting"],
+  "services": ["up to 5 of THIS firm's services that fit this industry, in the site's
+               own words where possible"],
+  "pains": ["up to 4 problems this industry commonly has that those services address"],
+  "proof": ["up to 3 case studies, clients or results in this industry EXACTLY as the
+            site states them; [] when the site states none. Never invent one"],
+  "roles": ["up to 5 job titles whose openings suggest a company in this industry needs
+            this help, e.g. claims processor"],
+  "avoid": ["up to 3 things not to say to this industry (regulated claims, guarantees)"]
+}}
+
+Keep every item under 160 characters and no item may contain a comma in "match" or
+"roles". Prefer fewer, accurate entries over many. Skip an industry when the site
+gives no service for it."""
+
+        result = await self.brain.think_json(prompt, session_id="harvey-trainer")
+        plays = result.get("plays") if isinstance(result, dict) else result
+        text = render_trained_plays(plays, product_info.get("company_name", ""))
+        if not text:
+            if getattr(self.brain, "last_reply_empty", False):
+                return None, "the model didn't answer (outage, logout or usage limit)"
+            return None, "the model's reply couldn't be read (possibly cut off)"
+        try:
+            return save_trained_plays(text), ""
+        except OSError as e:
+            return None, f"{DEFAULT_PLAYS_PATH} couldn't be written ({e})"
+
     def _build_config(
         self,
         product_info: dict,
         icp_info: dict,
         objections: dict,
         domain: str,
+        offering: str = "product",
+        plays_drafted: bool = False,
     ) -> dict:
         """Build the complete harvey.yaml config."""
         company = product_info.get("company_name", "Your Company")
@@ -871,6 +973,7 @@ What prospects do instead of buying a solution like ours:
                 "pricing": product_info.get("pricing", "Contact for pricing"),
                 "key_benefits": product_info.get("key_benefits", []),
                 "objection_responses": objections,
+                "offering": offering,
             },
             "icp": {
                 "industries": icp_info.get("industries", ["Technology"]),
@@ -902,7 +1005,16 @@ What prospects do instead of buying a solution like ours:
                 },
             },
             "brain": brain_section(self.brain_config),
+            # Only when plays exist to point at; never overrides a path the
+            # operator set (LEARNED_IF_ABSENT).
+            **({"writer": {"industry_plays": DEFAULT_PLAYS_PATH}} if plays_drafted else {}),
         }
+
+
+def offering_from(product_info: dict) -> str:
+    """"services" or "product" from what training read; product when unsure."""
+    value = str((product_info or {}).get("offering") or "").strip().lower()
+    return "services" if value in ("services", "service") else "product"
 
 
 async def run_training(url: str, output: str = "harvey.local.yaml", max_pages: int = 100):

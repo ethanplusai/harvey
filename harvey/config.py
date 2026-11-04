@@ -54,6 +54,23 @@ class ProductConfig(BaseModel):
     key_benefits: list[str]
     objection_responses: dict[str, str]
     offer: OfferConfig = OfferConfig()
+    # "services" for a firm that sells work it delivers for each client
+    # (development, consulting, accounting, design, legal): the writer and
+    # reply handler then use skills/selling_services.md and the industry
+    # plays (writer.industry_plays). `harvey train` works it out from your
+    # site. "product" (the default) changes nothing.
+    offering: str = "product"
+
+    @field_validator("offering", mode="before")
+    @classmethod
+    def _known_offering(cls, v):
+        from harvey.industry_plays import OFFERINGS
+        v = str(v or "product").strip().lower()
+        if v == "service":
+            v = "services"
+        if v not in OFFERINGS:
+            raise ValueError(f"product.offering must be one of: {', '.join(OFFERINGS)}.")
+        return v
 
 
 class ICPConfig(BaseModel):
@@ -669,8 +686,13 @@ class WriterConfig(BaseModel):
     # The FACTS rule, the send gate and do-not-contact still apply. A file
     # that is set but can't be read stops writing until it's fixed.
     email_rules: str = ""
+    # What you offer each industry, as a markdown file with one "## Industry"
+    # section each (see harvey/industry_plays.py). Used when
+    # product.offering is "services". `harvey train` drafts it from your
+    # site into skills/industry_plays.md, which is gitignored.
+    industry_plays: str = ""
 
-    @field_validator("email_rules", mode="before")
+    @field_validator("email_rules", "industry_plays", mode="before")
     @classmethod
     def _blank_rules(cls, v):
         if v is None:

@@ -22,7 +22,7 @@ import httpx
 from harvey.public_http import public_http_client
 from harvey.startups import funding_text
 
-from harvey.collectors.ats import detect_board, matching_roles, read_board, role_keywords
+from harvey.collectors.ats import detect_board, matching_roles, read_board
 
 from harvey.collectors.discover import (
     name_from_domain, name_matches_domain, site_name_from_html,
@@ -1330,7 +1330,10 @@ async def profile_companies(state, companies: list[dict], config=None) -> tuple[
         return 0, ""
     run_id = await state.start_run("profile", provider="http")
     try:
-        keywords = role_keywords(getattr(config, "icp", None))
+        # Plus the roles: in the operator's industry plays (a services firm's
+        # "claims processor" at an insurer). Never raises.
+        from harvey.industry_plays import hiring_keywords
+        keywords = hiring_keywords(config)
         async with ProfileCollector(state, confirmed, role_keywords=keywords) as collector:
             n = await collector.run(companies, run_id=run_id)
         await state.finish_run(run_id, records=n, cost_usd=0.0)

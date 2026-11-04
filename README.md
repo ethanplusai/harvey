@@ -392,8 +392,30 @@ The file replaces the built-in shape for the per-person first email and the 3-em
 
 - **`product_knowledge.md`** — what you sell, the benefits, pricing, use cases, the pain you solve, buying triggers
 - **`competitive_intel.md`** — battle cards per competitor, differentiation angles, migration paths
+- **`industry_plays.md`** — for a services firm only: what you offer each industry you sell to (see below)
 
-*(Both are gitignored. Your positioning and pricing shouldn't land in a public repo by accident.)*
+*(All gitignored. Your positioning and pricing shouldn't land in a public repo by accident.)*
+
+### Selling services
+
+A firm that sells work it does for each client (software, AI or product development, consulting, accounting, design, legal) offers each industry something different: claims automation to an insurer, middleware across an accounting firm's tools, product design or extra engineers to a SaaS company. With `product.offering: services`, the writer and reply handler add two things to their prompts:
+
+- **`selling_services.md`**: how to sell expertise to anyone. Outcomes rather than hours, reasons to write now (a raise, a new leader, an acquisition, a regulation, an audit, a migration, a hiring surge), proof without inventing it, the engagement ladder from a diagnostic to a retainer, price questions, procurement, the objections every services firm hears, and the professional verdicts never to give from public information.
+- **One industry play**: the section of `writer.industry_plays` that matches the prospect's industry, written by you. It says what you offer that industry, your proof, and what not to say. Campaigns are already grouped by industry, so each industry's campaign gets its own angle. A prospect whose industry matches no section is written to as before.
+
+```markdown
+## Insurance
+match: insurance, insurer, carrier, underwriting
+roles: claims processor, claims adjuster
+
+**What we offer them:** claims intake and triage automation; document extraction; core-system integration
+**Proof:** (only what you can show)
+**Don't say:** anything about their loss ratios or claims backlog
+```
+
+`match:` words find the section (whole words, in the company's industry first, then its description and the tools on its site). `roles:` join `icp.hiring_signals`, so profiling records a matching opening on the company's job board as `HIRING_ROLE`.
+
+`harvey train <your-site>` works out `product.offering` and, for a services firm, drafts `skills/industry_plays.md` from your website: one section per industry it serves, your proof only as the site states it. Review it before Harvey writes with it. Retraining never overwrites it: a new draft goes to `skills/industry_plays.suggested.md`, and an `offering` or `industry_plays` you set yourself is kept. Without training, copy `skills/industry_plays.example.md` (examples for a development firm selling to insurance, accounting firms, fintech and SaaS, plus a consulting firm and an accounting firm) to `skills/industry_plays.md` and edit it. A plays file that's set but missing or unreadable is logged and skipped: the email is still written, without the angle.
 
 ### Which agent gets which
 
@@ -412,6 +434,9 @@ Defined in `harvey/brain.py` — edit the map to change it.
 | `linkedin_outreach` | | | | | ● |
 | `product_knowledge` | ● | ● | ● | ● | ● |
 | `competitive_intel` | | ● | ● | | |
+| `selling_services` + industry play | | ●* | ●* | | |
+
+\* Only when `product.offering` is `services` (see [Selling services](#selling-services)).
 
 Adding a skill: write the file, add its name to `skill_map` in `harvey/brain.py`. That's the whole process.
 
@@ -614,7 +639,10 @@ usage:        { max_daily_claude_percent, heartbeat_interval_minutes, quiet_hour
 brain:        { provider: claude | codex, model, reasoning_effort }   # optional; claude by default
 writer:       { humanizer }   # optional; true adds one editing pass per batch using ~/.claude/skills/humanizer/SKILL.md
               # email_rules: your own markdown rules for the emails' shape (see The skills library)
+              # industry_plays: what you offer each industry, for product.offering: services
 ```
+
+`product.offering` is `product` (the default) or `services`. See [Selling services](#selling-services).
 
 `max_daily_claude_percent` caps whichever subscription `brain.provider` uses (the name predates Codex support).
 

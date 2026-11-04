@@ -449,6 +449,13 @@ class SetupWizard:
         _print_harvey("I'll ask you a few questions about your product.\n")
 
         company = _ask("Company name")
+        sells_services = _ask_yes_no(
+            "Do you sell services (work you do for each client: development, consulting, "
+            "accounting, design...) rather than a product?", default=False)
+        if sells_services:
+            _print_harvey("Then I'll write to each industry with what you offer it. Copy")
+            _print_harvey("skills/industry_plays.example.md to skills/industry_plays.md and")
+            _print_harvey("edit it, or train me on your website and I'll draft it.\n")
         product = _ask("Product/service name")
         description = _ask("One-line description (what does it do, who is it for?)")
         pricing = _ask("Pricing info", default="Contact for pricing")
@@ -539,6 +546,7 @@ class SetupWizard:
                 "pricing": pricing,
                 "key_benefits": benefits or ["Benefit 1"],
                 "objection_responses": {},
+                "offering": "services" if sells_services else "product",
                 "offer": {
                     "primary": primary_offer or "",
                     "entry": entry_offer or "",

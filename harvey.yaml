@@ -145,5 +145,14 @@ compliance:
 # markdown file. When set they replace the built-in shape (email 1 under 75
 # words, an observation and a question, no pitch). The send gate still holds
 # every email to 220 words and one link. skills/email_rules.md is gitignored.
+#
+# Selling services (development, consulting, accounting, design)? Set
+# product.offering: "services" (training does it for you). The writer and
+# reply handler then use skills/selling_services.md and the section of your
+# industry plays that matches each prospect's industry: what you offer that
+# industry, your proof, and what not to say. Training drafts
+# skills/industry_plays.md from your website (gitignored); without training,
+# copy skills/industry_plays.example.md there and edit it.
 # writer:
 #   email_rules: "skills/email_rules.md"
+#   industry_plays: "skills/industry_plays.md"
