@@ -19,6 +19,10 @@ from urllib.parse import urljoin, urlparse
 
 import httpx
 
+from harvey.company_news import (
+    NEWS_PATHS, TOOLS_LINK_RE, TRUST_LINK_RE, news_items, news_text, own_link,
+    standards_mentioned, tools_named,
+)
 from harvey.public_http import public_http_client
 from harvey.startups import funding_text
 
@@ -833,6 +837,17 @@ class ProfileCollector:
             await self._client.aclose()
 
     async def _get(self, url: str) -> str:
+        """The page's HTML, or "" (fetched at most once per company: the
+        funding and news signals read the same /press and /news pages)."""
+        cache = getattr(self, "_page_cache", None)
+        if cache is not None and url in cache:
+            return cache[url]
+        text = await self._fetch(url)
+        if cache is not None:
+            cache[url] = text
+        return text
+
+    async def _fetch(self, url: str) -> str:
         try:
             resp = await self._client.get(url)
         except (httpx.HTTPError, ValueError) as e:
@@ -1088,6 +1103,7 @@ class ProfileCollector:
     async def profile_company(self, company_id: str, domain: str) -> list[dict]:
         """Collect every confirmed profile signal for one business."""
         obs: list[dict] = []
+        self._page_cache = {}   # one company's pages; see _get
         domain = domain.lower().replace("www.", "").strip("/")
         if any(domain == d or domain.endswith("." + d) for d in YC_OWNED_DOMAINS):
             # YC's own sites forbid scraping; they're never a prospect anyway.
@@ -1189,6 +1205,33 @@ class ProfileCollector:
                 add("FUNDING_ROUND", num=1, text=funding_text(best), conf=best["conf"], url=where)
             else:
                 add("FUNDING_ROUND", num=0, url=site)
+
+        # What they announced lately, on their own news page (the same pages
+        # the funding check reads, so usually no extra request). "None found"
+        # is recorded too, so last quarter's news stops being current.
+        if self.wants("COMPANY_NEWS"):
+            news_url, news_html = await self._first_present(site, NEWS_PATHS)
+            items = news_items(news_html, news_url) if news_html else []
+            add("COMPANY_NEWS", num=1 if items else 0, text=news_text(items),
+                url=items[0]["url"] if items else (news_url or site))
+
+        # Standards they mention, and business software they name: the
+        # homepage, plus the one trust or integrations page it links to.
+        if self.wants("COMPLIANCE_BADGES"):
+            standards = standards_mentioned(home)
+            trust = own_link(home, site, domain, TRUST_LINK_RE)
+            if trust:
+                standards += [s for s in standards_mentioned(await self._get(trust))
+                              if s not in standards]
+            add("COMPLIANCE_BADGES", num=len(standards), text=", ".join(standards),
+                url=trust if trust and standards else site)
+        if self.wants("TOOLS_NAMED"):
+            tools = tools_named(home)
+            page = own_link(home, site, domain, TOOLS_LINK_RE)
+            if page:
+                tools += [t for t in tools_named(await self._get(page)) if t not in tools]
+            add("TOOLS_NAMED", num=len(tools), text=", ".join(tools),
+                url=page if page and tools else site)
 
         # Incumbent agency — the compounding signal
         agency = self.detect_agency(home, domain)

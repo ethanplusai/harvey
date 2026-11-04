@@ -9,6 +9,18 @@ minor versions can still change behaviour.
 
 ### Added
 
+- **What a company announced lately, the standards it mentions, and the tools
+  it names.** Three free profile signals, proposed like the rest:
+  `COMPANY_NEWS` reads dated announcements on the company's own press, news or
+  blog page (the page the funding check already reads; it's fetched once) and
+  sorts each into an acquisition, a leadership change, an expansion, a launch,
+  a partnership, a certification or an award. Raises stay `FUNDING_ROUND`'s.
+  An undated announcement is never kept, a date is only taken from the item it
+  belongs to, and the writer only uses news from the last 120 days.
+  `COMPLIANCE_BADGES` (SOC 2, ISO 27001, HIPAA, PCI DSS, ...) and `TOOLS_NAMED`
+  (QuickBooks, NetSuite, Salesforce, Guidewire, ...) read the homepage and the
+  one trust or integrations page it links to on its own domain. The writer's
+  facts say each is a mention on their site, not proof.
 - **Company fit and the company register.** The Companies tab now sorts by a
   0-100 fit score worked out from what Harvey already holds: the ICP sector
   match, a contact with a target title, the best email found, and an open

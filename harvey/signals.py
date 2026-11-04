@@ -298,6 +298,55 @@ SIGNAL_CATALOG: list[dict] = [
         "confidence_floor": 0.0,
     },
 
+    {
+        "code": "COMPANY_NEWS",
+        "label": "Announced something lately",
+        "description": (
+            "Dated announcements on the company's own press, news or blog page, "
+            "each sorted into a kind of event: an acquisition, a leadership "
+            "change, an expansion, a launch, a partnership, a certification or "
+            "an award (raises are FUNDING_ROUND). The newest three are kept with "
+            "their dates. The writer treats one as news for 120 days, and an "
+            "announcement with no date is never kept, so nothing is called "
+            "recent on a guess."
+        ),
+        "category": "profile",
+        "value_type": "text",
+        "collector": "profile",
+        "cost_note": "free (their own news page, usually already read for funding)",
+        "confidence_floor": 0.0,
+    },
+    {
+        "code": "COMPLIANCE_BADGES",
+        "label": "Standards their site mentions",
+        "description": (
+            "Security, privacy and quality standards the homepage or its trust "
+            "or security page mentions: SOC 2, ISO 27001, ISO 9001, HIPAA, "
+            "HITRUST, PCI DSS, GDPR, FedRAMP, CMMC. A mention, not proof they "
+            "hold one: useful for audit, security and compliance work."
+        ),
+        "category": "profile",
+        "value_type": "num",
+        "collector": "profile",
+        "cost_note": "free (homepage, plus the trust page it links to)",
+        "confidence_floor": 0.0,
+    },
+    {
+        "code": "TOOLS_NAMED",
+        "label": "Business software their site names",
+        "description": (
+            "Business software named on the homepage or its integrations page: "
+            "accounting (QuickBooks, Xero, NetSuite), payroll, CRM, ERP, "
+            "insurance and payments platforms. Tells you what to integrate "
+            "with or move off. Named, not proven in use."
+        ),
+        "category": "profile",
+        "value_type": "num",
+        "collector": "profile",
+        "cost_note": "free (homepage, plus the integrations page it links to)",
+        "confidence_floor": 0.0,
+    },
+
     # ── People: who decides ──
     {
         "code": "CONTACT_FOUND",
