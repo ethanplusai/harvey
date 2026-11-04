@@ -9,6 +9,20 @@ minor versions can still change behaviour.
 
 ### Added
 
+- **See which email bounced, and what to tighten.** The Outbox has a
+  **Bounces** list: the address and company, why the receiving server
+  returned it (the reason line from the bounce, read as "mailbox doesn't
+  exist", "mailbox full" or "refused by their server"), how Harvey found the
+  address and whether it was verified or catch-all when sent. Opening one
+  shows suggestions for the rule to tighten (keep `send_to_risky` off, add a
+  second verifier for finder addresses, use an email finder for format
+  addresses, prefer named contacts over general inboxes, check SPF/DKIM/DMARC
+  and volume when the server refused the mail). The kill switch's reason now
+  names the latest bounced address.
+- **Read every email in the Outbox lists.** Rows under Approved & scheduled,
+  Recently sent and Didn't send open the email underneath: subject,
+  recipient, step, when, and the body.
+
 - **Company fit and the company register.** The Companies tab now sorts by a
   0-100 fit score worked out from what Harvey already holds: the ICP sector
   match, a contact with a target title, the best email found, and an open
@@ -311,6 +325,15 @@ minor versions can still change behaviour.
   Gmail's history marker has expired, and once a day as a backstop.
 
 ### Fixed
+
+- **A bounce of your own mail no longer pauses Harvey.** When the sending
+  mailbox is also an everyday one, bounces of the owner's own email arrived
+  in it, couldn't be matched to anything Harvey sent, and still counted
+  toward the bounce rate, so one of them could trip the kill switch. A
+  bounce now counts only when it's for an address Harvey emailed: matched by
+  In-Reply-To as before, or by the failed recipient the notice names (which
+  also catches Harvey's own bounces that arrive without In-Reply-To). Others
+  are logged and shown as ignored.
 
 - **Spanish opt-outs are caught without the model** (from #154). "No,
   gracias", a bare "BAJA", "denme de baja", "no me escriba más", "dejen de

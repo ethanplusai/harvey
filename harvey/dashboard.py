@@ -1066,6 +1066,27 @@ async def _with_context(items: list[dict]) -> list[dict]:
     return items
 
 
+async def _recent_bounces() -> dict:
+    """Harvey's own bounces (address, reason, how it was found, what to
+    tighten) and how many bounces of other mail in the inbox were ignored."""
+    rows = await query_db(
+        "SELECT action_type, details_json, created_at FROM actions "
+        "WHERE action_type IN ('bounce', 'bounce_ignored') "
+        "ORDER BY created_at DESC LIMIT 50")
+    bounces, ignored = [], 0
+    for row in rows:
+        if row["action_type"] == "bounce_ignored":
+            ignored += 1
+            continue
+        try:
+            details = json.loads(row.get("details_json") or "{}")
+        except (TypeError, ValueError):
+            details = {}
+        if isinstance(details, dict):
+            bounces.append({**details, "at": row.get("created_at")})
+    return {"bounces": bounces[:25], "bounces_ignored": ignored}
+
+
 @app.get("/api/outbox")
 async def get_outbox_api():
     """Outbox queue + kill-switch state for the Outbox tab."""
@@ -1089,6 +1110,7 @@ async def get_outbox_api():
             "failed": (await query_db(
                 "SELECT * FROM outbox WHERE status IN ('failed','rejected','cancelled') "
                 "ORDER BY updated_at DESC LIMIT 25")),
+            **(await _recent_bounces()),
         }
     except Exception as e:
         return {"error": str(e)}

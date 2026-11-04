@@ -1032,3 +1032,12 @@ table.clip td { max-width: 320px; overflow: hidden; text-overflow: ellipsis; }
 .warmup-actions { margin-top: var(--sp-2); align-items: center; }
 a.btn, a.btn:hover { text-decoration: none; }
 .warmup-actions .form-input { flex: 1 1 200px; height: 28px; min-width: 0; }
+
+/* Outbox: an email or a bounce, opened under its row. */
+.detail-row > td { max-width: none; overflow: visible; }
+.mail-preview { display: flex; flex-direction: column; gap: var(--sp-2); max-width: 78ch; padding: var(--sp-2) 0; }
+.mail-meta { display: flex; flex-direction: column; gap: 2px; font-size: var(--fs-ui); }
+.mail-body { white-space: pre-wrap; font-size: var(--fs-ui); line-height: 1.6; color: var(--text); }
+.bounce-facts { display: grid; grid-template-columns: max-content 1fr; gap: 4px var(--sp-4); font-size: var(--fs-ui); }
+.bounce-facts .k { color: var(--text-3); }
+.bounce-tips { margin: 0; padding-left: 1.2em; font-size: var(--fs-ui); line-height: 1.55; }

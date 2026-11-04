@@ -1655,31 +1655,84 @@ async function loadOutbox() {
         : 'Every draft Harvey writes lands here first. Approve one and it sends on schedule.') +
     '</div>';
 
-  const table = (title, rows, cols) => {
+  // A row with ``detail`` opens it underneath on click (the email itself,
+  // or a bounce's reason and suggestions).
+  const table = (title, rows, cols, detail) => {
     if (!rows || !rows.length) return '';
     let h = '<div class="subhead">' + title + ' <span class="hint">' + rows.length + '</span></div>' +
       '<div class="table-card"><table class="nowrap clip"><thead><tr>' +
       cols.map(c => '<th>' + c[0] + '</th>').join('') + '</tr></thead><tbody>';
     for (const r of rows) {
-      h += '<tr>' + cols.map(c => '<td' + (c[2] ? ' class="muted"' : '') + '>' +
+      h += '<tr' + (detail ? ' class="clickable" title="Click to open" onclick="toggleRowDetail(this)"' : '') + '>' +
+        cols.map(c => '<td' + (c[2] ? ' class="muted"' : '') + '>' +
         (c[3] ? c[1](r) : escHtml(String(c[1](r) ?? ''))) + '</td>').join('') + '</tr>';
+      if (detail) h += '<tr class="detail-row" hidden><td colspan="' + cols.length + '">' + detail(r) + '</td></tr>';
     }
     return h + '</tbody></table></div>';
   };
 
   list.innerHTML =
+    bouncesSection(data) +
     table('Approved &amp; scheduled', data.approved, [
       ['To', r => r.to_email], ['Step', r => r.step], ['Subject', r => r.subject],
       ['Sends', r => r.status === 'sending' ? badge(r.status) : escHtml(formatDate(r.send_at)), true, true],
-    ]) +
+    ], r => mailPreview(r, 'Sends ' + formatDate(r.send_at))) +
     table('Recently sent', data.sent, [
       ['To', r => r.to_email], ['Step', r => r.step], ['Subject', r => r.subject],
       ['Sent', r => formatDate(r.sent_at), true],
-    ]) +
+    ], r => mailPreview(r, 'Sent ' + formatDate(r.sent_at))) +
     table('Didn\'t send', data.failed, [
       ['To', r => r.to_email], ['Status', r => badge(r.status), false, true],
       ['Reason', r => r.error, true], ['Updated', r => formatDate(r.updated_at), true],
-    ]);
+    ], r => mailPreview(r, r.error ? 'Why: ' + r.error : ''));
+
+  // Bounces: which address, why, and what to tighten.
+  function bouncesSection(d) {
+    const rows = d.bounces || [];
+    const ignored = d.bounces_ignored
+      ? '<p class="muted" style="margin:4px 0 0">' + d.bounces_ignored + ' bounce' +
+        (d.bounces_ignored === 1 ? '' : 's') + ' of other mail in this inbox (not sent by Harvey) ' +
+        'ignored and not counted.</p>' : '';
+    if (!rows.length) return ignored ? '<div class="subhead">Bounces</div>' + ignored : '';
+    return table('Bounces', rows, [
+      ['Address', r => r.prospect], ['Company', r => r.company],
+      ['Why', r => BOUNCE_KINDS[r.kind] || 'returned', true],
+      ['Found by', r => r.found_by, true], ['Bounced', r => formatDate(r.at), true],
+    ], bounceDetail) + ignored;
+  }
+}
+
+const BOUNCE_KINDS = {
+  no_mailbox: "Mailbox doesn't exist", mailbox_full: 'Mailbox full',
+  blocked: 'Refused by their server', other: 'Returned',
+};
+
+function toggleRowDetail(tr) {
+  const next = tr.nextElementSibling;
+  if (next && next.classList.contains('detail-row')) next.hidden = !next.hidden;
+}
+
+// The email as it was written: subject, recipient, when, and the body.
+function mailPreview(r, when) {
+  return '<div class="mail-preview">' +
+    '<div class="mail-meta"><b>' + escHtml(r.subject || '(no subject)') + '</b>' +
+    '<span class="muted">To ' + escHtml(r.to_email || '') + (r.step ? ' · step ' + escHtml(String(r.step)) : '') +
+    (when ? ' · ' + escHtml(when) : '') + '</span></div>' +
+    '<div class="mail-body">' + escHtml(r.body || '') + '</div></div>';
+}
+
+function bounceDetail(b) {
+  const tips = (b.suggestions || []).map(t => '<li>' + escHtml(t) + '</li>').join('');
+  const row = (k, v) => v ? '<div class="k">' + k + '</div><div class="v">' + escHtml(String(v)) + '</div>' : '';
+  return '<div class="mail-preview"><div class="bounce-facts">' +
+    row('Contact', [b.name, b.company].filter(Boolean).join(' · ')) +
+    row('Server said', b.reason || 'No reason given') +
+    row('Address was', b.email_status ? b.email_status + ' when sent' : '') +
+    row('Found by', b.found_by) +
+    row('Sent', b.sent_at ? formatDate(b.sent_at) + (b.step ? ' (step ' + b.step + ')' : '') : '') +
+    row('Follow-ups cancelled', b.cancelled) +
+    '</div>' + (tips ? '<p style="margin:var(--sp-3) 0 4px"><b>What to tighten</b></p><ul class="bounce-tips">' + tips + '</ul>' : '') +
+    '</div>';
 }
 
 const CONTACT_SOURCES = {
