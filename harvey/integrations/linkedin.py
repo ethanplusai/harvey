@@ -187,6 +187,46 @@ class LinkedInAutomation:
 
     # ── Auth ──
 
+    async def _fill_first_visible(self, selectors: list, value: str) -> bool:
+        """Rellena el primer elemento VISIBLE que case con los selectores."""
+        for selector in selectors:
+            try:
+                locator = self.page.locator(selector)
+                count = await locator.count()
+            except Exception:
+                continue
+            for index in range(count):
+                element = locator.nth(index)
+                try:
+                    if not await element.is_visible():
+                        continue
+                    await element.fill(value)
+                    return True
+                except Exception:
+                    continue
+        return False
+
+    async def _click_login_button(self) -> bool:
+        """Pulsa el boton de envio del formulario de login."""
+        wanted = {"iniciar sesion", "sign in"}
+        try:
+            buttons = self.page.locator("button")
+            count = await buttons.count()
+        except Exception:
+            return False
+        for index in range(count):
+            button = buttons.nth(index)
+            try:
+                if not await button.is_visible():
+                    continue
+                label = " ".join((await button.inner_text() or "").split())
+                if label.lower().replace("\u00f3", "o") in wanted:
+                    await button.click()
+                    return True
+            except Exception:
+                continue
+        return False
+
     async def login(self) -> bool:
         """Log into LinkedIn."""
         if not self.page:
@@ -213,11 +253,39 @@ class LinkedInAutomation:
             return True
 
         try:
-            await self.page.fill("#username", self.email)
+            filled_user = await self._fill_first_visible(
+                [
+                    "input[autocomplete=\"username\"]",
+                    "input[name=\"session_key\"]",
+                    "input[type=\"email\"]",
+                    "#username",
+                ],
+                self.email,
+            )
+            if not filled_user:
+                logger.warning("LinkedIn login: no se encontro el campo de usuario.")
+                return False
             await self._random_delay(0.5, 1.5)
-            await self.page.fill("#password", self.password)
+
+            filled_pass = await self._fill_first_visible(
+                [
+                    "input[autocomplete=\"current-password\"]",
+                    "input[type=\"password\"]",
+                    "#password",
+                ],
+                self.password,
+            )
+            if not filled_pass:
+                logger.warning("LinkedIn login: no se encontro el campo de password.")
+                return False
             await self._random_delay(0.5, 1.5)
-            await self.page.click('button[type="submit"]')
+
+            if not await self._click_login_button():
+                logger.info("LinkedIn login: boton no encontrado, se envia con Enter.")
+                try:
+                    await self.page.locator("input[type=\"password\"]").first.press("Enter")
+                except Exception:
+                    return False
             await self._wait_settled()
 
             if "feed" in self.page.url or "mynetwork" in self.page.url:
@@ -234,6 +302,23 @@ class LinkedInAutomation:
                     "Please log in manually and save cookies."
                 )
                 return False
+
+            # El reCAPTCHA se renderiza dentro de la pagina de login (no cambia
+            # la URL), asi que hay que mirarlo explicitamente.
+            try:
+                iframes = self.page.locator("iframe")
+                for index in range(await iframes.count()):
+                    src_attr = await iframes.nth(index).get_attribute("src") or ""
+                    if "recaptcha" in src_attr or "captcha" in src_attr:
+                        logger.warning(
+                            "LinkedIn presento un reCAPTCHA en el login: la "
+                            "automatizacion esta bloqueada en este intento. "
+                            "Hay que iniciar sesion manualmente y guardar las "
+                            "cookies en " + str(COOKIES_PATH) + "."
+                        )
+                        return False
+            except Exception:
+                pass
 
             logger.warning(f"Login may have failed. Current URL: {self.page.url}")
             return False
