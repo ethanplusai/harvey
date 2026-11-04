@@ -16,6 +16,7 @@ somebody else's board, and the roles would be attributed to the wrong company.
 import json
 import logging
 import re
+import unicodedata
 from collections import Counter
 from dataclasses import dataclass
 from datetime import datetime, timezone
@@ -288,7 +289,9 @@ async def read_board(client: httpx.AsyncClient, board: Board) -> list[Posting] |
 
 # ── which roles count ──
 
-_FILLER_WORDS = frozenset({"of", "the", "and", "for", "a", "an", "&", "to"})
+_FILLER_WORDS = frozenset({"of", "the", "and", "for", "a", "an", "&", "to",
+                           # Portuguese: "Analista de LGPD" is "Analista LGPD".
+                           "de", "da", "do", "das", "dos", "e", "em"})
 # Spellings of the same role, folded to one before comparing words.
 _EQUIVALENT = tuple((re.compile(p, re.I), r) for p, r in (
     (r"\bvice[\s-]+president\b", "vp"),
@@ -314,7 +317,10 @@ _REPORTS_TO = re.compile(r"\s+to\s+(?:the\s+|our\s+)?\S.*$", re.I)
 def _words(text: str) -> set[str]:
     for pattern, replacement in _EQUIVALENT:
         text = pattern.sub(replacement, text)
-    return set(re.findall(r"[a-z0-9+#]+", text.lower()))
+    # "Proteção" and "Protecao" are one word; without folding, accented
+    # letters would split a word into fragments.
+    folded = unicodedata.normalize("NFKD", text.lower()).encode("ascii", "ignore").decode()
+    return set(re.findall(r"[a-z0-9+#]+", folded))
 
 
 def role_keywords(icp) -> list[str]:
@@ -330,9 +336,14 @@ def role_keywords(icp) -> list[str]:
             if isinstance(t, str) and t.strip()]
 
 
-def matching_roles(postings: list[Posting], keywords: list[str]) -> list[Posting]:
-    """Postings whose title holds every word of some keyword, in any order:
+def title_matches_role(title: str, keywords: list[str]) -> bool:
+    """Does ``title`` hold every word of some keyword, in any order?
     "VP Marketing" matches "VP of Marketing", "cto" doesn't match "Director"."""
     wanted = [w for w in ((_words(k) - _FILLER_WORDS) for k in keywords) if w]
-    return [p for p in postings
-            if any(w <= _words(_REPORTS_TO.sub("", p.title)) for w in wanted)]
+    have = _words(_REPORTS_TO.sub("", title or ""))
+    return any(w <= have for w in wanted)
+
+
+def matching_roles(postings: list[Posting], keywords: list[str]) -> list[Posting]:
+    """Postings whose title matches a keyword (see ``title_matches_role``)."""
+    return [p for p in postings if title_matches_role(p.title, keywords)]

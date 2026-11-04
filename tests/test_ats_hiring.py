@@ -341,9 +341,65 @@ async def test_a_dead_board_falls_back_to_reading_the_careers_page():
     careers = ("<html>" + "y" * 600 + '<a href="https://jobs.lever.co/acme">Roles</a>'
                "<h3>Sales Manager</h3></html>")
     c = _collector({"HIRING_ROLE", "OPEN_ROLES"},
-                   {"https://acme.com": HOME, "https://acme.com/careers": careers}, {})
+                   {"https://acme.com": HOME, "https://acme.com/careers": careers}, {},
+                   keywords=["sales manager"])
     obs = await c.profile_company("c1", "acme.com")
     assert [(o["signal_code"], o["value_text"]) for o in obs] == [("HIRING_ROLE", "Sales Manager")]
+
+
+# ── careers page with no board: only the roles you asked for ──
+
+CAREERS_NOISE = ("<html>" + "y" * 600 + "<h3>Apply</h3><a href='/x'>Hiring solutions</a>"
+                 "<li>Locate a Representative</li><h3>Research Manager</h3>")
+
+
+@pytest.mark.asyncio
+async def test_careers_page_records_only_roles_matching_the_keywords():
+    careers = CAREERS_NOISE + "<h3>Head of Growth, EMEA</h3></html>"
+    c = _collector({"HIRING_ROLE"}, {"https://acme.com": HOME, "https://acme.com/careers": careers}, {})
+    obs = await c.profile_company("c1", "acme.com")
+    assert [o["value_text"] for o in obs] == ["Head of Growth, EMEA"]
+    assert obs[0]["evidence_url"] == "https://acme.com/careers"
+
+
+@pytest.mark.asyncio
+async def test_careers_page_without_a_matching_role_records_a_checked_zero():
+    c = _collector({"HIRING_ROLE"},
+                   {"https://acme.com": HOME, "https://acme.com/careers": CAREERS_NOISE + "</html>"}, {})
+    obs = await c.profile_company("c1", "acme.com")
+    assert [(o["value_num"], o["value_text"], o["evidence_url"]) for o in obs] == [
+        (0, "", "https://acme.com/careers")]
+
+
+@pytest.mark.asyncio
+async def test_portuguese_careers_link_and_role_are_found():
+    home = "<html><body>" + "x" * 600 + "<a href='/trabalhe-conosco'>Trabalhe conosco</a></body></html>"
+    careers = ("<html>" + "y" * 600 + "<h3>Candidate-se</h3>"
+               "<h3>Encarregado de Proteção de Dados (DPO)</h3></html>")
+    c = _collector({"HIRING_ROLE"}, {"https://acme.com": home,
+                                     "https://acme.com/trabalhe-conosco": careers}, {},
+                   keywords=["encarregado de proteção de dados"])
+    obs = await c.profile_company("c1", "acme.com")
+    assert [o["value_text"] for o in obs] == ["Encarregado de Proteção de Dados (DPO)"]
+
+
+@pytest.mark.asyncio
+async def test_portuguese_careers_path_is_probed_without_a_link():
+    home = "<html><body>" + "x" * 600 + "</body></html>"
+    careers = "<html>" + "y" * 600 + "<li>Analista LGPD Sênior</li></html>"
+    c = _collector({"HIRING_ROLE"}, {"https://acme.com": home, "https://acme.com/carreiras": careers},
+                   {}, keywords=["analista de lgpd"])
+    obs = await c.profile_company("c1", "acme.com")
+    assert [o["value_text"] for o in obs] == ["Analista LGPD Sênior"]
+
+
+def test_role_matching_ignores_accents_and_portuguese_filler_words():
+    from harvey.collectors.ats import Posting
+    posts = [Posting("Analista de Privacidade Pleno"), Posting("Especialista em Protecao de Dados"),
+             Posting("Analista Financeiro")]
+    matched = matching_roles(posts, ["analista privacidade", "especialista em proteção de dados"])
+    assert [p.title for p in matched] == ["Analista de Privacidade Pleno",
+                                          "Especialista em Protecao de Dados"]
 
 
 @pytest.mark.asyncio

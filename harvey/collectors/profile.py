@@ -22,7 +22,9 @@ import httpx
 from harvey.public_http import public_http_client
 from harvey.startups import funding_text
 
-from harvey.collectors.ats import detect_board, matching_roles, read_board, role_keywords
+from harvey.collectors.ats import (
+    detect_board, matching_roles, read_board, role_keywords, title_matches_role,
+)
 
 from harvey.collectors.discover import (
     name_from_domain, name_matches_domain, site_name_from_html,
@@ -112,15 +114,22 @@ AI_CRAWLERS = ("gptbot", "google-extended", "ccbot", "anthropic-ai", "claudebot"
 TEAM_PATHS = ("/team", "/about", "/about-us", "/our-team", "/staff",
               "/leadership", "/meet-the-team", "/company/team")
 CAREERS_PATHS = ("/careers", "/jobs", "/join-us", "/employment", "/hiring",
-                 "/about/careers", "/careers/")
+                 "/about/careers", "/careers/",
+                 "/trabalhe-conosco", "/carreiras", "/vagas")
 # A homepage link to the careers page beats guessing paths: careers.acme.com
 # and /company/jobs are as common as /careers. Whole path segments and whole
 # anchors only: "/scheduling/hiring-marketplaces" is a product page.
 _CAREERS_HOST = re.compile(r"^(careers?|jobs|join)\.", re.I)
 _CAREERS_SEGMENTS = frozenset("""careers career jobs join join-us joinus work-with-us
-open-roles open-positions hiring""".split())
+open-roles open-positions hiring trabalhe-conosco carreiras carreira vagas""".split())
 _CAREERS_ANCHOR = re.compile(r"^(careers?|jobs|join us|join (our|the) team|we['’]?re hiring"
-                             r"|open (roles|positions)|work with us)$", re.I)
+                             r"|open (roles|positions)|work with us"
+                             r"|trabalhe conosco|carreiras?|vagas|fa[çc]a parte( d[ao] (time|equipe))?)$",
+                             re.I)
+# Roles read off a careers page that has no job board: headings, links and
+# list items whose text matches one of your roles.
+MAX_PAGE_ROLES = 3
+_PAGE_ROLE_TEXT = re.compile(r"(?is)<(h[2-5]|a|li)[^>]*>\s*([^<]{6,70})\s*</\1>")
 # Roles recorded per company from a board. The first few say it; twenty rows
 # of "Account Executive, <city>" don't say more.
 MAX_BOARD_ROLES = 5
@@ -232,6 +241,23 @@ def _strip_code(html: str) -> str:
     html = re.sub(r"(?is)<style\b.*?</style>", " ", html)
     html = re.sub(r"(?s)<!--.*?-->", " ", html)
     return html
+
+
+def _careers_page_roles(html: str, keywords: list[str]) -> list[str]:
+    """Role titles on a careers page that match ``keywords`` (deduped, capped).
+
+    Only your roles count: "Apply", "Locate a Representative" or a product
+    page's "Hiring solutions" say nothing about buying in your category."""
+    roles: list[str] = []
+    for m in _PAGE_ROLE_TEXT.finditer(_strip_code(html)):
+        text = html_unescape(re.sub(r"\s+", " ", m.group(2)).strip())
+        if not title_matches_role(text, keywords):
+            continue
+        if text.lower() not in (r.lower() for r in roles):
+            roles.append(text)
+        if len(roles) >= MAX_PAGE_ROLES:
+            break
+    return roles
 
 
 # Signals that a response is a block / bot-challenge rather than real content.
@@ -919,20 +945,13 @@ class ProfileCollector:
         if board and not chtml:
             curl, chtml = await self._careers_page(site, home, domain)
         if chtml and self.wants("HIRING_ROLE"):
-            roles = []
-            for m in re.finditer(
-                r"(?is)<(h[2-5]|a|li)[^>]*>\s*([^<]{6,70})\s*</\1>", _strip_code(chtml)
-            ):
-                t = re.sub(r"\s+", " ", m.group(2)).strip()
-                if re.search(r"\b(hiring|apply|position|opening|wanted|"
-                             r"technician|installer|sales|manager|foreman|"
-                             r"estimator|crew|representative)\b", t, re.I):
-                    if t.lower() not in [r.lower() for r in roles]:
-                        roles.append(t)
-                if len(roles) >= 3:
-                    break
+            roles = _careers_page_roles(chtml, getattr(self, "role_keywords", None) or [])
             for r in roles:
                 add("HIRING_ROLE", text=r, url=curl)
+            if not roles:
+                # The page was read and lists nothing relevant, the same
+                # reading a board with no matching role gives.
+                add("HIRING_ROLE", num=0, url=curl)
     async def _search_hit(self, company_id: str, code: str) -> bool:
         """Is the latest reading a preset search's hit? (see state.search_hit)"""
         if getattr(self, "state", None) is None:
