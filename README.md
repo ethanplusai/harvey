@@ -200,7 +200,7 @@ you need the Codex provider.
 
 This is the part that makes Harvey different from a black box, and it is deliberately not skippable.
 
-Harvey knows how to collect **29 signals** about a business. It does not collect any of them until you say so. On first run it *proposes* the catalog; you confirm, skip, or reject each one in the dashboard or from the terminal:
+Harvey knows how to collect **32 signals** about a business. It does not collect any of them until you say so. On first run it *proposes* the catalog; you confirm, skip, or reject each one in the dashboard or from the terminal:
 
 ```bash
 harvey signals                       # review the catalog
@@ -225,6 +225,8 @@ Every signal shows what it is in plain language, **what it costs**, and how many
 | | `SITE_PAGE_COUNT`, `TECH_STACK`, `BLOCKS_AI_CRAWLERS` | Size, platform, AI-search visibility. |
 | | `HIRING_ROLE` / `OPEN_ROLES` | What they're hiring for, and how many roles are open. When their site links a Greenhouse, Lever, Ashby or Workable board, Harvey reads that board's public feed (one request): roles matching `icp.hiring_signals` (else `icp.titles`), with department, location, posting date and the posting's URL; when the board lists none, it records "not hiring" so a closed role stops counting. Otherwise it reads the careers page. Set `hiring_signals` to the roles that mean they're buying: the `titles` fallback names who you email, so "CEO" only matches a CEO opening (never "Assistant to the CEO"), which is rarely the signal you want. |
 | | `YC_BACKED`, `ACCELERATOR`, `FUNDING_ROUND` | A startup, as its own site says: YC or another accelerator (with the batch or cohort), or a raise it announced (round, amount, date). |
+| | `COMPANY_NEWS` | What they announced lately on their own press, news or blog page, with the date: an acquisition, a new leader, an expansion, a launch, a partnership, a certification, an award. A reason to write now. Written to as news for 120 days; an undated announcement is never kept. |
+| | `COMPLIANCE_BADGES`, `TOOLS_NAMED` | Standards their site mentions (SOC 2, ISO 27001, HIPAA, PCI DSS, ...) and business software it names (QuickBooks, NetSuite, Salesforce, Guidewire, ...), from the homepage and the one trust or integrations page it links to. A mention, not proof. |
 | **People** | `CONTACT_FOUND`, `DECISION_MAKER_TITLE`, `LIKELY_OWNER`, `REGISTRY_VERIFIED` | Who decides, and whether they own the place. |
 | **Contact** | `EMAIL_PATTERN`, `EMAIL_STATUS`, `CONTACT_FORM_URL` | Whether you can actually reach them. |
 
