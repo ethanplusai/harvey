@@ -616,6 +616,8 @@ writer:       { humanizer }   # optional; true adds one editing pass per batch u
               # email_rules: your own markdown rules for the emails' shape (see The skills library)
 ```
 
+`icp.geography` is in priority order. Harvey drafts a few emails a cycle, so it takes prospects at companies in the first entry first, then the next, then everyone else: a company outside every entry is still contacted, just last. An entry matches by place name ("Denver, CO"), by country ("United States", "Canada"), or anywhere inside its `geo_coordinates` radius when discovery has cached the company's coordinates. The dashboard's company fit shows which entry a company falls in.
+
 `max_daily_claude_percent` caps whichever subscription `brain.provider` uses (the name predates Codex support).
 
 If `harvey.local.yaml` exists it wins. It's gitignored, so a fork can carry real product configuration while the tracked `harvey.yaml` stays a template — nobody publishes their positioning and pricing by accident.
