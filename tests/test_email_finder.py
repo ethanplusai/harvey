@@ -33,6 +33,8 @@ class Env:
     def __init__(self, **kw):
         self.reoon_api_key = kw.get("reoon", "")
         self.zerobounce_api_key = kw.get("zerobounce", "")
+        self.bounceshift_api_key = kw.get("bounceshift", "")
+        self.bounceshift_organization_id = kw.get("bounceshift_org", "")
 
 
 # ── pattern building / inference ──
@@ -206,6 +208,48 @@ async def test_find_email_invalid_from_provider(state, monkeypatch):
         "Jane", "Doe", "acme.com", env=Env(reoon="k"), state=state
     )
     assert result.status == "invalid"
+
+
+@pytest.mark.asyncio
+async def test_find_email_verified_via_bounceshift(state, monkeypatch):
+    async def ms_mx(domain):
+        return "acme.mail.protection.outlook.com"
+    monkeypatch.setattr(ef, "get_mx_host", ms_mx)
+    monkeypatch.setattr(ef, "_hunter_api_key", lambda: "")
+    calls = []
+
+    async def fake_bs(email, key, org):
+        calls.append((key, org))
+        return {"status": "valid", "catch_all": False}
+    monkeypatch.setattr(ef, "verify_bounceshift", fake_bs)
+
+    result = await find_email(
+        "Jane", "Doe", "acme.com", env=Env(bounceshift="tok", bounceshift_org="7"), state=state
+    )
+    assert result.status == "verified"
+    assert calls == [("tok", "7")]
+
+
+@pytest.mark.asyncio
+async def test_bounceshift_needs_its_organization_id(state, monkeypatch):
+    """A token without the organization id would only ever get 4xx back: skip it."""
+    async def small_mx(domain):
+        return "mail.acme.com"
+    monkeypatch.setattr(ef, "get_mx_host", small_mx)
+    monkeypatch.setattr(ef, "_hunter_api_key", lambda: "")
+
+    async def boom(*a, **k):
+        raise AssertionError("BounceShift called without an organization id")
+
+    async def no_smtp(email):
+        return None
+    monkeypatch.setattr(ef, "verify_bounceshift", boom)
+    monkeypatch.setattr(ef, "verify_email_smtp", no_smtp)
+
+    result = await find_email(
+        "Jane", "Doe", "acme.com", env=Env(bounceshift="tok"), state=state
+    )
+    assert result.status == "guess"
 
 
 @pytest.mark.asyncio

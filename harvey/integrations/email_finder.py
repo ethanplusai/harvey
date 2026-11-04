@@ -10,8 +10,8 @@ permutation, this pipeline:
    free domain-search, then known addresses scraped off the site, else a
    sensible default — collapsing N guesses to one candidate.
 3. Verifies that single candidate through the best available channel for
-   the domain type: a real-verdict API (Reoon, ZeroBounce for the big
-   providers), Hunter, or SMTP for small self-hosted servers.
+   the domain type: a real-verdict API (Reoon, BounceShift, ZeroBounce for
+   the big providers), Hunter, or SMTP for small self-hosted servers.
 4. Detects catch-all domains and buckets them as ``risky`` instead of
    pretending they're verified.
 
@@ -558,6 +558,55 @@ async def verify_zerobounce(email: str, api_key: str) -> Optional[dict]:
     return {"status": status, "catch_all": sub == "catch-all" or status == "catch-all"}
 
 
+# BounceShift statuses that mean "never send to this address".
+_BOUNCESHIFT_BAD = {"invalid", "disposable", "spamtrap", "abuse", "do_not_mail"}
+
+
+async def verify_bounceshift(email: str, api_key: str, organization_id: str) -> Optional[dict]:
+    """BounceShift — pay-as-you-go verifier (100 free credits that never expire).
+
+    Returns {'status': ..., 'catch_all': bool} or None if unavailable.
+    Statuses: valid / invalid / risky / catch_all / unknown / disposable /
+    spamtrap / abuse / do_not_mail. ``risky`` is BounceShift's "not safe to
+    send" bucket for deliverable-but-unconfirmed addresses, so it grades as
+    Harvey's ``risky`` (``send_to_risky`` decides). A ``valid`` verdict wins
+    even on an accept-all domain: BounceShift confirms the exact Microsoft
+    365 account there. ``unknown`` stays inconclusive.
+    """
+    try:
+        async with httpx.AsyncClient(timeout=API_TIMEOUT) as client:
+            resp = await client.post(
+                "https://api.bounceshift.com/v1/validate/single",
+                json={"email": email},
+                headers={
+                    "Authorization": f"Bearer {api_key}",
+                    "X-Organization-ID": organization_id,
+                    "Accept": "application/json",
+                },
+            )
+    except httpx.HTTPError as e:
+        logger.debug(f"BounceShift request failed for {email}: {e}")
+        return None
+    if resp.status_code != 200:
+        # 401/403 bad token or organization, 402 out of credits, 429 rate limit.
+        logger.debug(f"BounceShift returned HTTP {resp.status_code} for {email}")
+        return None
+    try:
+        data = resp.json()
+    except ValueError:
+        return None
+    if not isinstance(data, dict):
+        return None
+    status = str(data.get("status") or "").lower().replace("-", "_")
+    if status in _BOUNCESHIFT_BAD:
+        return {"status": "invalid", "catch_all": False}
+    if status == "valid":
+        return {"status": "valid", "catch_all": False}
+    if status in ("catch_all", "risky"):
+        return {"status": "catch_all", "catch_all": data.get("is_catch_all") is True or status == "catch_all"}
+    return {"status": "unknown", "catch_all": False}
+
+
 async def verify_hunter(email: str, api_key: str) -> Optional[dict]:
     try:
         async with httpx.AsyncClient(timeout=API_TIMEOUT) as client:
@@ -648,18 +697,23 @@ async def _verify_candidate(email: str, mx_type: str, env) -> tuple[Optional[str
     """
     reoon_key = getattr(env, "reoon_api_key", "") if env else ""
     zerobounce_key = getattr(env, "zerobounce_api_key", "") if env else ""
+    bounceshift_key = getattr(env, "bounceshift_api_key", "") if env else ""
+    bounceshift_org = getattr(env, "bounceshift_organization_id", "") if env else ""
+    use_bounceshift = bool(bounceshift_key and bounceshift_org)
     hunter_key = _hunter_api_key()
 
     catch_all_seen = False
 
     # Big providers: ZeroBounce first (its engine cracks their catch-alls),
-    # then Reoon, then Hunter. SMTP is useless/misleading here.
+    # then Reoon, then BounceShift, then Hunter. SMTP is useless/misleading here.
     if mx_type in ("google", "microsoft", "gateway"):
         channels = []
         if zerobounce_key:
             channels.append(lambda: verify_zerobounce(email, zerobounce_key))
         if reoon_key:
             channels.append(lambda: verify_reoon(email, reoon_key))
+        if use_bounceshift:
+            channels.append(lambda: verify_bounceshift(email, bounceshift_key, bounceshift_org))
         if hunter_key:
             channels.append(lambda: verify_hunter(email, hunter_key))
         for channel in channels:
@@ -673,9 +727,18 @@ async def _verify_candidate(email: str, mx_type: str, env) -> tuple[Optional[str
                 return status, catch_all_seen
         return None, catch_all_seen
 
-    # Small / self-hosted: Reoon → SMTP (still works here) → Hunter.
+    # Small / self-hosted: Reoon → BounceShift → SMTP (still works here) → Hunter.
     if reoon_key:
         verdict = await verify_reoon(email, reoon_key)
+        if verdict:
+            if verdict.get("catch_all"):
+                catch_all_seen = True
+            status = _status_from_verdict(verdict)
+            if status is not None:
+                return status, catch_all_seen
+
+    if use_bounceshift:
+        verdict = await verify_bounceshift(email, bounceshift_key, bounceshift_org)
         if verdict:
             if verdict.get("catch_all"):
                 catch_all_seen = True

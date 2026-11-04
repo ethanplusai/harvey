@@ -1261,6 +1261,8 @@ async function loadSettings() {
   savedPh('reoon-key', data.reoon_api_key_set, '600 free/mo — reoon.com/email-verifier');
   savedPh('zerobounce-key', data.zerobounce_api_key_set, '100 free/mo — best for M365/Workspace catch-alls');
   savedPh('hunter-key', data.hunter_api_key_set, '50 free/mo + email-pattern lookup');
+  savedPh('bounceshift-key', data.bounceshift_api_key_set, '100 free credits that never expire — bounceshift.com');
+  document.getElementById('bounceshift-org').value = data.bounceshift_organization_id || '';
   savedPh('linkedin-password', data.linkedin_password_set, 'Enter password');
   savedPh('cf-api-token', data.cloudflare_api_token_set, 'Your Cloudflare API Token');
 
@@ -1280,6 +1282,7 @@ async function loadSettings() {
   tag('reoon-status', data.reoon_api_key_set, 'set');
   tag('zerobounce-status', data.zerobounce_api_key_set, 'set');
   tag('hunter-status', data.hunter_api_key_set, 'set');
+  tag('bounceshift-status', data.bounceshift_api_key_set && !!data.bounceshift_organization_id, 'set');
 }
 
 function saveGmail() {
@@ -1321,9 +1324,13 @@ function saveVerifiers() {
   const r = document.getElementById('reoon-key').value;
   const z = document.getElementById('zerobounce-key').value;
   const h = document.getElementById('hunter-key').value;
+  const b = document.getElementById('bounceshift-key').value;
+  const bOrg = document.getElementById('bounceshift-org').value.trim();
   if (r) payload.REOON_API_KEY = r;
   if (z) payload.ZEROBOUNCE_API_KEY = z;
   if (h) payload.HUNTER_API_KEY = h;
+  if (b) payload.BOUNCESHIFT_API_KEY = b;
+  if (bOrg) payload.BOUNCESHIFT_ORGANIZATION_ID = bOrg;
   if (!Object.keys(payload).length) { showToast('Enter at least one key first.', 'error'); return; }
   saveEnv(payload, 'Verification keys saved.').then(loadSettings);
 }

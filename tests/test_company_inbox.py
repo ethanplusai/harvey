@@ -106,6 +106,71 @@ async def test_reoon_role_account_needs_a_real_deliverable_flag(monkeypatch, del
     assert verdict["status"] == expected
 
 
+def _bounceshift_client(payload, status_code=200, seen=None):
+    class Resp:
+        def __init__(self):
+            self.status_code = status_code
+
+        def json(self):
+            return payload
+
+    class Client:
+        def __init__(self, **kw):
+            pass
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *a):
+            return False
+
+        async def post(self, url, json=None, headers=None):
+            if seen is not None:
+                seen.update(url=url, json=json, headers=headers)
+            return Resp()
+
+    return Client
+
+
+@pytest.mark.parametrize("payload, expected", [
+    ({"status": "valid", "is_catch_all": False}, "verified"),
+    # Exact M365 account confirmed on an accept-all domain: still verified.
+    ({"status": "valid", "sub_status": "m365_mailbox_verified", "is_catch_all": True}, "verified"),
+    ({"status": "catch_all", "is_catch_all": True}, "risky"),
+    ({"status": "risky", "is_catch_all": None}, "risky"),
+    ({"status": "invalid"}, "invalid"),
+    ({"status": "disposable"}, "invalid"),
+    ({"status": "spamtrap"}, "invalid"),
+    ({"status": "abuse"}, "invalid"),
+    ({"status": "do_not_mail"}, "invalid"),
+    ({"status": "unknown", "sub_status": "greylisted"}, None),
+])
+@pytest.mark.asyncio
+async def test_bounceshift_verdicts(monkeypatch, payload, expected):
+    monkeypatch.setattr(ef.httpx, "AsyncClient", _bounceshift_client(payload))
+    verdict = await ef.verify_bounceshift("jane@acme.com", "tok", "7")
+    assert ef._status_from_verdict(verdict) == expected
+
+
+@pytest.mark.asyncio
+async def test_bounceshift_sends_token_and_organization(monkeypatch):
+    seen = {}
+    monkeypatch.setattr(ef.httpx, "AsyncClient", _bounceshift_client({"status": "valid"}, seen=seen))
+    await ef.verify_bounceshift("jane@acme.com", "tok", "7")
+    assert seen["url"] == "https://api.bounceshift.com/v1/validate/single"
+    assert seen["json"] == {"email": "jane@acme.com"}
+    assert seen["headers"]["Authorization"] == "Bearer tok"
+    assert seen["headers"]["X-Organization-ID"] == "7"
+
+
+@pytest.mark.parametrize("code", [401, 402, 403, 429, 500])
+@pytest.mark.asyncio
+async def test_bounceshift_errors_are_unavailable(monkeypatch, code):
+    """Bad token, no credits, rate limit: fall through to the next verifier."""
+    monkeypatch.setattr(ef.httpx, "AsyncClient", _bounceshift_client({"error": "x"}, status_code=code))
+    assert await ef.verify_bounceshift("jane@acme.com", "tok", "7") is None
+
+
 # ── scout ──
 
 PAGES = {
