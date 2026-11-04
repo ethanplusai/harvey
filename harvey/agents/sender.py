@@ -31,7 +31,8 @@ from harvey.integrations.signature import signature_problem
 from harvey.sending_mode import SIGNATURE_HOLD_PREFIX, sync_sending_mode
 from harvey.state import (
     AUTOPILOT_OFF_REASON, COLLEAGUE_REPLIED, HAND_SENT_REASON, HELD_FOR_REVIEW,
-    MANUAL_SEND_KEY, MAYBE_SENT_PREFIX, RECHECK_PREFIX, StateManager,
+    INSTANTLY_RETRY_PREFIX, INSTANTLY_RETRY_COOLDOWN, MANUAL_SEND_KEY,
+    MAYBE_SENT_PREFIX, RECHECK_PREFIX, StateManager,
 )
 
 # A follow-up waits at least this long after the email it follows went out,
@@ -114,6 +115,29 @@ class Sender:
             self.config.channels.email.provider in NATIVE_PROVIDERS
             and self.provider is not None
         )
+
+    # ── Instantly deploy retry cooldown (persistent, settings-backed) ──
+
+    def _retry_key(self, campaign_id: str) -> str:
+        return INSTANTLY_RETRY_PREFIX + campaign_id
+
+    async def _retry_after(self, campaign_id: str) -> datetime | None:
+        return await self.state.get_instantly_retry_after(campaign_id)
+
+    async def _set_retry_after(self, campaign_id: str):
+        """Stamp a persistent retry cooldown after a transient deploy failure."""
+        await self.state.set_instantly_retry_after(
+            campaign_id, _utcnow() + INSTANTLY_RETRY_COOLDOWN)
+
+    async def _clear_retry_after(self, campaign_id: str):
+        """Clear a campaign's retry cooldown after a successful deploy."""
+        await self.state.clear_instantly_retry_after(campaign_id)
+
+    async def _in_cooldown(self, campaign_id: str) -> bool:
+        retry_after = await self._retry_after(campaign_id)
+        if retry_after is None:
+            return False
+        return _utcnow() < retry_after
 
     async def _send_zone(self, prospect, country: str = "", given: str = "",
                          names: tuple[str, str] = ("", "")) -> str:
@@ -283,10 +307,15 @@ class Sender:
             return
 
         for campaign in draft_campaigns:
+            if await self._in_cooldown(campaign.id):
+                logger.info(
+                    f"Sender: Campaign '{campaign.name}' is in deploy cooldown; skipping.")
+                continue
             try:
                 await self._deploy_campaign(campaign)
             except Exception as e:
                 logger.error(f"Sender: Failed to deploy campaign {campaign.name}: {e}")
+                await self._set_retry_after(campaign.id)
 
     def _validate_sequence(self, campaign) -> bool:
         """Never deploy a broken or empty sequence."""
@@ -369,11 +398,13 @@ class Sender:
             instantly_campaign = await self.instantly.create_campaign(campaign.name)
             if not instantly_campaign or not isinstance(instantly_campaign, dict):
                 logger.error(f"Sender: Failed to create Instantly campaign: {campaign.name}")
+                await self._set_retry_after(campaign.id)
                 return
 
             campaign_id = instantly_campaign.get("id")
             if not campaign_id:
                 logger.error("Sender: No campaign ID returned from Instantly.")
+                await self._set_retry_after(campaign.id)
                 return
 
             # Persist the ID immediately so a crash mid-deploy resumes this
@@ -395,6 +426,7 @@ class Sender:
         result = await self.instantly.set_campaign_emails(campaign_id, sequences)
         if result is None:
             logger.error(f"Sender: Failed to set emails for campaign {campaign_id}")
+            await self._set_retry_after(campaign.id)
             return
 
         # 3. Add leads — validated, deduped, never-contacted, deliverable-only
@@ -458,6 +490,8 @@ class Sender:
                 if await self.instantly.activate_campaign(campaign_id) is not None:
                     await self.state.update_campaign(campaign.id, status="active")
                     logger.info(f"Sender: Campaign '{campaign.name}' activated on retry.")
+                else:
+                    await self._set_retry_after(campaign.id)
                 return
             logger.warning(f"Sender: No valid prospects for campaign {campaign.name}")
             return
@@ -495,6 +529,7 @@ class Sender:
         result = await self.instantly.add_leads(campaign_id, leads)
         if result is None:
             logger.error(f"Sender: Failed to add leads to campaign {campaign_id}")
+            await self._set_retry_after(campaign.id)
             return
 
         # Mark prospects as contacted BEFORE activation: if activation
@@ -510,6 +545,7 @@ class Sender:
                 f"Sender: Failed to activate campaign {campaign_id}. "
                 "Leads are staged; will retry activation next cycle."
             )
+            await self._set_retry_after(campaign.id)
             return
 
         # 5. Update our records
@@ -518,6 +554,7 @@ class Sender:
             instantly_campaign_id=campaign_id,
             status="active",
         )
+        await self._clear_retry_after(campaign.id)
 
         await self.state.log_action(
             action_type="send_campaign",
