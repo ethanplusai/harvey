@@ -31,7 +31,7 @@ import logging
 import random
 import re
 from datetime import datetime, timezone
-from urllib.parse import parse_qs, quote_plus, urlparse
+from urllib.parse import quote_plus, urlparse
 
 import httpx
 from bs4 import BeautifulSoup
@@ -46,6 +46,7 @@ from harvey.integrations.email_finder import (
     verify_published_address,
 )
 from harvey.integrations.linkedin import LinkedInAutomation
+from harvey.integrations.web_search import filter_site_results, parse_bing, parse_duckduckgo
 from harvey.models.company import Company
 from harvey.models.prospect import COMPANY_INBOX_SOURCE, Prospect
 from harvey.public_http import public_http_client
@@ -382,7 +383,7 @@ class Scout:
 
         for backend in backends:
             try:
-                results = await backend()
+                results = filter_site_results(await backend(), query)
             except Exception as e:
                 logger.debug(f"Search backend raised: {e}")
                 results = []
@@ -464,35 +465,13 @@ class Scout:
         return results[:MAX_RESULTS_PER_QUERY]
 
     async def _search_duckduckgo(self, query: str) -> list[tuple[str, str]]:
-        """Search via DuckDuckGo HTML — free, no rate limiting."""
+        """Search DuckDuckGo HTML; a challenge is not an empty result page."""
         url = f"https://html.duckduckgo.com/html/?q={quote_plus(query)}"
         resp = await self._fetch(url)
         if resp is None:
             return []
 
-        soup = self._safe_soup(resp.text)
-        if soup is None:
-            return []
-
-        results = []
-        for result in soup.select(".result"):
-            link = result.select_one(".result__a")
-            snippet_el = result.select_one(".result__snippet")
-            if not (link and link.get("href")):
-                continue
-            href = self._attr_str(link.get("href"))
-            # DDG wraps URLs in a redirect — extract the real URL.
-            if "uddg=" in href:
-                try:
-                    params = parse_qs(urlparse(href).query)
-                    real = params.get("uddg", [])
-                    if real:
-                        href = real[0]
-                except Exception:
-                    pass
-            snippet = snippet_el.get_text().strip() if snippet_el else ""
-            if href.startswith("http"):
-                results.append((href, snippet))
+        results = filter_site_results(parse_duckduckgo(resp.text), query)
 
         if results:
             logger.debug(f"DuckDuckGo returned {len(results)} results")
@@ -505,20 +484,7 @@ class Scout:
         if resp is None:
             return []
 
-        soup = self._safe_soup(resp.text)
-        if soup is None:
-            return []
-
-        results = []
-        for item in soup.select("li.b_algo"):
-            link = item.select_one("h2 a")
-            snippet_el = item.select_one(".b_caption p")
-            if not (link and link.get("href")):
-                continue
-            href = self._attr_str(link.get("href"))
-            snippet = snippet_el.get_text().strip() if snippet_el else ""
-            if href.startswith("http"):
-                results.append((href, snippet))
+        results = filter_site_results(parse_bing(resp.text), query)
 
         if results:
             logger.debug(f"Bing returned {len(results)} results")
