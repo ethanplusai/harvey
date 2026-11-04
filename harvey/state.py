@@ -49,6 +49,11 @@ HELD_FOR_REVIEW = "held for your review: "
 # Set while the heartbeat holds sending because replies couldn't all be read
 # (JSON: since, last_seen, reason), so Today and `harvey status` can say so.
 SENDS_HELD_KEY = "sends_held"
+# Namespaced settings key for a per-campaign Instantly deploy retry cooldown.
+# Value is an ISO timestamp after which the campaign may be deployed again.
+INSTANTLY_RETRY_PREFIX = "instantly_deploy_retry_after:"
+# Initial cooldown after a transient Instantly deployment failure.
+INSTANTLY_RETRY_COOLDOWN = timedelta(minutes=5)
 # Outbox error on a sequence email cancelled because someone else at the
 # company replied: one answer from a company stops the cold email to all of it.
 COLLEAGUE_REPLIED = "a colleague replied"
@@ -2101,6 +2106,38 @@ class StateManager:
         await self.set_setting(key, str(value))
         return value
 
+    async def get_instantly_retry_after(self, campaign_id: str) -> datetime | None:
+        """The retry timestamp for an Instantly campaign, or None when it is
+        deployable (no cooldown recorded, or it has expired)."""
+        value = await self.get_setting(INSTANTLY_RETRY_PREFIX + campaign_id)
+        return self._parse_retry_timestamp(value)
+
+    @staticmethod
+    def _parse_retry_timestamp(value: str) -> datetime | None:
+        """Parse a stored retry timestamp into a naive UTC datetime.
+
+        Handles timezone-aware ISO strings (converted to naive UTC) and
+        legacy timezone-naive strings. Returns None for empty or malformed
+        values so a bad timestamp never crashes deployment eligibility checks.
+        """
+        if not value:
+            return None
+        try:
+            dt = datetime.fromisoformat(value)
+        except (ValueError, TypeError):
+            return None
+        if dt.tzinfo is not None:
+            dt = dt.astimezone(timezone.utc).replace(tzinfo=None)
+        return dt
+
+    async def set_instantly_retry_after(self, campaign_id: str, retry_after: datetime):
+        """Record when an Instantly campaign may next be deployed."""
+        await self.set_setting(INSTANTLY_RETRY_PREFIX + campaign_id, retry_after.isoformat())
+
+    async def clear_instantly_retry_after(self, campaign_id: str):
+        """Clear a campaign's retry cooldown, e.g. after a successful deploy."""
+        await self.delete_setting(INSTANTLY_RETRY_PREFIX + campaign_id)
+
     async def prospect_exists(
         self, email: str = "", linkedin_url: str = "",
         first_name: str = "", last_name: str = "", company: str = "",
@@ -2609,6 +2646,42 @@ class StateManager:
                 row = await cursor.fetchone()
                 draft_campaigns = row[0] or 0
                 active_campaigns = row[1] or 0
+
+            # Drafts whose Instantly deploy retry cooldown hasn't expired are
+            # not deployable this cycle; they must not starve the writer/scout.
+            # The cooldown key is namespaced "instantly_deploy_retry_after:" and
+            # is only ever written by the Instantly deploy path in sender.py, so
+            # native Gmail/SMTP draft campaigns never carry such a key and retain
+            # their existing deployability behaviour.
+            draft_ids: list[str] = []
+            if draft_campaigns:
+                async with db.execute(
+                    "SELECT id FROM campaigns WHERE status = 'draft'"
+                ) as cursor:
+                    draft_ids = [r[0] for r in await cursor.fetchall()]
+            retry_map: dict[str, str] = {}
+            if draft_ids:
+                placeholders = ",".join("?" * len(draft_ids))
+                async with db.execute(
+                    f"SELECT key, value FROM settings WHERE key IN ({placeholders})",
+                    [INSTANTLY_RETRY_PREFIX + cid for cid in draft_ids],
+                ) as cursor:
+                    retry_map = {
+                        key[len(INSTANTLY_RETRY_PREFIX):]: value
+                        for key, value in await cursor.fetchall()
+                    }
+            now = _utcnow()
+            deployable_draft_campaigns = 0
+            for cid in draft_ids:
+                value = retry_map.get(cid)
+                retry_after = self._parse_retry_timestamp(value)
+                if retry_after is None:
+                    # No cooldown recorded, or malformed timestamp: treat as deployable.
+                    deployable_draft_campaigns += 1
+                    continue
+                if now >= retry_after:
+                    deployable_draft_campaigns += 1
+
             async with db.execute(
                 "SELECT COUNT(*) FROM conversations WHERE status = 'open'"
             ) as cursor:
@@ -2634,6 +2707,8 @@ class StateManager:
             # prospecting for the day when these alone fill the backlog.
             "recent_unusable_prospects": await self.count_recent_unusable_prospects(),
             "draft_campaigns": draft_campaigns,
+            # Drafts not currently in an Instantly deploy retry cooldown.
+            "deployable_draft_campaigns": deployable_draft_campaigns,
             "active_campaigns": active_campaigns,
             # The kill switch: native sending stages nothing while it's set.
             "sending_paused": bool(await self.get_setting("sending_paused")),

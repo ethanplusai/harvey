@@ -163,17 +163,31 @@ async def decide_next_action(
     # Drafts that can't deploy must not win the cycle: choosing send_campaign
     # for them every cycle would starve the writer and scout forever. That's
     # held Instantly drafts, any draft with the email channel off (the
-    # list-building setup), and native drafts while the kill switch is set
-    # (the Sender stages nothing until sending resumes).
+    # list-building setup), native drafts while the kill switch is set
+    # (the Sender stages nothing until sending resumes), and Instantly drafts
+    # still in a transient retry cooldown.
     email = getattr(getattr(config, "channels", None), "email", None)
     native_paused = (summary.get("sending_paused")
                      and getattr(email, "provider", "") != "instantly")
     held = (legacy_sending_held(config) or native_paused
             or not getattr(email, "enabled", True))
-    deployable = 0 if held else draft_campaigns
+    # The retry cooldown key is only ever written by the Instantly deploy path
+    # in sender.py, so native Gmail/SMTP drafts never carry one. When the
+    # provider is Instantly, defer to deployable_draft_campaigns so an old
+    # cooldown set while Instantly was active can't starve a later native
+    # sending workflow; otherwise use the original draft count unchanged.
+    provider = getattr(email, "provider", "")
+    if provider == "instantly":
+        deployable_draft_campaigns = summary.get("deployable_draft_campaigns")
+        if deployable_draft_campaigns is None:
+            # Backward compatibility for callers/builders that predate this field.
+            deployable_draft_campaigns = draft_campaigns
+    else:
+        deployable_draft_campaigns = draft_campaigns
+    deployable = 0 if held else deployable_draft_campaigns
 
     if deployable > 0:
-        action, reason = "send_campaign", f"{draft_campaigns} draft campaign(s) ready to deploy"
+        action, reason = "send_campaign", f"{deployable_draft_campaigns} draft campaign(s) ready to deploy"
     elif writable > 0:
         action, reason = "write_campaign", f"{writable} new prospect(s) with no drafts ready"
     elif unusable_backlog_notice(summary):
