@@ -1489,6 +1489,19 @@ class StateManager:
                 last = (await cursor.fetchone())[0]
         await self.set_setting("mailbox_bounces_since", str(last))
 
+    async def count_mailbox_bounces(self, since: str, after_row: int = 0) -> int:
+        """Bounces of mail Harvey didn't send, at or after ``since`` and after
+        log position ``after_row``. Includes bounces older versions logged as
+        'bounce' with no address matched (prospect "unknown")."""
+        async with self._connect() as db:
+            async with db.execute(
+                "SELECT COUNT(*) FROM actions WHERE created_at >= ? AND rowid > ? AND ("
+                "action_type = 'bounce_ignored' OR (action_type = 'bounce' AND "
+                "COALESCE(json_extract(details_json, '$.prospect'), 'unknown') = 'unknown'))",
+                (since, int(after_row or 0)),
+            ) as cursor:
+                return (await cursor.fetchone())[0]
+
     async def count_actions_since(self, action_type: str, since: str, after_row: int = 0) -> int:
         """Logged actions of one type at or after ``since`` (UTC,
         'YYYY-MM-DD HH:MM:SS', as actions.created_at stores it) and logged

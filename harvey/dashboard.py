@@ -1068,48 +1068,72 @@ async def _with_context(items: list[dict]) -> list[dict]:
 
 async def _recent_bounces() -> dict:
     """Harvey's own bounces (address, reason, how it was found, what to
-    tighten) and how many bounces of other mail in the inbox were ignored."""
+    tighten), how many bounces of other mail were ignored, and both monitors."""
     rows = await query_db(
         "SELECT action_type, details_json, created_at FROM actions "
         "WHERE action_type IN ('bounce', 'bounce_ignored') "
         "ORDER BY created_at DESC LIMIT 50")
     bounces, ignored = [], 0
     for row in rows:
-        if row["action_type"] == "bounce_ignored":
-            ignored += 1
-            continue
         try:
             details = json.loads(row.get("details_json") or "{}")
         except (TypeError, ValueError):
             details = {}
-        if isinstance(details, dict):
-            bounces.append({**details, "at": row.get("created_at")})
+        if not isinstance(details, dict):
+            details = {}
+        # Older versions logged other mail's bounces as 'bounce' with no address.
+        if row["action_type"] == "bounce_ignored" or details.get("prospect", "unknown") == "unknown":
+            ignored += 1
+            continue
+        bounces.append({**details, "at": row.get("created_at")})
     return {"bounces": bounces[:25], "bounces_ignored": ignored,
             "bounce_stats": await _bounce_stats()}
 
 
 async def _bounce_stats() -> dict:
-    """Both bounce monitors as the kill switch sees them: Harvey's own bounce
-    rate, and bounces of other mail in the mailbox within the window."""
+    """Both bounce monitors as the kill switch sees them, and where each
+    limit is set: Harvey's own bounce rate, and bounces of other mail in the
+    mailbox within the window."""
+    from harvey.agents.handler import MIN_SENDS_FOR_KILL_SWITCH
     from harvey.bounces import MAILBOX_SINCE_KEY, mailbox_window_start, resumed_after_row
+    from harvey.config import EmailChannelConfig
+    defaults = EmailChannelConfig()
+    config_file = _resolve_config_file().name
     try:
         from harvey.config import load_config
         email = load_config(str(_resolve_config_file())).channels.email
         rate, limit, days = email.max_bounce_rate, email.mailbox_bounce_limit, email.mailbox_bounce_days
     except Exception:
-        rate, limit, days = 0.05, 10, 7
+        rate, limit, days = defaults.max_bounce_rate, defaults.mailbox_bounce_limit, defaults.mailbox_bounce_days
     state = _state()
     await state.init_db()
     bounced = int(await state.get_setting("bounce_count") or 0)
     sent = await state.count_outbox_sent()
     return {
+        "config_file": config_file,
         "harvey": {"bounced": bounced, "sent": sent, "limit_rate": rate,
-                   "rate": round(bounced / sent, 4) if sent else 0.0},
-        "mailbox": {"count": await state.count_actions_since(
-                        "bounce_ignored", mailbox_window_start(days),
+                   "rate": round(bounced / sent, 4) if sent else 0.0,
+                   "min_sends": MIN_SENDS_FOR_KILL_SWITCH,
+                   "setting": "channels.email.max_bounce_rate",
+                   "default": defaults.max_bounce_rate},
+        "mailbox": {"count": await state.count_mailbox_bounces(
+                        mailbox_window_start(days),
                         resumed_after_row(await state.get_setting(MAILBOX_SINCE_KEY))),
-                    "limit": limit, "days": days},
+                    "limit": limit, "days": days,
+                    "setting": "channels.email.mailbox_bounce_limit",
+                    "days_setting": "channels.email.mailbox_bounce_days",
+                    "default": defaults.mailbox_bounce_limit,
+                    "default_days": defaults.mailbox_bounce_days},
     }
+
+
+@app.get("/api/bounces")
+async def get_bounces():
+    """Bounces and the two monitors that can pause sending, for Controls."""
+    try:
+        return await _recent_bounces()
+    except Exception as e:
+        return {"error": str(e)}
 
 
 @app.get("/api/outbox")
@@ -1135,7 +1159,6 @@ async def get_outbox_api():
             "failed": (await query_db(
                 "SELECT * FROM outbox WHERE status IN ('failed','rejected','cancelled') "
                 "ORDER BY updated_at DESC LIMIT 25")),
-            **(await _recent_bounces()),
         }
     except Exception as e:
         return {"error": str(e)}

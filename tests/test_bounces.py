@@ -129,7 +129,7 @@ def test_outbox_lists_bounces_and_ignored_count(client):
             "suggestions": ["Add a second verifier"]})
         await s.log_action("bounce_ignored", "handler", {"subject": "Undeliverable: other mail"})
     asyncio.run(seed())
-    data = client.get("/api/outbox").json()
+    data = client.get("/api/bounces").json()
     assert [x["prospect"] for x in data["bounces"]] == ["jane@acme.com"]
     assert data["bounces"][0]["suggestions"] == ["Add a second verifier"]
     assert data["bounces_ignored"] == 1
@@ -223,8 +223,30 @@ def test_outbox_shows_both_monitors(client):
             await s.log_action("bounce_ignored", "handler", {"subject": "Undeliverable: other"})
         await s.set_setting("bounce_count", "1")
     asyncio.run(seed())
-    stats = client.get("/api/outbox").json()["bounce_stats"]
-    assert stats["mailbox"] == {"count": 2, "limit": 10, "days": 7}
+    stats = client.get("/api/bounces").json()["bounce_stats"]
+    assert {k: stats["mailbox"][k] for k in ("count", "limit", "days")} == {"count": 2, "limit": 10, "days": 7}
+    assert stats["mailbox"]["setting"] == "channels.email.mailbox_bounce_limit" and stats["mailbox"]["default"] == 10
+    assert stats["harvey"]["setting"] == "channels.email.max_bounce_rate" and stats["harvey"]["min_sends"] == 10
     assert stats["harvey"]["bounced"] == 1 and stats["harvey"]["limit_rate"] == 0.05
     client.post("/api/sending/resume")
-    assert client.get("/api/outbox").json()["bounce_stats"]["mailbox"]["count"] == 0
+    assert client.get("/api/bounces").json()["bounce_stats"]["mailbox"]["count"] == 0
+    assert "bounces" not in client.get("/api/outbox").json()   # bounces live on Controls
+
+
+def test_older_unmatched_bounce_records_count_as_other_mail(client):
+    """Before this change, a bounce Harvey couldn't match was logged as
+    'bounce' with prospect "unknown". Those are other mail: not listed as
+    Harvey's, and counted by the mailbox monitor."""
+    import asyncio
+
+    from harvey.state import StateManager
+
+    async def seed():
+        s = StateManager(str(client.db))
+        await s.init_db()
+        for _ in range(3):
+            await s.log_action("bounce", "handler", {"prospect": "unknown", "bounces": 1, "total_sent": 13})
+    asyncio.run(seed())
+    data = client.get("/api/bounces").json()
+    assert data["bounces"] == [] and data["bounces_ignored"] == 3
+    assert data["bounce_stats"]["mailbox"]["count"] == 3

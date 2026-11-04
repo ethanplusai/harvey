@@ -9,8 +9,8 @@ minor versions can still change behaviour.
 
 ### Added
 
-- **See which email bounced, and what to tighten.** The Outbox has a
-  **Bounces** list: the address and company, why the receiving server
+- **See which email bounced, and what to tighten.** Controls has a
+  **Bounces** panel: the address and company, why the receiving server
   returned it (the reason line from the bounce, read as "mailbox doesn't
   exist", "mailbox full" or "refused by their server"), how Harvey found the
   address and whether it was verified or catch-all when sent. Opening one
@@ -25,8 +25,10 @@ minor versions can still change behaviour.
   say the mailbox's reputation is at risk. `channels.email.mailbox_bounce_limit`
   (10) within `mailbox_bounce_days` (7) pauses sending through the same kill
   switch, with a reason that says to check the mailbox or move Harvey to
-  another one; 0 turns it off. The Outbox shows both monitors side by side,
-  and resuming starts both afresh.
+  another one; 0 turns it off. Controls → Bounces shows both monitors side
+  by side with the setting behind each limit, and resuming starts both
+  afresh. Bounces older versions logged without an address count as other
+  mail.
 - **Read every email in the Outbox lists.** Rows under Approved & scheduled,
   Recently sent and Didn't send open the email underneath: subject,
   recipient, step, when, and the body.

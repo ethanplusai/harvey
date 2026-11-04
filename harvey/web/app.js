@@ -418,7 +418,7 @@ function loadCurrentTab() {
     case 'activity': loadActivity(); break;
     case 'usage': loadUsage(); break;
     case 'settings': loadSettings(); loadSendingModeCard(); break;
-    case 'controls': loadHarveyStatus(); loadLogs(); break;
+    case 'controls': loadHarveyStatus(); loadLogs(); loadBounces(); break;
   }
 }
 
@@ -1672,7 +1672,6 @@ async function loadOutbox() {
   };
 
   list.innerHTML =
-    bouncesSection(data) +
     table('Approved &amp; scheduled', data.approved, [
       ['To', r => r.to_email], ['Step', r => r.step], ['Subject', r => r.subject],
       ['Sends', r => r.status === 'sending' ? badge(r.status) : escHtml(formatDate(r.send_at)), true, true],
@@ -1685,40 +1684,65 @@ async function loadOutbox() {
       ['To', r => r.to_email], ['Status', r => badge(r.status), false, true],
       ['Reason', r => r.error, true], ['Updated', r => formatDate(r.updated_at), true],
     ], r => mailPreview(r, r.error ? 'Why: ' + r.error : ''));
-
-  // Bounces: which address, why, and what to tighten.
-  function bouncesSection(d) {
-    const rows = d.bounces || [];
-    const monitors = bounceMonitors(d.bounce_stats);
-    if (!rows.length) return monitors ? '<div class="subhead">Bounces</div>' + monitors : '';
-    return table('Bounces', rows, [
-      ['Address', r => r.prospect], ['Company', r => r.company],
-      ['Why', r => BOUNCE_KINDS[r.kind] || 'returned', true],
-      ['Found by', r => r.found_by, true], ['Bounced', r => formatDate(r.at), true],
-    ], bounceDetail) + monitors;
-  }
 }
 
-// The two bounce monitors that can pause sending, side by side.
+// The two bounce monitors that can pause sending, side by side, each with
+// where its limit is set.
 function bounceMonitors(s) {
-  if (!s || (!s.harvey.sent && !s.mailbox.count)) return '';
-  const h = s.harvey, m = s.mailbox;
+  if (!s) return '';
+  const h = s.harvey, m = s.mailbox, file = escHtml(s.config_file || 'harvey.yaml');
   const pct = x => (Math.round(x * 1000) / 10) + '%';
-  const harveyOver = h.limit_rate > 0 && h.sent >= 10 && h.rate > h.limit_rate;
+  const harveyOver = h.limit_rate > 0 && h.sent >= h.min_sends && h.rate > h.limit_rate;
   const mailboxOver = m.limit > 0 && m.count >= m.limit;
-  const card = (title, value, note, over) =>
+  const card = (title, value, note, source, over) =>
     '<div class="monitor' + (over ? ' over' : '') + '"><div class="muted">' + title + '</div>' +
-    '<div class="monitor-value">' + value + '</div><div class="muted">' + note + '</div></div>';
+    '<div class="monitor-value">' + value + '</div><div class="muted">' + note + '</div>' +
+    '<div class="monitor-source">' + source + '</div></div>';
   return '<div class="bounce-monitors">' +
     card("Harvey's emails", h.bounced + ' of ' + h.sent + ' bounced (' + pct(h.rate) + ')',
-         h.limit_rate > 0 ? 'Pauses above ' + pct(h.limit_rate) + ' (after 10 sends)' : 'Monitor off', harveyOver) +
-    card('Other mail in this mailbox', m.count + ' bounce' + (m.count === 1 ? '' : 's') +
-         ' in ' + m.days + ' days',
-         m.limit > 0 ? 'Pauses at ' + m.limit + ' (another tool or your own mail bouncing)' : 'Monitor off',
+         h.limit_rate > 0 ? 'Pauses sending above ' + pct(h.limit_rate) + ', once ' + h.min_sends + ' have been sent'
+                          : 'Monitor off',
+         'Set by <code>' + escHtml(h.setting) + '</code> in ' + file + ' (default ' + pct(h.default) + '; 0 turns it off)',
+         harveyOver) +
+    card('Other mail in this mailbox', m.count + ' bounce' + (m.count === 1 ? '' : 's') + ' in the last ' + m.days + ' days',
+         m.limit > 0 ? 'Pauses sending at ' + m.limit + ': another tool may be sending from this mailbox, or your own mail is bouncing'
+                     : 'Monitor off',
+         'Set by <code>' + escHtml(m.setting) + '</code> (default ' + m.default + '; 0 turns it off) and <code>' +
+           escHtml(m.days_setting) + '</code> (default ' + m.default_days + ' days) in ' + file +
+           '. Resuming sending starts the count again.',
          mailboxOver) +
     '</div>';
 }
 
+// Controls → Bounces: the monitors, then Harvey's own bounces (open one for
+// the server's reason and what to tighten).
+async function loadBounces() {
+  const el = document.getElementById('bounce-panel');
+  if (!el) return;
+  const d = await api('/api/bounces');
+  if (!d || d.error) { el.innerHTML = '<div class="card"><p class="muted">Couldn’t read bounces' + (d && d.error ? ': ' + escHtml(d.error) : '') + '.</p></div>'; return; }
+  const rows = d.bounces || [];
+  let html = bounceMonitors(d.bounce_stats);
+  if (rows.length) {
+    html += '<div class="table-card"><table class="nowrap clip"><thead><tr><th>Address</th><th>Company</th>' +
+      '<th>Why</th><th>Found by</th><th>Bounced</th></tr></thead><tbody>';
+    for (const r of rows) {
+      html += '<tr class="clickable" title="Click to open" onclick="toggleRowDetail(this)"><td>' + escHtml(r.prospect) +
+        '</td><td>' + escHtml(r.company || '') + '</td><td class="muted">' + escHtml(BOUNCE_KINDS[r.kind] || 'Returned') +
+        '</td><td class="muted">' + escHtml(r.found_by || '') + '</td><td class="muted">' + escHtml(formatDate(r.at)) + '</td></tr>' +
+        '<tr class="detail-row" hidden><td colspan="5">' + bounceDetail(r) + '</td></tr>';
+    }
+    html += '</tbody></table></div>';
+  } else {
+    html += '<p class="muted">None of Harvey’s emails has bounced.</p>';
+  }
+  if (d.bounces_ignored) {
+    html += '<p class="muted" style="margin-top:var(--sp-2)">' + d.bounces_ignored + ' bounce' +
+      (d.bounces_ignored === 1 ? '' : 's') + ' of other mail in this mailbox (not sent by Harvey): ' +
+      'not counted toward Harvey’s rate, but counted by the mailbox monitor.</p>';
+  }
+  el.innerHTML = html;
+}
 
 const BOUNCE_KINDS = {
   no_mailbox: "Mailbox doesn't exist", mailbox_full: 'Mailbox full',

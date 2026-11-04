@@ -1065,8 +1065,8 @@ class Handler:
         days = getattr(email, "mailbox_bounce_days", 7)
         if limit <= 0 or await self.state.get_setting(KILL_SWITCH_KEY):
             return
-        count = await self.state.count_actions_since(
-            "bounce_ignored", mailbox_window_start(days),
+        count = await self.state.count_mailbox_bounces(
+            mailbox_window_start(days),
             resumed_after_row(await self.state.get_setting(MAILBOX_SINCE_KEY)))
         if count >= limit:
             reason = mailbox_pause_reason(count, days, limit)
