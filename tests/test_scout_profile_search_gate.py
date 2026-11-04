@@ -39,10 +39,9 @@ async def test_profile_search_rides_the_linkedin_switch():
 
 
 @pytest.mark.asyncio
-async def test_profile_search_needs_a_linkedin_login_like_the_linkedin_strategy():
-    """Switched on but with no LinkedIn account, nothing could use the
-    profiles, so the search would only spend the cycle's query budget."""
+async def test_profile_search_does_not_need_a_linkedin_login():
+    """Public web discovery remains useful without browser credentials."""
     scout = _scout(linkedin_enabled=True)
     await scout.run()
-    scout._prospect_via_profile_search.assert_not_awaited()
+    scout._prospect_via_profile_search.assert_awaited_once()
     scout._prospect_via_linkedin.assert_not_awaited()

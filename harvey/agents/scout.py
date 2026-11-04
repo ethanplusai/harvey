@@ -31,7 +31,7 @@ import logging
 import random
 import re
 from datetime import datetime, timezone
-from urllib.parse import quote_plus, urlparse
+from urllib.parse import quote_plus, urlparse, urlunparse
 
 import httpx
 from bs4 import BeautifulSoup
@@ -46,7 +46,7 @@ from harvey.integrations.email_finder import (
     verify_published_address,
 )
 from harvey.integrations.linkedin import LinkedInAutomation
-from harvey.integrations.web_search import filter_site_results, parse_bing, parse_duckduckgo
+from harvey.integrations.web_search import filter_site_results, matches_site, parse_bing, parse_duckduckgo
 from harvey.models.company import Company
 from harvey.models.prospect import COMPANY_INBOX_SOURCE, Prospect
 from harvey.public_http import public_http_client
@@ -188,10 +188,9 @@ class Scout:
         # strategy self-skips when python-jobspy isn't installed.
         strategies.append(("hiring_boards", self._prospect_via_hiring_boards))
         # Web search for LinkedIn profiles yields names without a company or
-        # email, which Harvey can't verify; it rides the same switch as the
-        # LinkedIn channel (and its login) so it is off unless LinkedIn
-        # prospecting is wanted, and doesn't spend the cycle's query budget.
-        if self.config.channels.linkedin.enabled and self.env.linkedin_email:
+        # email, which Harvey can't verify. It requires the LinkedIn channel
+        # switch, but no login, credentials, or browser session.
+        if self.config.channels.linkedin.enabled:
             strategies.append(("profile_search", self._prospect_via_profile_search))
         strategies.append(("company_discovery", self._prospect_via_company_discovery))
 
@@ -862,8 +861,12 @@ class Scout:
             results = await self._web_search(query)
 
             for url, snippet in results:
-                if "/in/" not in url:
+                if not matches_site(url, "linkedin.com/in"):
                     continue
+                parts = urlparse(url)
+                if not re.fullmatch(r"/in/[^/]+/?", parts.path):
+                    continue
+                url = urlunparse((parts.scheme, parts.netloc, parts.path.rstrip("/"), "", "", ""))
 
                 parsed = self._parse_linkedin_url(url, snippet)
                 if not parsed:
