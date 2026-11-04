@@ -719,7 +719,9 @@ class Scout:
         """Search LinkedIn for ICP-matching profiles."""
         logger.info("Scout: Searching LinkedIn...")
         linkedin = LinkedInAutomation(
-            self.env.linkedin_email, self.env.linkedin_password
+            self.env.linkedin_email, self.env.linkedin_password,
+            user_agent=self.config.channels.linkedin.user_agent,
+            executable_path=self.config.channels.linkedin.executable_path,
         )
 
         try:

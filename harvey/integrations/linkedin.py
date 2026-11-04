@@ -8,7 +8,9 @@ protect the user's LinkedIn account from restriction.
 import asyncio
 import json
 import logging
+import platform
 import random
+import re
 from datetime import date
 from pathlib import Path
 from typing import Optional
@@ -23,10 +25,24 @@ COOKIES_PATH = DATA_DIR / "linkedin_cookies.json"
 ACTIVITY_PATH = DATA_DIR / "linkedin_activity.json"
 
 USER_AGENT = (
-    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
+    "Mozilla/5.0 (X11; Linux x86_64) "
     "AppleWebKit/537.36 (KHTML, like Gecko) "
-    "Chrome/120.0.0.0 Safari/537.36"
+    "Chrome/156.0.8078.4 Safari/537.36"
 )
+
+
+def browser_user_agent(version: str) -> str:
+    """Keep the default UA aligned with the actual browser on every start."""
+    version = version.removeprefix("Chrome/")
+    if not re.fullmatch(r"\d+\.\d+\.\d+\.\d+", version):
+        raise RuntimeError("Cannot determine Chromium version for LinkedIn user agent.")
+    ua = re.sub(r"Chrome/[\d.]+", f"Chrome/{version}", USER_AGENT)
+    system = platform.system()
+    if system == "Windows":
+        ua = ua.replace("X11; Linux x86_64", "Windows NT 10.0; Win64; x64")
+    elif system == "Darwin":
+        ua = ua.replace("X11; Linux x86_64", "Macintosh; Intel Mac OS X 10_15_7")
+    return ua
 
 # Hard daily caps — conservative on purpose. LinkedIn restricts accounts
 # that view too many profiles or run too many searches per day.
@@ -36,9 +52,12 @@ MAX_SEARCH_PAGES_PER_QUERY = 5
 
 
 class LinkedInAutomation:
-    def __init__(self, email: str, password: str):
+    def __init__(self, email: str, password: str, *, user_agent: str = "",
+                 executable_path: str = ""):
         self.email = email
         self.password = password
+        self.user_agent = user_agent.strip()
+        self.executable_path = executable_path.strip()
         self.browser = None
         self.context = None
         self.page = None
@@ -127,14 +146,30 @@ class LinkedInAutomation:
         from playwright.async_api import async_playwright
 
         self._pw = await async_playwright().start()
-        self.browser = await self._pw.chromium.launch(headless=True)
-
-        # Always use the same fingerprint (viewport + UA), whether or not
-        # we have saved cookies — a changing fingerprint is a red flag.
-        self.context = await self.browser.new_context(
-            viewport={"width": 1280, "height": 800},
-            user_agent=USER_AGENT,
-        )
+        try:
+            executable = self.executable_path or self._pw.chromium.executable_path
+            if not Path(executable).is_file():
+                raise RuntimeError(
+                    "LinkedIn full Chromium binary not found. Run "
+                    "'python -m playwright install chromium' (without --only-shell) "
+                    "or set channels.linkedin.executable_path to a full Chromium binary."
+                )
+            # channel=chromium opts into full Chromium's new headless mode;
+            # do not fall back to chrome-headless-shell.
+            self.browser = await self._pw.chromium.launch(
+                channel="chromium", headless=True, executable_path=executable,
+            )
+            ua = self.user_agent or browser_user_agent(self.browser.version)
+            self.context = await self.browser.new_context(
+                viewport={"width": 1280, "height": 800}, user_agent=ua,
+            )
+        except Exception as exc:
+            await self.stop()
+            raise RuntimeError(
+                "LinkedIn browser startup failed: full Chromium is required. "
+                "Check channels.linkedin.executable_path and Playwright browser installation."
+                f" {exc}"
+            ) from exc
 
         # Load cookies if we have them (avoids re-login)
         if COOKIES_PATH.exists():

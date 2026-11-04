@@ -335,6 +335,10 @@ class LinkedInChannelConfig(BaseModel):
     enabled: bool = False
     max_daily_connections: int = 20
     max_daily_messages: int = 10
+    # Empty: use the installed browser's version and the host platform.
+    user_agent: str = ""
+    # Empty: Playwright's full Chromium, resolved for its installed revision.
+    executable_path: str = ""
 
 
 class ChannelsConfig(BaseModel):
