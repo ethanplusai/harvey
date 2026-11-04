@@ -37,6 +37,13 @@ def test_foreign_u_query_is_not_unwrapped():
     assert unwrap_bing_url(url) == url
 
 
+@pytest.mark.parametrize("value", [None, {}, 123, "https://[broken", "https://example.com/bad url"])
+def test_malformed_urls_cannot_discard_other_results(value):
+    assert unwrap_bing_url(value) == ""
+    assert unwrap_duckduckgo_url(value) == ""
+    assert filter_site_results([(value, "bad"), (PROFILE, "good")], "site:linkedin.com/in") == [(PROFILE, "good")]
+
+
 @pytest.mark.parametrize("url,allowed", [
     (PROFILE, True), ("https://es.linkedin.com/in/alex-example", True),
     ("https://linkedin.com/in/alex-example?x=1", True),

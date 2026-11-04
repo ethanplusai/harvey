@@ -9,6 +9,8 @@ from bs4 import BeautifulSoup
 
 
 def _web_url(value: str) -> bool:
+    if not isinstance(value, str) or not value or any(c.isspace() for c in value):
+        return False
     try:
         parsed = urlparse(value)
         return bool(parsed.scheme in ("http", "https") and parsed.hostname
@@ -25,7 +27,10 @@ def unwrap_bing_url(href: str) -> str:
     """
     if not isinstance(href, str):
         return ""
-    href = urljoin("https://www.bing.com", href)
+    try:
+        href = urljoin("https://www.bing.com", href)
+    except ValueError:
+        return ""
     if not _web_url(href):
         return ""
     parsed = urlparse(href)
@@ -46,7 +51,10 @@ def unwrap_bing_url(href: str) -> str:
 def unwrap_duckduckgo_url(href: str) -> str:
     if not isinstance(href, str):
         return ""
-    href = urljoin("https://duckduckgo.com", href)
+    try:
+        href = urljoin("https://duckduckgo.com", href)
+    except ValueError:
+        return ""
     if not _web_url(href):
         return ""
     parsed = urlparse(href)
