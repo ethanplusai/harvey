@@ -1041,3 +1041,9 @@ a.btn, a.btn:hover { text-decoration: none; }
 .bounce-facts { display: grid; grid-template-columns: max-content 1fr; gap: 4px var(--sp-4); font-size: var(--fs-ui); }
 .bounce-facts .k { color: var(--text-3); }
 .bounce-tips { margin: 0; padding-left: 1.2em; font-size: var(--fs-ui); line-height: 1.55; }
+
+/* Outbox: the two bounce monitors that can pause sending. */
+.bounce-monitors { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: var(--sp-3); margin: var(--sp-3) 0; }
+.bounce-monitors .monitor { border: 1px solid var(--line); border-radius: 10px; padding: var(--sp-3); display: flex; flex-direction: column; gap: 2px; font-size: var(--fs-ui); }
+.bounce-monitors .monitor.over { border-color: var(--bad, #d14343); }
+.bounce-monitors .monitor-value { font-size: var(--fs-body); font-weight: 600; }

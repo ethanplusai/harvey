@@ -1689,18 +1689,36 @@ async function loadOutbox() {
   // Bounces: which address, why, and what to tighten.
   function bouncesSection(d) {
     const rows = d.bounces || [];
-    const ignored = d.bounces_ignored
-      ? '<p class="muted" style="margin:4px 0 0">' + d.bounces_ignored + ' bounce' +
-        (d.bounces_ignored === 1 ? '' : 's') + ' of other mail in this inbox (not sent by Harvey) ' +
-        'ignored and not counted.</p>' : '';
-    if (!rows.length) return ignored ? '<div class="subhead">Bounces</div>' + ignored : '';
+    const monitors = bounceMonitors(d.bounce_stats);
+    if (!rows.length) return monitors ? '<div class="subhead">Bounces</div>' + monitors : '';
     return table('Bounces', rows, [
       ['Address', r => r.prospect], ['Company', r => r.company],
       ['Why', r => BOUNCE_KINDS[r.kind] || 'returned', true],
       ['Found by', r => r.found_by, true], ['Bounced', r => formatDate(r.at), true],
-    ], bounceDetail) + ignored;
+    ], bounceDetail) + monitors;
   }
 }
+
+// The two bounce monitors that can pause sending, side by side.
+function bounceMonitors(s) {
+  if (!s || (!s.harvey.sent && !s.mailbox.count)) return '';
+  const h = s.harvey, m = s.mailbox;
+  const pct = x => (Math.round(x * 1000) / 10) + '%';
+  const harveyOver = h.limit_rate > 0 && h.sent >= 10 && h.rate > h.limit_rate;
+  const mailboxOver = m.limit > 0 && m.count >= m.limit;
+  const card = (title, value, note, over) =>
+    '<div class="monitor' + (over ? ' over' : '') + '"><div class="muted">' + title + '</div>' +
+    '<div class="monitor-value">' + value + '</div><div class="muted">' + note + '</div></div>';
+  return '<div class="bounce-monitors">' +
+    card("Harvey's emails", h.bounced + ' of ' + h.sent + ' bounced (' + pct(h.rate) + ')',
+         h.limit_rate > 0 ? 'Pauses above ' + pct(h.limit_rate) + ' (after 10 sends)' : 'Monitor off', harveyOver) +
+    card('Other mail in this mailbox', m.count + ' bounce' + (m.count === 1 ? '' : 's') +
+         ' in ' + m.days + ' days',
+         m.limit > 0 ? 'Pauses at ' + m.limit + ' (another tool or your own mail bouncing)' : 'Monitor off',
+         mailboxOver) +
+    '</div>';
+}
+
 
 const BOUNCE_KINDS = {
   no_mailbox: "Mailbox doesn't exist", mailbox_full: 'Mailbox full',

@@ -1084,7 +1084,32 @@ async def _recent_bounces() -> dict:
             details = {}
         if isinstance(details, dict):
             bounces.append({**details, "at": row.get("created_at")})
-    return {"bounces": bounces[:25], "bounces_ignored": ignored}
+    return {"bounces": bounces[:25], "bounces_ignored": ignored,
+            "bounce_stats": await _bounce_stats()}
+
+
+async def _bounce_stats() -> dict:
+    """Both bounce monitors as the kill switch sees them: Harvey's own bounce
+    rate, and bounces of other mail in the mailbox within the window."""
+    from harvey.bounces import MAILBOX_SINCE_KEY, mailbox_window_start, resumed_after_row
+    try:
+        from harvey.config import load_config
+        email = load_config(str(_resolve_config_file())).channels.email
+        rate, limit, days = email.max_bounce_rate, email.mailbox_bounce_limit, email.mailbox_bounce_days
+    except Exception:
+        rate, limit, days = 0.05, 10, 7
+    state = _state()
+    await state.init_db()
+    bounced = int(await state.get_setting("bounce_count") or 0)
+    sent = await state.count_outbox_sent()
+    return {
+        "harvey": {"bounced": bounced, "sent": sent, "limit_rate": rate,
+                   "rate": round(bounced / sent, 4) if sent else 0.0},
+        "mailbox": {"count": await state.count_actions_since(
+                        "bounce_ignored", mailbox_window_start(days),
+                        resumed_after_row(await state.get_setting(MAILBOX_SINCE_KEY))),
+                    "limit": limit, "days": days},
+    }
 
 
 @app.get("/api/outbox")
@@ -1452,8 +1477,7 @@ async def sending_toggle(action: str):
         if action == "pause":
             await state.set_setting("sending_paused", "paused from dashboard")
         else:
-            await state.set_setting("sending_paused", "")
-            await state.set_setting("bounce_count", "0")
+            await state.resume_sending()
         return {"success": True}
     except Exception as e:
         return JSONResponse({"success": False, "message": str(e)}, status_code=500)

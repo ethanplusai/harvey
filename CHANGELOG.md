@@ -19,6 +19,14 @@ minor versions can still change behaviour.
   addresses, prefer named contacts over general inboxes, check SPF/DKIM/DMARC
   and volume when the server refused the mail). The kill switch's reason now
   names the latest bounced address.
+- **A second bounce monitor for the mailbox itself.** Bounces of mail Harvey
+  didn't send (the owner's own, or another tool sending from the same
+  mailbox) don't count toward Harvey's bounce rate, but enough of them still
+  say the mailbox's reputation is at risk. `channels.email.mailbox_bounce_limit`
+  (10) within `mailbox_bounce_days` (7) pauses sending through the same kill
+  switch, with a reason that says to check the mailbox or move Harvey to
+  another one; 0 turns it off. The Outbox shows both monitors side by side,
+  and resuming starts both afresh.
 - **Read every email in the Outbox lists.** Rows under Approved & scheduled,
   Recently sent and Didn't send open the email underneath: subject,
   recipient, step, when, and the body.

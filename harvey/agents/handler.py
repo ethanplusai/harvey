@@ -13,7 +13,10 @@ import re
 import unicodedata
 from datetime import datetime, timezone
 
-from harvey.bounces import KINDS, bounce_kind, bounce_reason, failed_addresses, how_found, suggestions
+from harvey.bounces import (
+    KINDS, MAILBOX_SINCE_KEY, bounce_kind, bounce_reason, failed_addresses, how_found,
+    mailbox_pause_reason, mailbox_window_start, resumed_after_row, suggestions,
+)
 from harvey.brain import Brain, BrainUnavailable
 from harvey.config import (
     DEFAULT_OPT_OUT_LINE, HarveyConfig, EnvConfig, compliance_of, legacy_sending_held,
@@ -1053,6 +1056,23 @@ class Handler:
             self.provider.confirm_read()
         return complete
 
+    async def _check_mailbox_bounces(self):
+        """The mailbox monitor: pause sending when bounces of mail Harvey
+        didn't send pile up (channels.email.mailbox_bounce_limit within
+        mailbox_bounce_days). Harvey's own bounces have their own rate."""
+        email = self.config.channels.email
+        limit = getattr(email, "mailbox_bounce_limit", 10)
+        days = getattr(email, "mailbox_bounce_days", 7)
+        if limit <= 0 or await self.state.get_setting(KILL_SWITCH_KEY):
+            return
+        count = await self.state.count_actions_since(
+            "bounce_ignored", mailbox_window_start(days),
+            resumed_after_row(await self.state.get_setting(MAILBOX_SINCE_KEY)))
+        if count >= limit:
+            reason = mailbox_pause_reason(count, days, limit)
+            await self.state.set_setting(KILL_SWITCH_KEY, reason)
+            logger.error(f"Handler: KILL SWITCH ENGAGED — {reason}")
+
     async def _handle_bounce(self, msg):
         """A bounce is a data bug AND a reputation threat. Fix both.
 
@@ -1079,6 +1099,7 @@ class Handler:
                 action_type="bounce_ignored", agent="handler",
                 details={"subject": msg.subject[:160], "from": msg.from_email},
             )
+            await self._check_mailbox_bounces()
             return
 
         status_at_send = prospect.email_status

@@ -124,3 +124,36 @@ def suggestions(kind: str, *, source: str = "", email_status: str = "",
             tips.append("Verification can go stale: the longer an address waits between "
                         "verifying and sending, the likelier it bounces.")
     return tips
+
+
+# ── The mailbox monitor: bounces of mail Harvey didn't send ──
+# They aren't Harvey's to fix, but they're still a reputation signal for the
+# mailbox: the owner's own mail is bouncing, or another tool is sending cold
+# email from it. Enough of them in a window pauses Harvey's sending too, with
+# a reason that says so, so the owner can check or move Harvey elsewhere.
+
+MAILBOX_SINCE_KEY = "mailbox_bounces_since"
+
+
+def mailbox_window_start(days: int, now=None) -> str:
+    """Where the mailbox monitor's window starts: ``days`` ago, in the format
+    actions.created_at uses. A resume also restarts the count (see
+    StateManager.resume_sending), counted by log position."""
+    from datetime import datetime, timedelta, timezone
+    now = now or datetime.now(timezone.utc).replace(tzinfo=None)
+    return (now - timedelta(days=days)).strftime("%Y-%m-%d %H:%M:%S")
+
+
+def resumed_after_row(value) -> int:
+    """The log position the last resume recorded (0 if never, or unreadable)."""
+    try:
+        return max(int(value or 0), 0)
+    except (TypeError, ValueError):
+        return 0
+
+
+def mailbox_pause_reason(count: int, days: int, limit: int) -> str:
+    return (f"{count} bounces of mail Harvey didn't send in the last {days} days "
+            f"(limit {limit}). This mailbox's reputation may be at risk: another tool may be "
+            "sending from it, or its own mail is bouncing. Check it, or move Harvey to "
+            "another mailbox, before resuming")

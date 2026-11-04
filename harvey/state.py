@@ -1476,6 +1476,31 @@ class StateManager:
                 row = await cursor.fetchone()
                 return dict(row) if row else None
 
+    async def resume_sending(self) -> None:
+        """Lift the kill switch, and start both bounce monitors afresh: the
+        count of Harvey's bounces goes back to 0, and the mailbox monitor
+        counts only bounces from now on."""
+        await self.set_setting("sending_paused", "")
+        await self.set_setting("bounce_count", "0")
+        # The log's position, not a clock time: created_at is to the second,
+        # and a bounce logged in the same second as the resume must not count.
+        async with self._connect() as db:
+            async with db.execute("SELECT COALESCE(MAX(rowid), 0) FROM actions") as cursor:
+                last = (await cursor.fetchone())[0]
+        await self.set_setting("mailbox_bounces_since", str(last))
+
+    async def count_actions_since(self, action_type: str, since: str, after_row: int = 0) -> int:
+        """Logged actions of one type at or after ``since`` (UTC,
+        'YYYY-MM-DD HH:MM:SS', as actions.created_at stores it) and logged
+        after the log position ``after_row``."""
+        async with self._connect() as db:
+            async with db.execute(
+                "SELECT COUNT(*) FROM actions WHERE action_type = ? AND created_at >= ? "
+                "AND rowid > ?",
+                (action_type, since, int(after_row or 0)),
+            ) as cursor:
+                return (await cursor.fetchone())[0]
+
     async def find_sent_outbox_to(self, addresses) -> dict | None:
         """The latest sent email to any of ``addresses``: how a bounce whose
         In-Reply-To doesn't match is tied back to the email it returned."""

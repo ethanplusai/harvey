@@ -133,3 +133,98 @@ def test_outbox_lists_bounces_and_ignored_count(client):
     assert [x["prospect"] for x in data["bounces"]] == ["jane@acme.com"]
     assert data["bounces"][0]["suggestions"] == ["Add a second verifier"]
     assert data["bounces_ignored"] == 1
+
+
+# ── The mailbox monitor: other mail in the mailbox bouncing ──
+
+from tests.test_outbox_native import Cfg  # noqa: E402
+
+
+def other_mail_bounce(i):
+    return InboundMessage(
+        provider_id=f"other{i}", from_email="postmaster@outlook.com",
+        subject=f"Undeliverable: Re: Order {i}",
+        body=NDR.replace("jane@acme.com", f"buyer{i}@supplier.example"),
+        in_reply_to=f"<not-harvey-{i}@mail>", is_bounce=True)
+
+
+@pytest.mark.asyncio
+async def test_mailbox_monitor_pauses_after_the_limit(state, monkeypatch):
+    monkeypatch.setattr(Cfg.channels.email, "mailbox_bounce_limit", 3, raising=False)
+    monkeypatch.setattr(Cfg.channels.email, "mailbox_bounce_days", 7, raising=False)
+    provider = FakeProvider()
+    handler = make_handler(state, provider)
+
+    provider.inbound = [other_mail_bounce(1), other_mail_bounce(2)]
+    await handler._run_native()
+    assert await state.get_setting("sending_paused") in ("", None)
+
+    provider.inbound = [other_mail_bounce(3)]
+    await handler._run_native()
+    paused = await state.get_setting("sending_paused")
+    assert paused.startswith("3 bounces of mail Harvey didn't send in the last 7 days (limit 3)")
+    assert "another mailbox" in paused
+    # Harvey's own bounce count is untouched: two separate monitors.
+    assert int(await state.get_setting("bounce_count") or 0) == 0
+
+
+@pytest.mark.asyncio
+async def test_resume_starts_the_mailbox_count_afresh(state, monkeypatch):
+    monkeypatch.setattr(Cfg.channels.email, "mailbox_bounce_limit", 2, raising=False)
+    provider = FakeProvider()
+    handler = make_handler(state, provider)
+    provider.inbound = [other_mail_bounce(1), other_mail_bounce(2)]
+    await handler._run_native()
+    assert await state.get_setting("sending_paused")
+
+    await state.resume_sending()
+    assert await state.get_setting("sending_paused") == ""
+    provider.inbound = [other_mail_bounce(3)]
+    await handler._run_native()
+    assert await state.get_setting("sending_paused") == ""   # 1 since the resume
+
+
+@pytest.mark.asyncio
+async def test_mailbox_monitor_off_at_zero(state, monkeypatch):
+    monkeypatch.setattr(Cfg.channels.email, "mailbox_bounce_limit", 0, raising=False)
+    provider = FakeProvider()
+    provider.inbound = [other_mail_bounce(i) for i in range(5)]
+    await make_handler(state, provider)._run_native()
+    assert await state.get_setting("sending_paused") in ("", None)
+
+
+def test_window_and_resume_position():
+    from datetime import datetime
+    assert b.mailbox_window_start(7, datetime(2026, 1, 10, 12, 0, 0)) == "2026-01-03 12:00:00"
+    assert b.resumed_after_row("42") == 42
+    assert b.resumed_after_row("") == 0 and b.resumed_after_row("x") == 0
+
+
+def test_config_validates_the_mailbox_monitor():
+    from pydantic import ValidationError
+
+    from harvey.config import EmailChannelConfig
+    assert EmailChannelConfig().mailbox_bounce_limit == 10
+    with pytest.raises(ValidationError):
+        EmailChannelConfig(mailbox_bounce_limit=-1)
+    with pytest.raises(ValidationError):
+        EmailChannelConfig(mailbox_bounce_days=0)
+
+
+def test_outbox_shows_both_monitors(client):
+    import asyncio
+
+    from harvey.state import StateManager
+
+    async def seed():
+        s = StateManager(str(client.db))
+        await s.init_db()
+        for _ in range(2):
+            await s.log_action("bounce_ignored", "handler", {"subject": "Undeliverable: other"})
+        await s.set_setting("bounce_count", "1")
+    asyncio.run(seed())
+    stats = client.get("/api/outbox").json()["bounce_stats"]
+    assert stats["mailbox"] == {"count": 2, "limit": 10, "days": 7}
+    assert stats["harvey"]["bounced"] == 1 and stats["harvey"]["limit_rate"] == 0.05
+    client.post("/api/sending/resume")
+    assert client.get("/api/outbox").json()["bounce_stats"]["mailbox"]["count"] == 0
