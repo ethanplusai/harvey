@@ -8,7 +8,7 @@ real people/companies.
 Search backends (in priority order):
 1. SERP API (Serper.dev) — if SERPER_API_KEY is set, reliable and fast
 2. TinyFish Search API — if TINYFISH_API_KEY is set (free, 30 searches a minute)
-3. DuckDuckGo HTML — free, no rate limiting, good fallback
+3. DuckDuckGo HTML — best effort; may return an anti-bot challenge
 4. Bing — free, less aggressive than Google
 5. Google — aggressive rate limiting, used last
 
@@ -40,7 +40,7 @@ from harvey.brain import Brain
 from harvey.collectors import people as people_mod
 from harvey.collectors.discover import site_name_from_html
 from harvey.collectors.profile import _reads_like_title, looks_like_challenge
-from harvey.config import HarveyConfig, EnvConfig
+from harvey.config import HarveyConfig, EnvConfig, SearchConfig
 from harvey.integrations.email_finder import (
     DEFAULT_PATTERN, SMALL_BUSINESS_PATTERN, find_email, site_email_evidence,
     verify_published_address,
@@ -152,6 +152,9 @@ class Scout:
         self._site_evidence: dict[str, dict] = {}
         self._own_domains: dict[str, bool] = {}
         self._challenged: set[str] = set()
+        self._last_fetch_error = ""
+        self._last_search_error = ""
+        self._active_search = False
 
     async def run(self):
         """Main prospecting flow: find leads matching ICP."""
@@ -252,6 +255,8 @@ class Scout:
             "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
             "Accept-Language": "en-US,en;q=0.9",
         }
+        if getattr(self, "_active_search", False):
+            headers["User-Agent"] = self._search_config().user_agent
         if extra:
             headers.update(extra)
         return headers
@@ -289,6 +294,7 @@ class Scout:
         block detection, or any transport error. Never raises.
         """
         last_status = None
+        self._last_fetch_error = ""
         for attempt in range(retries):
             try:
                 async with public_http_client(timeout=timeout) as client:
@@ -299,18 +305,24 @@ class Scout:
                         headers=self._headers(headers),
                     )
             except (httpx.TimeoutException, httpx.TransportError) as e:
+                self._last_fetch_error = "transport_error"
                 logger.debug(f"Fetch transport error ({url[:80]}): {e}")
                 resp = None
             except Exception as e:
+                self._last_fetch_error = "transport_error"
                 logger.debug(f"Fetch unexpected error ({url[:80]}): {e}")
                 return None
 
             if resp is not None:
                 last_status = resp.status_code
-                if resp.status_code in (200, 202, 403, 429, 503) and self._looks_blocked(
-                        getattr(resp, "text", "") or "", resp.status_code):
+                text = getattr(resp, "text", "") or ""
+                ddg_challenge = ("duckduckgo.com" in self._host(url)
+                                 and "anomaly-modal" in text.lower())
+                if ddg_challenge or (resp.status_code in (200, 202, 403, 429, 503)
+                                    and self._looks_blocked(text, resp.status_code)):
                     # A bot challenge won't clear on retry: note it and stop.
                     self.__dict__.setdefault("_challenged", set()).add(self._host(url))
+                    self._last_fetch_error = "blocked"
                     logger.debug(f"Fetch got a bot challenge ({resp.status_code}) for {url[:80]}")
                     return None
                 # Retryable server / throttle responses.
@@ -320,11 +332,14 @@ class Scout:
                         f"(attempt {attempt + 1}/{retries})"
                     )
                 elif resp.status_code == 200:
+                    self._last_fetch_error = ""
                     return resp
                 else:
                     # 4xx (non-429) — no point retrying.
                     logger.debug(f"Fetch got {resp.status_code} for {url[:80]}")
+                    self._last_fetch_error = f"http_{resp.status_code}"
                     return None
+                self._last_fetch_error = f"http_{resp.status_code}"
 
             # Backoff before next attempt.
             if attempt < retries - 1:
@@ -352,6 +367,42 @@ class Scout:
 
     # ── Search backend abstraction ──
 
+    def _search_config(self) -> SearchConfig:
+        config = getattr(self.config, "search", None)
+        return config if isinstance(config, SearchConfig) else SearchConfig()
+
+    def _search_backends(self):
+        config = self._search_config()
+        key = config.api_key.get_secret_value()
+        keys = {
+            "serper": (key if config.engine in ("auto", "serper") else "")
+                      or getattr(self.env, "serper_api_key", "") or "",
+            "tinyfish": (key if config.engine == "tinyfish" else "")
+                        or getattr(self.env, "tinyfish_api_key", "") or "",
+        }
+        free = ["duckduckgo", "bing", "google"]
+        if config.engine == "auto":
+            names = [name for name in keys if keys[name]] + free
+            if not any(keys.values()):
+                logger.warning("SCOUT_SEARCH_NO_API_KEY: only best-effort public HTML engines available")
+        else:
+            if config.engine in keys and not keys[config.engine]:
+                logger.error("SCOUT_SEARCH_CONFIG_ERROR engine=%s reason=missing_api_key", config.engine)
+                return []
+            names = [config.engine] + [name for name in free if name != config.engine]
+        if not config.fallback:
+            names = names[:1]
+        return [(name, keys.get(name, "")) for name in names]
+
+    def _html_search_results(self, engine: str, text: str, query: str, parser):
+        raw = parser(text)
+        if not raw and not re.search(r"no (?:more )?results|no results found|did not match any", text, re.I):
+            self._last_search_error = "unrecognized_html"
+        results = filter_site_results(raw, query)
+        if raw and not results:
+            logger.warning("SCOUT_SEARCH_FILTERED_OUT engine=%s count=%d", engine, len(raw))
+        return results[:MAX_RESULTS_PER_QUERY]
+
     async def _web_search(self, query: str) -> list[tuple[str, str]]:
         """Search the web using the best available backend.
 
@@ -368,29 +419,34 @@ class Scout:
         if self._queries_this_cycle > 1:
             await asyncio.sleep(random.uniform(*SEARCH_DELAY))
 
-        serper_key = getattr(self.env, "serper_api_key", "") or ""
-        tinyfish_key = getattr(self.env, "tinyfish_api_key", "") or ""
-        backends = []
-        if serper_key:
-            backends.append(lambda: self._search_serper(query, serper_key))
-        if tinyfish_key:
-            backends.append(lambda: self._search_tinyfish(query, tinyfish_key))
-        backends.extend([
-            lambda: self._search_duckduckgo(query),
-            lambda: self._search_bing(query),
-            lambda: self._search_google(query),
-        ])
-
-        for backend in backends:
+        backends = self._search_backends()
+        for name, key in backends:
+            self._last_fetch_error = self._last_search_error = ""
+            self._active_search = True
             try:
-                results = filter_site_results(await backend(), query)
-            except Exception as e:
-                logger.debug(f"Search backend raised: {e}")
+                backend = getattr(self, f"_search_{name}")
+                raw = await backend(query, key) if key else await backend(query)
+                results = filter_site_results(raw, query)
+                if raw and not results:
+                    logger.warning("SCOUT_SEARCH_FILTERED_OUT engine=%s count=%d", name, len(raw))
+            except Exception:
+                # Provider exceptions may contain request headers/API keys.
+                self._last_search_error = "backend_exception"
                 results = []
+            finally:
+                self._active_search = False
             if results:
+                logger.info("SCOUT_SEARCH_OK engine=%s count=%d", name, len(results))
                 return self._dedupe_results(results)
+            error = self._last_search_error or self._last_fetch_error
+            if error == "blocked":
+                logger.warning("SCOUT_SEARCH_BLOCKED engine=%s", name)
+            elif error:
+                logger.warning("SCOUT_SEARCH_ERROR engine=%s reason=%s", name, error)
+            else:
+                logger.info("SCOUT_SEARCH_EMPTY engine=%s", name)
 
-        logger.warning(f"Scout: All search backends failed for: {query[:80]}")
+        logger.warning("SCOUT_SEARCH_EXHAUSTED engines=%s", ",".join(name for name, _ in backends))
         return []
 
     @staticmethod
@@ -409,7 +465,7 @@ class Scout:
         return out
 
     async def _search_serper(self, query: str, api_key: str) -> list[tuple[str, str]]:
-        """Search via Serper.dev API — most reliable, $5/mo for 2.5k searches."""
+        """Search via Serper's authenticated API."""
         resp = await self._fetch(
             "https://google.serper.dev/search",
             method="POST",
@@ -422,9 +478,11 @@ class Scout:
         try:
             data = resp.json()
         except (json.JSONDecodeError, ValueError) as e:
+            self._last_search_error = "invalid_json"
             logger.debug(f"Serper returned non-JSON: {e}")
             return []
-        if not isinstance(data, dict):
+        if not isinstance(data, dict) or not isinstance(data.get("organic"), list):
+            self._last_search_error = "invalid_response"
             return []
 
         results = []
@@ -432,7 +490,7 @@ class Scout:
             if not isinstance(item, dict):
                 continue
             url = item.get("link", "") or ""
-            snippet = item.get("snippet", "") or ""
+            snippet = " ".join(str(item.get(k) or "") for k in ("title", "snippet")).strip()
             if url:
                 results.append((url, snippet))
         return results[:MAX_RESULTS_PER_QUERY]
@@ -449,9 +507,11 @@ class Scout:
         try:
             data = resp.json()
         except (json.JSONDecodeError, ValueError) as e:
+            self._last_search_error = "invalid_json"
             logger.debug(f"TinyFish returned non-JSON: {e}")
             return []
-        if not isinstance(data, dict):
+        if not isinstance(data, dict) or not isinstance(data.get("results"), list):
+            self._last_search_error = "invalid_response"
             return []
 
         results = []
@@ -471,7 +531,7 @@ class Scout:
         if resp is None:
             return []
 
-        results = filter_site_results(parse_duckduckgo(resp.text), query)
+        results = self._html_search_results("duckduckgo", resp.text, query, parse_duckduckgo)
 
         if results:
             logger.debug(f"DuckDuckGo returned {len(results)} results")
@@ -484,7 +544,7 @@ class Scout:
         if resp is None:
             return []
 
-        results = filter_site_results(parse_bing(resp.text), query)
+        results = self._html_search_results("bing", resp.text, query, parse_bing)
 
         if results:
             logger.debug(f"Bing returned {len(results)} results")

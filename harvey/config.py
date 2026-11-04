@@ -5,13 +5,14 @@ import os
 import re
 from datetime import date as _date, time as _time
 from pathlib import Path
+from typing import Literal
 
 import yaml
 
 from harvey.textio import read_user_text
 from dotenv import load_dotenv
 from pydantic import (
-    BaseModel, PrivateAttr, TypeAdapter, ValidationError, field_validator, model_validator,
+    BaseModel, PrivateAttr, SecretStr, TypeAdapter, ValidationError, field_validator, model_validator,
 )
 
 from harvey.paths import PROJECT_ROOT
@@ -718,6 +719,25 @@ def load_email_rules(config) -> str:
     return text
 
 
+class SearchConfig(BaseModel):
+    engine: Literal["auto", "serper", "tinyfish", "duckduckgo", "bing", "google"] = "auto"
+    # auto + api_key uses Serper; legacy SERPER_API_KEY remains supported.
+    api_key: SecretStr = SecretStr("")
+    fallback: bool = True
+    # HTTP search has no browser binary. Keep an honest, configurable identity.
+    user_agent: str = "Harvey/0.3 (web search; https://github.com/ethanplusai/harvey)"
+
+    @field_validator("engine", mode="before")
+    @classmethod
+    def _normalize_engine(cls, v):
+        return str(v).strip().lower()
+
+    @field_validator("api_key", mode="before")
+    @classmethod
+    def _trim_key(cls, v):
+        return v.strip() if isinstance(v, str) else v
+
+
 class HarveyConfig(BaseModel):
     persona: PersonaConfig
     product: ProductConfig
@@ -727,6 +747,7 @@ class HarveyConfig(BaseModel):
     brain: BrainConfig = BrainConfig()
     compliance: ComplianceConfig = ComplianceConfig()
     writer: WriterConfig = WriterConfig()
+    search: SearchConfig = SearchConfig()
     # The file it was loaded from, so a running Harvey can re-read the
     # sending mode from that same file (refresh_sending_mode).
     _source_path: str | None = PrivateAttr(default=None)
