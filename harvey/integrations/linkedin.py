@@ -8,7 +8,9 @@ protect the user's LinkedIn account from restriction.
 import asyncio
 import json
 import logging
+import platform
 import random
+import re
 from datetime import date
 from pathlib import Path
 from typing import Optional
@@ -23,10 +25,27 @@ COOKIES_PATH = DATA_DIR / "linkedin_cookies.json"
 ACTIVITY_PATH = DATA_DIR / "linkedin_activity.json"
 
 USER_AGENT = (
-    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
+    "Mozilla/5.0 (X11; Linux x86_64) "
     "AppleWebKit/537.36 (KHTML, like Gecko) "
-    "Chrome/120.0.0.0 Safari/537.36"
+    "Chrome/156.0.8078.4 Safari/537.36"
 )
+
+# Stable watchdog event. Do not translate or vary between integration and scout.
+LINKEDIN_LOGIN_BLOCKED_RECAPTCHA = "LINKEDIN_LOGIN_BLOCKED_RECAPTCHA"
+
+
+def browser_user_agent(version: str) -> str:
+    """Keep the default UA aligned with the actual browser on every start."""
+    version = version.removeprefix("Chrome/")
+    if not re.fullmatch(r"\d+\.\d+\.\d+\.\d+", version):
+        raise RuntimeError("Cannot determine Chromium version for LinkedIn user agent.")
+    ua = re.sub(r"Chrome/[\d.]+", f"Chrome/{version}", USER_AGENT)
+    system = platform.system()
+    if system == "Windows":
+        ua = ua.replace("X11; Linux x86_64", "Windows NT 10.0; Win64; x64")
+    elif system == "Darwin":
+        ua = ua.replace("X11; Linux x86_64", "Macintosh; Intel Mac OS X 10_15_7")
+    return ua
 
 # Hard daily caps — conservative on purpose. LinkedIn restricts accounts
 # that view too many profiles or run too many searches per day.
@@ -36,9 +55,13 @@ MAX_SEARCH_PAGES_PER_QUERY = 5
 
 
 class LinkedInAutomation:
-    def __init__(self, email: str, password: str):
+    def __init__(self, email: str, password: str, *, user_agent: str = "",
+                 executable_path: str = ""):
         self.email = email
         self.password = password
+        self.user_agent = user_agent.strip()
+        self.executable_path = executable_path.strip()
+        self.last_login_failure: str | None = None
         self.browser = None
         self.context = None
         self.page = None
@@ -127,14 +150,30 @@ class LinkedInAutomation:
         from playwright.async_api import async_playwright
 
         self._pw = await async_playwright().start()
-        self.browser = await self._pw.chromium.launch(headless=True)
-
-        # Always use the same fingerprint (viewport + UA), whether or not
-        # we have saved cookies — a changing fingerprint is a red flag.
-        self.context = await self.browser.new_context(
-            viewport={"width": 1280, "height": 800},
-            user_agent=USER_AGENT,
-        )
+        try:
+            executable = self.executable_path or self._pw.chromium.executable_path
+            if not Path(executable).is_file():
+                raise RuntimeError(
+                    "LinkedIn full Chromium binary not found. Run "
+                    "'python -m playwright install chromium' (without --only-shell) "
+                    "or set channels.linkedin.executable_path to a full Chromium binary."
+                )
+            # channel=chromium opts into full Chromium's new headless mode;
+            # do not fall back to chrome-headless-shell.
+            self.browser = await self._pw.chromium.launch(
+                channel="chromium", headless=True, executable_path=executable,
+            )
+            ua = self.user_agent or browser_user_agent(self.browser.version)
+            self.context = await self.browser.new_context(
+                viewport={"width": 1280, "height": 800}, user_agent=ua,
+            )
+        except Exception as exc:
+            await self.stop()
+            raise RuntimeError(
+                "LinkedIn browser startup failed: full Chromium is required. "
+                "Check channels.linkedin.executable_path and Playwright browser installation."
+                f" {exc}"
+            ) from exc
 
         # Load cookies if we have them (avoids re-login)
         if COOKIES_PATH.exists():
@@ -187,12 +226,73 @@ class LinkedInAutomation:
 
     # ── Auth ──
 
+    async def _recaptcha_blocked(self) -> bool:
+        """Inspect a failed login, including invisible Enterprise frames.
+
+        Presence of a generic security checkpoint alone is not reCAPTCHA.
+        This observes the challenge; it never clicks or tries to solve it.
+        """
+        try:
+            iframes = self.page.locator("iframe")
+            for index in range(await iframes.count()):
+                src = (await iframes.nth(index).get_attribute("src") or "").lower()
+                if "recaptcha" in src:
+                    self.last_login_failure = "recaptcha"
+                    logger.warning("%s: LinkedIn login blocked by reCAPTCHA; public web search is independent.",
+                                   LINKEDIN_LOGIN_BLOCKED_RECAPTCHA)
+                    return True
+        except Exception:
+            pass
+        return False
+
+    async def _fill_first_visible(self, selectors: list, value: str) -> bool:
+        """Rellena el primer elemento VISIBLE que case con los selectores."""
+        for selector in selectors:
+            try:
+                locator = self.page.locator(selector)
+                count = await locator.count()
+            except Exception:
+                continue
+            for index in range(count):
+                element = locator.nth(index)
+                try:
+                    if not await element.is_visible():
+                        continue
+                    await element.fill(value)
+                    return True
+                except Exception:
+                    continue
+        return False
+
+    async def _click_login_button(self) -> bool:
+        """Pulsa el boton de envio del formulario de login."""
+        wanted = {"iniciar sesion", "sign in"}
+        try:
+            buttons = self.page.locator("button")
+            count = await buttons.count()
+        except Exception:
+            return False
+        for index in range(count):
+            button = buttons.nth(index)
+            try:
+                if not await button.is_visible():
+                    continue
+                label = " ".join((await button.inner_text() or "").split())
+                if label.lower().replace("\u00f3", "o") in wanted:
+                    await button.click()
+                    return True
+            except Exception:
+                continue
+        return False
+
     async def login(self) -> bool:
         """Log into LinkedIn."""
+        self.last_login_failure = None
         if not self.page:
             await self.start()
 
         if not self.email or not self.password:
+            self.last_login_failure = "credentials_missing"
             logger.warning("LinkedIn credentials not configured; cannot log in.")
             return False
 
@@ -202,6 +302,7 @@ class LinkedInAutomation:
             )
             await self._wait_settled()
         except Exception as e:
+            self.last_login_failure = "navigation_error"
             logger.error(f"Could not load LinkedIn login page: {e}")
             return False
 
@@ -213,11 +314,47 @@ class LinkedInAutomation:
             return True
 
         try:
-            await self.page.fill("#username", self.email)
+            filled_user = await self._fill_first_visible(
+                [
+                    "input[autocomplete=\"username\"]",
+                    "input[name=\"session_key\"]",
+                    "input[type=\"email\"]",
+                    "#username",
+                ],
+                self.email,
+            )
+            if not filled_user:
+                self.last_login_failure = "username_missing"
+                if await self._recaptcha_blocked():
+                    return False
+                logger.warning("LinkedIn login: no se encontro el campo de usuario.")
+                return False
             await self._random_delay(0.5, 1.5)
-            await self.page.fill("#password", self.password)
+
+            filled_pass = await self._fill_first_visible(
+                [
+                    "input[autocomplete=\"current-password\"]",
+                    "input[type=\"password\"]",
+                    "#password",
+                ],
+                self.password,
+            )
+            if not filled_pass:
+                self.last_login_failure = "password_missing"
+                if await self._recaptcha_blocked():
+                    return False
+                logger.warning("LinkedIn login: no se encontro el campo de password.")
+                return False
             await self._random_delay(0.5, 1.5)
-            await self.page.click('button[type="submit"]')
+
+            if not await self._click_login_button():
+                logger.info("LinkedIn login: boton no encontrado, se envia con Enter.")
+                try:
+                    await self.page.locator("input[type=\"password\"]").first.press("Enter")
+                except Exception:
+                    self.last_login_failure = "submit_failed"
+                    await self._recaptcha_blocked()
+                    return False
             await self._wait_settled()
 
             if "feed" in self.page.url or "mynetwork" in self.page.url:
@@ -227,18 +364,26 @@ class LinkedInAutomation:
                 self._save_cookies_sync(cookies)
                 return True
 
-            # Check for security challenge
+            if await self._recaptcha_blocked():
+                return False
+
+            # Checkpoint alone might be 2FA or another challenge, not reCAPTCHA.
             if "checkpoint" in self.page.url or "challenge" in self.page.url:
+                self.last_login_failure = "checkpoint"
                 logger.warning(
                     "LinkedIn security checkpoint detected. "
                     "Please log in manually and save cookies."
                 )
                 return False
 
+            self.last_login_failure = "rejected"
             logger.warning(f"Login may have failed. Current URL: {self.page.url}")
             return False
 
         except Exception as e:
+            self.last_login_failure = "error"
+            if await self._recaptcha_blocked():
+                return False
             # Never include credentials in logged errors.
             msg = str(e).replace(self.password, "***") if self.password else str(e)
             logger.error(f"LinkedIn login failed: {msg}")
