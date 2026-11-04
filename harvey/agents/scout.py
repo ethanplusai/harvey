@@ -45,7 +45,7 @@ from harvey.integrations.email_finder import (
     DEFAULT_PATTERN, SMALL_BUSINESS_PATTERN, find_email, site_email_evidence,
     verify_published_address,
 )
-from harvey.integrations.linkedin import LinkedInAutomation
+from harvey.integrations.linkedin import LinkedInAutomation, LINKEDIN_LOGIN_BLOCKED_RECAPTCHA
 from harvey.integrations.web_search import filter_site_results, matches_site, parse_bing, parse_duckduckgo
 from harvey.models.company import Company
 from harvey.models.prospect import COMPANY_INBOX_SOURCE, Prospect
@@ -752,7 +752,12 @@ class Scout:
         try:
             await linkedin.start()
             if not await linkedin.login():
-                logger.warning("Scout: LinkedIn login failed. Skipping.")
+                reason = getattr(linkedin, "last_login_failure", None) or "unknown"
+                if reason == "recaptcha":
+                    logger.warning("%s: Scout skips authenticated LinkedIn; continuing other strategies.",
+                                   LINKEDIN_LOGIN_BLOCKED_RECAPTCHA)
+                else:
+                    logger.warning("LINKEDIN_LOGIN_FAILED reason=%s: continuing other strategies.", reason)
                 return 0
 
             count = 0

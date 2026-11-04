@@ -30,6 +30,9 @@ USER_AGENT = (
     "Chrome/156.0.8078.4 Safari/537.36"
 )
 
+# Stable watchdog event. Do not translate or vary between integration and scout.
+LINKEDIN_LOGIN_BLOCKED_RECAPTCHA = "LINKEDIN_LOGIN_BLOCKED_RECAPTCHA"
+
 
 def browser_user_agent(version: str) -> str:
     """Keep the default UA aligned with the actual browser on every start."""
@@ -58,6 +61,7 @@ class LinkedInAutomation:
         self.password = password
         self.user_agent = user_agent.strip()
         self.executable_path = executable_path.strip()
+        self.last_login_failure: str | None = None
         self.browser = None
         self.context = None
         self.page = None
@@ -222,6 +226,25 @@ class LinkedInAutomation:
 
     # ── Auth ──
 
+    async def _recaptcha_blocked(self) -> bool:
+        """Inspect a failed login, including invisible Enterprise frames.
+
+        Presence of a generic security checkpoint alone is not reCAPTCHA.
+        This observes the challenge; it never clicks or tries to solve it.
+        """
+        try:
+            iframes = self.page.locator("iframe")
+            for index in range(await iframes.count()):
+                src = (await iframes.nth(index).get_attribute("src") or "").lower()
+                if "recaptcha" in src:
+                    self.last_login_failure = "recaptcha"
+                    logger.warning("%s: LinkedIn login blocked by reCAPTCHA; public web search is independent.",
+                                   LINKEDIN_LOGIN_BLOCKED_RECAPTCHA)
+                    return True
+        except Exception:
+            pass
+        return False
+
     async def _fill_first_visible(self, selectors: list, value: str) -> bool:
         """Rellena el primer elemento VISIBLE que case con los selectores."""
         for selector in selectors:
@@ -264,10 +287,12 @@ class LinkedInAutomation:
 
     async def login(self) -> bool:
         """Log into LinkedIn."""
+        self.last_login_failure = None
         if not self.page:
             await self.start()
 
         if not self.email or not self.password:
+            self.last_login_failure = "credentials_missing"
             logger.warning("LinkedIn credentials not configured; cannot log in.")
             return False
 
@@ -277,6 +302,7 @@ class LinkedInAutomation:
             )
             await self._wait_settled()
         except Exception as e:
+            self.last_login_failure = "navigation_error"
             logger.error(f"Could not load LinkedIn login page: {e}")
             return False
 
@@ -298,6 +324,9 @@ class LinkedInAutomation:
                 self.email,
             )
             if not filled_user:
+                self.last_login_failure = "username_missing"
+                if await self._recaptcha_blocked():
+                    return False
                 logger.warning("LinkedIn login: no se encontro el campo de usuario.")
                 return False
             await self._random_delay(0.5, 1.5)
@@ -311,6 +340,9 @@ class LinkedInAutomation:
                 self.password,
             )
             if not filled_pass:
+                self.last_login_failure = "password_missing"
+                if await self._recaptcha_blocked():
+                    return False
                 logger.warning("LinkedIn login: no se encontro el campo de password.")
                 return False
             await self._random_delay(0.5, 1.5)
@@ -320,6 +352,8 @@ class LinkedInAutomation:
                 try:
                     await self.page.locator("input[type=\"password\"]").first.press("Enter")
                 except Exception:
+                    self.last_login_failure = "submit_failed"
+                    await self._recaptcha_blocked()
                     return False
             await self._wait_settled()
 
@@ -330,35 +364,26 @@ class LinkedInAutomation:
                 self._save_cookies_sync(cookies)
                 return True
 
-            # Check for security challenge
+            if await self._recaptcha_blocked():
+                return False
+
+            # Checkpoint alone might be 2FA or another challenge, not reCAPTCHA.
             if "checkpoint" in self.page.url or "challenge" in self.page.url:
+                self.last_login_failure = "checkpoint"
                 logger.warning(
                     "LinkedIn security checkpoint detected. "
                     "Please log in manually and save cookies."
                 )
                 return False
 
-            # El reCAPTCHA se renderiza dentro de la pagina de login (no cambia
-            # la URL), asi que hay que mirarlo explicitamente.
-            try:
-                iframes = self.page.locator("iframe")
-                for index in range(await iframes.count()):
-                    src_attr = await iframes.nth(index).get_attribute("src") or ""
-                    if "recaptcha" in src_attr or "captcha" in src_attr:
-                        logger.warning(
-                            "LinkedIn presento un reCAPTCHA en el login: la "
-                            "automatizacion esta bloqueada en este intento. "
-                            "Hay que iniciar sesion manualmente y guardar las "
-                            "cookies en " + str(COOKIES_PATH) + "."
-                        )
-                        return False
-            except Exception:
-                pass
-
+            self.last_login_failure = "rejected"
             logger.warning(f"Login may have failed. Current URL: {self.page.url}")
             return False
 
         except Exception as e:
+            self.last_login_failure = "error"
+            if await self._recaptcha_blocked():
+                return False
             # Never include credentials in logged errors.
             msg = str(e).replace(self.password, "***") if self.password else str(e)
             logger.error(f"LinkedIn login failed: {msg}")

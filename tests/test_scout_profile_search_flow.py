@@ -45,7 +45,7 @@ async def test_real_profile_strategy_without_login_or_browser(monkeypatch):
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize("mode", ["recaptcha", "exception", "startup_error"])
-async def test_linkedin_failure_does_not_abort_real_web_profile_search(monkeypatch, mode):
+async def test_linkedin_failure_does_not_abort_real_web_profile_search(monkeypatch, mode, caplog):
     scout = make_scout("operator@example.com")
     linkedin = SimpleNamespace(start=AsyncMock(), stop=AsyncMock(), login=AsyncMock(return_value=False),
                                last_login_failure="recaptcha")
@@ -59,6 +59,10 @@ async def test_linkedin_failure_does_not_abort_real_web_profile_search(monkeypat
     assert scout.state.add_prospect.call_args.args[0].linkedin_url == PROFILE
     scout._prospect_via_company_discovery.assert_awaited_once()
     assert scout.state.log_action.call_args.kwargs["details"]["prospects_found"] == 1
+    if mode == "recaptcha":
+        assert "LINKEDIN_LOGIN_BLOCKED_RECAPTCHA" in caplog.text
+    else:
+        assert "LINKEDIN_LOGIN_BLOCKED_RECAPTCHA" not in caplog.text
 
 
 @pytest.mark.asyncio
