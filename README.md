@@ -609,7 +609,8 @@ product:      { name, description, pricing, key_benefits, objection_responses, o
 icp:          { industries, titles, company_size, geography, hiring_signals, geo_coordinates }
 channels:
   email:      { provider: gmail | microsoft | smtp | instantly, max_daily_sends, require_approval,
-                send_to_risky, max_bounce_rate, warmup, send_window, signature }
+                send_to_risky, max_bounce_rate, mailbox_bounce_limit, mailbox_bounce_days,
+                warmup, send_window, signature }
 usage:        { max_daily_claude_percent, heartbeat_interval_minutes, quiet_hours }
 brain:        { provider: claude | codex, model, reasoning_effort }   # optional; claude by default
 writer:       { humanizer }   # optional; true adds one editing pass per batch using ~/.claude/skills/humanizer/SKILL.md
@@ -711,6 +712,15 @@ your explicit choice.
 3. **Warm up for 2–4 weeks** before real volume, and keep warmup running after. We recommend [TrulyInbox](https://trulyinbox.com/?via=harvey); see [Warmup with TrulyInbox](#warmup-with-trulyinbox).
 4. **Ramp slowly** — 10–20/day per inbox, adding ~5/day. The `max_daily_sends: 50` default is a ceiling, not a target. Set `channels.email.warmup.start_date` and Harvey does this for you (Gmail, Microsoft, SMTP; Instantly has its own warmup): no cold email for `min_days`, then a cold-email cap that climbs by `daily_increase` a day. Replies always go out.
 5. **Watch bounces.** Above ~3%, stop and fix list quality. Harvey trips its own kill switch past your configured threshold.
+
+**Two bounce monitors** can pause sending (dashboard → Controls → Bounces shows both, with where each limit is set):
+
+| Monitor | Counts | Pauses sending when | Setting (in `harvey.local.yaml`, else `harvey.yaml`) |
+|---|---|---|---|
+| Harvey's emails | bounces of mail Harvey sent, matched by `In-Reply-To` or the failed address the bounce names | more than `max_bounce_rate` of Harvey's sends bounce, once 10 have been sent | `channels.email.max_bounce_rate` (default `0.05`; `0` turns it off) |
+| Other mail in this mailbox | bounces of mail Harvey didn't send: your own, or another tool sending from the same mailbox | `mailbox_bounce_limit` of them arrive within `mailbox_bounce_days` | `channels.email.mailbox_bounce_limit` (default `10`; `0` turns it off), `channels.email.mailbox_bounce_days` (default `7`) |
+
+Both use the same pause: approved mail waits until you resume (`harvey sending resume`, or the dashboard), and resuming starts both counts again. Each of Harvey's bounces is listed with the server's reason, how Harvey found the address, and what to tighten.
 
 *None of this is legal advice. Sending at scale or into regulated industries? Talk to a lawyer.*
 

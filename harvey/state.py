@@ -1476,6 +1476,60 @@ class StateManager:
                 row = await cursor.fetchone()
                 return dict(row) if row else None
 
+    async def resume_sending(self) -> None:
+        """Lift the kill switch, and start both bounce monitors afresh: the
+        count of Harvey's bounces goes back to 0, and the mailbox monitor
+        counts only bounces from now on."""
+        await self.set_setting("sending_paused", "")
+        await self.set_setting("bounce_count", "0")
+        # The log's position, not a clock time: created_at is to the second,
+        # and a bounce logged in the same second as the resume must not count.
+        async with self._connect() as db:
+            async with db.execute("SELECT COALESCE(MAX(rowid), 0) FROM actions") as cursor:
+                last = (await cursor.fetchone())[0]
+        await self.set_setting("mailbox_bounces_since", str(last))
+
+    async def count_mailbox_bounces(self, since: str, after_row: int = 0) -> int:
+        """Bounces of mail Harvey didn't send, at or after ``since`` and after
+        log position ``after_row``. Includes bounces older versions logged as
+        'bounce' with no address matched (prospect "unknown")."""
+        async with self._connect() as db:
+            async with db.execute(
+                "SELECT COUNT(*) FROM actions WHERE created_at >= ? AND rowid > ? AND ("
+                "action_type = 'bounce_ignored' OR (action_type = 'bounce' AND "
+                "COALESCE(json_extract(details_json, '$.prospect'), 'unknown') = 'unknown'))",
+                (since, int(after_row or 0)),
+            ) as cursor:
+                return (await cursor.fetchone())[0]
+
+    async def count_actions_since(self, action_type: str, since: str, after_row: int = 0) -> int:
+        """Logged actions of one type at or after ``since`` (UTC,
+        'YYYY-MM-DD HH:MM:SS', as actions.created_at stores it) and logged
+        after the log position ``after_row``."""
+        async with self._connect() as db:
+            async with db.execute(
+                "SELECT COUNT(*) FROM actions WHERE action_type = ? AND created_at >= ? "
+                "AND rowid > ?",
+                (action_type, since, int(after_row or 0)),
+            ) as cursor:
+                return (await cursor.fetchone())[0]
+
+    async def find_sent_outbox_to(self, addresses) -> dict | None:
+        """The latest sent email to any of ``addresses``: how a bounce whose
+        In-Reply-To doesn't match is tied back to the email it returned."""
+        addresses = [a.strip().lower() for a in addresses or [] if a and "@" in a]
+        if not addresses:
+            return None
+        marks = ",".join("?" * len(addresses))
+        async with self._connect() as db:
+            db.row_factory = aiosqlite.Row
+            async with db.execute(
+                f"SELECT * FROM outbox WHERE status = 'sent' AND lower(to_email) IN ({marks}) "
+                "ORDER BY sent_at DESC LIMIT 1", tuple(addresses)
+            ) as cursor:
+                row = await cursor.fetchone()
+                return dict(row) if row else None
+
     async def find_outbox_by_message_id(self, message_id: str) -> dict | None:
         if not message_id:
             return None

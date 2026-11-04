@@ -267,6 +267,12 @@ class EmailChannelConfig(BaseModel):
     # Kill switch: pause all sending when bounces exceed this fraction of
     # sent mail (measured over the trailing sends). 0 disables the switch.
     max_bounce_rate: float = 0.05
+    # Mailbox bounce monitor: bounces of mail Harvey didn't send (the owner's
+    # own, or another tool sending from this mailbox) also say the mailbox's
+    # reputation is at risk. Pause when this many arrive within
+    # mailbox_bounce_days. 0 disables the monitor.
+    mailbox_bounce_limit: int = 10
+    mailbox_bounce_days: int = 7
     # New domain? Ramp cold email up slowly (see WarmupConfig). Native
     # providers only: Instantly has its own warmup and per-account limits.
     warmup: WarmupConfig = WarmupConfig()
@@ -286,6 +292,20 @@ class EmailChannelConfig(BaseModel):
     @classmethod
     def _blank_signature(cls, v):
         return SignatureConfig() if v is None else v
+
+    @field_validator("mailbox_bounce_limit")
+    @classmethod
+    def _mailbox_limit_non_negative(cls, v: int) -> int:
+        if v < 0:
+            raise ValueError("mailbox_bounce_limit must be >= 0 (0 turns the monitor off)")
+        return v
+
+    @field_validator("mailbox_bounce_days")
+    @classmethod
+    def _mailbox_days_positive(cls, v: int) -> int:
+        if v < 1:
+            raise ValueError("mailbox_bounce_days must be at least 1")
+        return v
 
     @field_validator("max_daily_sends")
     @classmethod
