@@ -43,6 +43,10 @@ icp:
   # "Head of Growth" is shopping for growth tooling). Used for careers-page
   # scanning and job-board discovery. Empty = fall back to titles above.
   hiring_signals: []
+  # Tools on a company's own site that mean it's a buyer, by the names in
+  # TECH_STACK (e.g. ["Lovable", "Supabase"] to sell to founders of AI-built
+  # apps). One found counts as a buying signal in the company's fit score.
+  tech_signals: []
 
 channels:
   email:

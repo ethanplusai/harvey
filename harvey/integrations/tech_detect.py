@@ -13,6 +13,20 @@ stay rare.
 
 import re
 
+# Lovable's own markers, which survive into the published site: its default
+# social-card image and author tag, its older editor script, and the path it
+# serves uploaded images from. A site can carry any one of them.
+LOVABLE_FINGERPRINTS: tuple[str, ...] = (
+    r"lovable\.dev/opengraph-image",
+    r'<meta[^>]+name=["\']author["\'][^>]+content=["\']Lovable["\']',
+    r"cdn\.gpteng\.co/gptengineer\.js",
+    r"/lovable-uploads/",
+    r"[\w-]+\.lovable\.app",
+)
+# A project's API host (a 20-character ref), as it appears in a preconnect or
+# a storage image URL. Not the bare word, which marketing copy uses.
+SUPABASE_FINGERPRINTS: tuple[str, ...] = (r"\b[a-z0-9]{20}\.supabase\.co\b",)
+
 # name -> list of regexes; any match counts. Compiled lazily, matched
 # case-insensitively against the raw HTML.
 FINGERPRINTS: dict[str, list[str]] = {
@@ -65,6 +79,10 @@ FINGERPRINTS: dict[str, list[str]] = {
     # Hosting/infra hints
     "Cloudflare": [r"/cdn-cgi/"],
     "Vercel": [r"vercel\.app", r"x-vercel"],
+
+    # AI app builders
+    "Lovable": list(LOVABLE_FINGERPRINTS),
+    "Supabase": list(SUPABASE_FINGERPRINTS),
 }
 
 _compiled: dict[str, list[re.Pattern]] | None = None

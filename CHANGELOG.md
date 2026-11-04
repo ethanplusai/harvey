@@ -9,6 +9,18 @@ minor versions can still change behaviour.
 
 ### Added
 
+- **Lovable and Supabase in the tech stack.** `TECH_STACK` now records a site
+  built with Lovable (its default social-card image or author tag, its older
+  editor script, its `/lovable-uploads/` image path, or a `*.lovable.app`
+  link) and a Supabase backend (a project's API host). For anyone selling to
+  founders of AI-built apps, that is the buying signal. A page that only
+  mentions either tool by name doesn't count.
+- **`icp.tech_signals`.** Tools on a company's own site that mark it as a
+  buyer, by their `TECH_STACK` names (`["Lovable", "Supabase"]`, say). One
+  found earns the company's fit score its buying-signal points, as an open
+  role matching `icp.hiring_signals` does, and shows as "built with: …" in
+  the reasons. Only the latest tech stack counts, so a site that moved off
+  the tool stops scoring for it.
 - **Company fit and the company register.** The Companies tab now sorts by a
   0-100 fit score worked out from what Harvey already holds: the ICP sector
   match, a contact with a target title, the best email found, and an open
