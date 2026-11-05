@@ -208,15 +208,19 @@ class FallbackCrawler:
     # Set when a page was refused for pointing at a local or private address.
     blocked = False
 
-    async def crawl(self, base_url: str, max_pages: int = 100) -> dict[str, str]:
+    async def crawl(self, base_url: str, max_pages: int = 100,
+                    start_url: str = "") -> dict[str, str]:
         """Recursively crawl a website by following internal links."""
         self.blocked = False
         pages: dict[str, str] = {}
         visited: set[str] = set()
         domain = urlparse(base_url).netloc
 
-        # Queue starts with priority paths, then discovered links
+        # Queue starts with the page the user named (a product can live on its
+        # own path), then priority paths, then discovered links
         queue: list[str] = [urljoin(base_url, p) for p in FALLBACK_PATHS]
+        if start_url:
+            queue.insert(0, start_url)
 
         async with public_http_client(
             timeout=15,
@@ -481,14 +485,17 @@ class Trainer:
         if cf_account_id and cf_api_token:
             print(f"[1/6] Deep crawling with Cloudflare (up to {max_pages} pages)...")
             crawler = CloudflareCrawler(cf_account_id, cf_api_token)
+            # Start on the page the user named; sitemaps and links still
+            # bring in the rest of the site.
             self.scraped_pages = await crawler.crawl(
-                base_url, max_pages=max_pages, depth=10
+                url, max_pages=max_pages, depth=10
             )
         else:
             print("[1/6] Crawling website (add CLOUDFLARE_ACCOUNT_ID and")
             print("      CLOUDFLARE_API_TOKEN to .env for deep JS-rendered crawling)...")
             crawler = FallbackCrawler()
-            self.scraped_pages = await crawler.crawl(base_url, max_pages=max_pages)
+            self.scraped_pages = await crawler.crawl(base_url, max_pages=max_pages,
+                                                     start_url=url)
 
         if not self.scraped_pages:
             if getattr(crawler, "blocked", False):

@@ -312,6 +312,12 @@ minor versions can still change behaviour.
 
 ### Fixed
 
+- **`harvey train <url>` starts on the page you give it.** Training cut the
+  URL down to the domain, so a product on its own path (for example
+  `https://example.com/products/widget`) was crawled from the homepage, and
+  with a low page limit the product page was never read. Both the built-in
+  crawler and the Cloudflare crawl now start on the full URL; the rest of the
+  site is still found through links and sitemaps.
 - **Spanish opt-outs are caught without the model** (from #154). "No,
   gracias", a bare "BAJA", "denme de baja", "no me escriba más", "dejen de
   enviarme correos", "sáquenme de su lista", "no quiero recibir más correos"
