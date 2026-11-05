@@ -93,3 +93,29 @@ def test_a_contact_on_the_do_not_contact_list_doesnt_count():
     jo = {**person(), "email": "jo@acme.example"}
     score, _ = company_fit(ACME, [jo], [], config(dnc=["jo@acme.example"]))
     assert score == 20
+
+
+OTHER = {"id": "c2", "name": "Other Co", "domain": "other.example", "industry": "software company"}
+
+
+def mention(text, num, at):
+    return {"signal_code": "SITE_MENTIONS", "value_text": text, "value_num": num, "observed_at": at}
+
+
+def test_a_site_mention_counts_as_a_sector_match():
+    score, reasons = company_fit(OTHER, [], [mention("Splunk", 1, "2026-10-01")], config())
+    assert score == 20
+    assert reasons[0] == "site mentions: Splunk"
+
+
+def test_a_site_mention_adds_a_reason_but_no_second_sector_score():
+    score, reasons = company_fit(ACME, [], [mention("Splunk", 1, "2026-10-01")], config())
+    assert score == 20
+    assert reasons[:2] == ["sector: forging company", "site mentions: Splunk"]
+
+
+def test_the_latest_site_reading_wins():
+    obs = [mention("Splunk", 1, "2026-09-01"), mention("", 0, "2026-10-01")]
+    score, reasons = company_fit(OTHER, [], obs, config())
+    assert score == 0
+    assert not any(r.startswith("site mentions") for r in reasons)

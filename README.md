@@ -200,7 +200,7 @@ you need the Codex provider.
 
 This is the part that makes Harvey different from a black box, and it is deliberately not skippable.
 
-Harvey knows how to collect **29 signals** about a business. It does not collect any of them until you say so. On first run it *proposes* the catalog; you confirm, skip, or reject each one in the dashboard or from the terminal:
+Harvey knows how to collect **30 signals** about a business. It does not collect any of them until you say so. On first run it *proposes* the catalog; you confirm, skip, or reject each one in the dashboard or from the terminal:
 
 ```bash
 harvey signals                       # review the catalog
@@ -224,6 +224,7 @@ Every signal shows what it is in plain language, **what it costs**, and how many
 | | `BLOG_STALE` | Content marketing started and abandoned. |
 | | `SITE_PAGE_COUNT`, `TECH_STACK`, `BLOCKS_AI_CRAWLERS` | Size, platform, AI-search visibility. |
 | | `HIRING_ROLE` / `OPEN_ROLES` | What they're hiring for, and how many roles are open. When their site links a Greenhouse, Lever, Ashby or Workable board, Harvey reads that board's public feed (one request): roles matching `icp.hiring_signals` (else `icp.titles`), with department, location, posting date and the posting's URL; when the board lists none, it records "not hiring" so a closed role stops counting. Otherwise it reads the careers page. Set `hiring_signals` to the roles that mean they're buying: the `titles` fallback names who you email, so "CEO" only matches a CEO opening (never "Assistant to the CEO"), which is rarely the signal you want. |
+| | `SITE_MENTIONS` | Which of your `icp.site_mentions` phrases their own site names: a product they run, a partnership, a service they sell (`["Splunk", "managed SOC"]`). Reads the homepage, About and a services or partners page, logo alt text included, and counts as a sector match in the fit score. The way to qualify companies whose category no directory lists. |
 | | `YC_BACKED`, `ACCELERATOR`, `FUNDING_ROUND` | A startup, as its own site says: YC or another accelerator (with the batch or cohort), or a raise it announced (round, amount, date). |
 | **People** | `CONTACT_FOUND`, `DECISION_MAKER_TITLE`, `LIKELY_OWNER`, `REGISTRY_VERIFIED` | Who decides, and whether they own the place. |
 | **Contact** | `EMAIL_PATTERN`, `EMAIL_STATUS`, `CONTACT_FORM_URL` | Whether you can actually reach them. |
@@ -606,7 +607,7 @@ Two files, both plain text.
 ```yaml
 persona:      { name, company, role, email, tone }
 product:      { name, description, pricing, key_benefits, objection_responses, offer }
-icp:          { industries, titles, company_size, geography, hiring_signals, geo_coordinates }
+icp:          { industries, titles, company_size, geography, hiring_signals, site_mentions, geo_coordinates }
 channels:
   email:      { provider: gmail | microsoft | smtp | instantly, max_daily_sends, require_approval,
                 send_to_risky, max_bounce_rate, warmup, send_window, signature }
@@ -615,6 +616,8 @@ brain:        { provider: claude | codex, model, reasoning_effort }   # optional
 writer:       { humanizer }   # optional; true adds one editing pass per batch using ~/.claude/skills/humanizer/SKILL.md
               # email_rules: your own markdown rules for the emails' shape (see The skills library)
 ```
+
+`icp.geography` is in priority order. Harvey drafts a few emails a cycle, so it takes prospects at companies in the first entry first, then the next, then everyone else: a company outside every entry is still contacted, just last. An entry matches by place name ("Denver, CO"), by country ("United States", "Canada"), or anywhere inside its `geo_coordinates` radius when discovery has cached the company's coordinates. The dashboard's company fit shows which entry a company falls in.
 
 `max_daily_claude_percent` caps whichever subscription `brain.provider` uses (the name predates Codex support).
 

@@ -60,11 +60,18 @@ class ICPConfig(BaseModel):
     industries: list[str]
     company_size: str
     titles: list[str]
+    # Ordered: earlier entries are written to (and sent) first, and a
+    # company outside every entry still counts, only last. See
+    # harvey/geography.py for how an entry matches a company's location.
     geography: list[str]
     # Role keywords that indicate a company is in-market right now (a company
     # hiring a "Head of Growth" is buying growth tooling). Empty → falls back
     # to `titles`. Used for careers-page scanning and job-board discovery.
     hiring_signals: list[str] = []
+    # Phrases that make a company a fit when its own site names them: a
+    # product it runs, a partnership, a service it sells ("Splunk",
+    # "HubSpot partner"). Collected as SITE_MENTIONS; counts as a sector match.
+    site_mentions: list[str] = []
     # Discovery needs a radius, not a place name. Maps each entry in
     # `geography` to "lat,lng,radius_km" — e.g.
     #   "Denver, CO": "39.7392,-104.9903,50"

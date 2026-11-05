@@ -37,12 +37,19 @@ icp:
     - "Head of Growth"
     - "CMO"
     - "Director of Marketing"
+  # In priority order: the first entry is written to first, then the next.
+  # A company outside every entry is still contacted, only after the rest.
+  # A city with icp.geo_coordinates matches anywhere inside its radius.
   geography:
     - "United States"
   # Roles that signal a company is in-market RIGHT NOW (a company hiring a
   # "Head of Growth" is shopping for growth tooling). Used for careers-page
   # scanning and job-board discovery. Empty = fall back to titles above.
   hiring_signals: []
+  # Phrases that make a company a fit when its own site says them: a product
+  # it runs, a partnership, a service it sells ("Splunk", "HubSpot partner").
+  # Read by the SITE_MENTIONS signal; a match counts as a sector match.
+  site_mentions: []
 
 channels:
   email:

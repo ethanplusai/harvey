@@ -5,13 +5,17 @@ its contacts and their email status, and its observations), weighed against
 the ICP in the config. Nothing is stored, so the score follows the config
 the moment it changes.
 
-    sector match      20  the company's industry is one of icp.industries
+    sector match      20  the company's industry is one of icp.industries,
+                          or its own site names an icp.site_mentions phrase
     decision maker    30  a contact whose title matches icp.titles
                           (15 for another named person, 5 for a general inbox)
     reachable         25  best email: verified 25, risky 12, guess 5;
                           a contact form alone is 5
     buying signal     25  an open role matching icp.hiring_signals
                           (5 for a careers page with no matching role)
+
+Location adds a reason but no points: icp.geography orders who is written
+to first (harvey.geography), it doesn't make a company less of a fit.
 
 A company on the do-not-contact list scores 0.
 """
@@ -22,6 +26,7 @@ import re
 
 from harvey.collectors.people import title_matches
 from harvey.gate import do_not_contact_match
+from harvey.geography import tier as geo_tier
 
 SECTOR, DECISION_MAKER, REACHABLE, BUYING = 20, 30, 25, 25
 EMAIL_POINTS = {"verified": 25, "risky": 12, "guess": 5}
@@ -39,6 +44,16 @@ def _role_matches(text: str, terms: list[str]) -> str:
         if re.search(rf"(?<![\w-]){re.escape(term)}(?![\w-])", low):
             return term
     return ""
+
+
+def site_said(observations: list[dict]) -> str:
+    """The icp.site_mentions phrases the latest SITE_MENTIONS reading found
+    ("Splunk; SIEM"), or "" when it found none or there is no reading."""
+    readings = [o for o in observations if o.get("signal_code") == "SITE_MENTIONS"]
+    if not readings:
+        return ""
+    latest = max(readings, key=lambda o: o.get("observed_at") or "")
+    return (latest.get("value_text") or "").strip() if (latest.get("value_num") or 0) > 0 else ""
 
 
 def current_roles(observations: list[dict]) -> list[dict]:
@@ -66,9 +81,14 @@ def company_fit(company: dict, prospects: list[dict], observations: list[dict],
     score, reasons = 0, []
 
     industries = {i.strip().lower() for i in (icp.industries or [])}
+    said = site_said(observations)
     if (company.get("industry") or "").strip().lower() in industries:
         score += SECTOR
         reasons.append(f"sector: {company['industry']}")
+    elif said:
+        score += SECTOR
+    if said:
+        reasons.append(f"site mentions: {said}")
 
     # Someone who opted out or is on the list won't be written to: they
     # don't make the company reachable.
@@ -114,6 +134,13 @@ def company_fit(company: dict, prospects: list[dict], observations: list[dict],
     elif roles:
         score += 5
         reasons.append("careers page, no matching role")
+
+    # Location orders the queue (see harvey.geography) rather than the
+    # score: a company outside every entry is still a fit, just later.
+    if getattr(icp, "geography", None) and (company.get("location") or "").strip():
+        index, entry = geo_tier(company["location"], config)
+        reasons.append(f"location: {entry} (priority {index + 1})" if index is not None
+                       else "location: outside your geography (contacted last)")
 
     return min(score, 100), reasons
 
