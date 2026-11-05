@@ -39,7 +39,7 @@ def _seed(db):
 
 def test_conversations_include_the_emails_they_answer_and_a_waiting_draft(client):
     _seed(client.db_path)
-    [convo] = client.get("/api/conversations").json()
+    [convo] = client.get("/api/conversations?filter=all").json()["items"]
     assert [(e["step"], e["subject"]) for e in convo["emails"]] == [(1, "quick question"), (2, "re: booking")]
     assert all("sent_at" in e and "body" in e for e in convo["emails"])   # cancelled step 3 left out
     assert convo["draft"]["id"] == "o4" and convo["draft"]["body"] == "It's $49 a month."
@@ -50,7 +50,7 @@ def test_a_conversation_without_emails_or_draft(client):
     asyncio.run(StateManager(str(client.db_path)).init_db())
     _sql(client.db_path, "INSERT INTO prospects (id, first_name, email, status) VALUES ('p9', 'Ana', 'a@x.test', 'replied')")
     _sql(client.db_path, "INSERT INTO conversations (id, prospect_id, thread_json, status) VALUES ('c9', 'p9', '[]', 'open')")
-    [convo] = client.get("/api/conversations").json()
+    [convo] = client.get("/api/conversations?filter=all").json()["items"]
     assert convo["emails"] == [] and convo["draft"] is None
 
 
@@ -59,7 +59,7 @@ def test_a_prospect_in_two_campaigns_sees_only_the_sequence_the_reply_answers(cl
     _sql(client.db_path, "INSERT INTO outbox (id, prospect_id, campaign_id, kind, step, to_email, subject, body, "
          "status, sent_at, send_at) VALUES ('o7', 'p1', 'k2', 'sequence', 1, 'x@x.test', 'other campaign', "
          "'Hi again.', 'sent', '2026-09-01T09:00:00', '2026-09-01T09:00:00')")
-    [convo] = client.get("/api/conversations").json()
+    [convo] = client.get("/api/conversations?filter=all").json()["items"]
     assert [e["subject"] for e in convo["emails"]] == ["quick question", "re: booking"]
     assert all("campaign_id" not in e for e in convo["emails"])
 
@@ -93,7 +93,7 @@ def test_conversation_status_rejects_bad_input(client):
 def test_awaiting_reply_cards_are_opt_in(client):
     _seed(client.db_path)
     # Default: replies only, as before. Ben was emailed but never answered.
-    assert [c["id"] for c in client.get("/api/conversations").json()] == ["c1"]
+    assert [c["id"] for c in client.get("/api/conversations?filter=all").json()["items"]] == ["c1"]
 
 
 def test_awaiting_reply_lists_everyone_emailed_who_has_not_replied(client):
@@ -108,7 +108,7 @@ def test_awaiting_reply_lists_everyone_emailed_who_has_not_replied(client):
              "status, sent_at, send_at) VALUES (?, 'p3', 'k1', 'sequence', ?, 'info@acme.example', ?, 'Hi.', ?, ?, "
              "'2026-10-19T09:00:00')", (oid, step, subject, status, sent_at))
 
-    rows = client.get("/api/conversations?awaiting=1").json()
+    rows = client.get("/api/conversations?awaiting=1&filter=all").json()["items"]
     # The real conversation keeps its place; awaiting cards follow, newest send first.
     assert [r["id"] for r in rows] == ["c1", "awaiting-p3", "awaiting-p2"]
     by_id = {r["id"]: r for r in rows}
@@ -147,7 +147,7 @@ def _emailed(db, pid, status="contacted", email_status="verified", sent="sent"):
 
 
 def _awaiting(client):
-    return [r["prospect_id"] for r in client.get("/api/conversations?awaiting=1").json()
+    return [r["prospect_id"] for r in client.get("/api/conversations?awaiting=1&filter=all").json()["items"]
             if r["status"] == "awaiting_reply"]
 
 

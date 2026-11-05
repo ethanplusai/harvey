@@ -12,8 +12,10 @@ import subprocess
 import sys
 import tempfile
 import uuid
+from collections import Counter
 from datetime import date, datetime, timezone
 from pathlib import Path
+from urllib.parse import urlsplit
 
 import aiosqlite
 import yaml
@@ -518,32 +520,125 @@ async def test_instantly(request: Request):
 # ── Companies ──
 
 
-# The Companies tab shows the best-fit companies, up to this many; the CSV has all.
-COMPANIES_TAB_LIMIT = 2000
-
-
 @app.get("/api/companies")
-async def get_companies():
-    """Companies with contact counts, fit score and register status, best fit first."""
-    rows = await query_db("""
-        SELECT c.*,
-            (SELECT COUNT(*) FROM prospects p WHERE p.company_id = c.id) as contact_count
-        FROM companies c ORDER BY c.created_at DESC
-    """)
+async def get_companies(sort: str = "fit", dir: str = "desc", offset: int = 0, limit: int = 50,
+                        q: str = "", source: str = "", location: str = "", status: str = "",
+                        fit_min: int | None = None, fit_max: int | None = None):
+    """One page of companies with their contact counts, fit score and
+    register status, filtered by name or domain, location, source, status
+    and a fit range. Sorted and paged in the database, except by fit, which
+    only the register works out; so are the status and fit filters, which
+    then narrow the database's query to the companies they keep.
+    ``facets`` lists every source and status, with counts, for the filters."""
     try:
-        from harvey.config import load_config
-        from harvey.register import build_register
-        register = {r["id"]: r for r in await build_register(query_db, load_config())}
-        for c in rows:
+        state = _state()
+        await state.init_db()
+        register = await _register_by_id()
+        ids = None
+        if register and (status or fit_min is not None or fit_max is not None):
+            low, high = fit_min if fit_min is not None else 0, fit_max if fit_max is not None else 100
+            ids = [cid for cid, r in register.items()
+                   if (not status or r["status"] == status) and low <= r["fit"] <= high]
+        if sort == "fit" and register:
+            kept = set(await state.company_ids(q=q, source=source, location=location, ids=ids))
+            page = await _companies_by_fit({k: v for k, v in register.items() if k in kept},
+                                           dir, offset, limit)
+        else:
+            page = await state.companies_page(sort=sort, direction=dir, offset=offset, limit=limit,
+                                              q=q, source=source, location=location, ids=ids)
+        for c in page["items"]:
             r = register.get(c["id"])
             if r:
                 c["fit"], c["fit_reasons"] = r["fit"], r["fit_reasons"]
                 c["register_status"], c["register_why"] = r["status"], r["why_not_contacted"]
-        rows.sort(key=lambda c: c.get("fit", 0), reverse=True)
+        page["facets"] = {
+            "statuses": sorted(Counter(r["status"] for r in register.values()).items()),
+            # How many companies in each tenth of the fit scale (90-100 last).
+            "fit": [sum(1 for r in register.values() if min(r["fit"] // 10, 9) == tenth)
+                    for tenth in range(10)],
+            "sources": [(r["source"], r["n"]) for r in await query_db(
+                "SELECT COALESCE(source, '') AS source, COUNT(*) AS n FROM companies "
+                "GROUP BY 1 ORDER BY 1")],
+        }
+        return page
+    except Exception as e:
+        return {"error": str(e)}
+
+
+# What a company edit may hold, and how long each field may be.
+COMPANY_FIELD_LIMITS = {"name": 200, "website": 500, "industry": 200, "location": 200,
+                        "company_size": 100, "description": 2000, "notes": 10000}
+
+
+@app.post("/api/companies/{company_id}")
+async def edit_company(company_id: str, request: Request):
+    """Change a company's details or notes. Only the fields sent change; every
+    change is logged with what it replaced, so the notes keep a trail."""
+    try:
+        body = await request.json()
+    except Exception:
+        body = None
+    if not isinstance(body, dict):
+        return _refuse("Send the fields to change as a JSON object.", 400)
+    changes = {}
+    for field, cap in COMPANY_FIELD_LIMITS.items():
+        if field not in body:
+            continue
+        value = body[field]
+        if not isinstance(value, str):
+            return _refuse(f"{field} must be text.", 400)
+        value = value.strip() if field != "notes" else value.rstrip()
+        if len(value) > cap:
+            return _refuse(f"{field} is {len(value):,} characters; the limit is {cap:,}.", 400)
+        changes[field] = value
+    if "name" in changes and not changes["name"]:
+        return _refuse("A company needs a name.", 400)
+    site = urlsplit(changes.get("website") or "")
+    if changes.get("website") and (site.scheme not in ("http", "https") or not site.netloc):
+        return _refuse("The website must start with http:// or https://.", 400)
+    try:
+        state = _state()
+        await state.init_db()
+        diff = await state.edit_company(company_id, changes)
+        if diff is None:
+            return JSONResponse({"success": False, "message": "No such company."}, status_code=404)
+        if diff:
+            name = (await query_db("SELECT name FROM companies WHERE id = ?", (company_id,)))[0]["name"]
+            await state.log_action("company_edited", "dashboard", {
+                "company_id": company_id, "company": name,
+                "changes": {k: {"old": old, "new": new} for k, (old, new) in diff.items()},
+            })
+        return {"success": True, "changed": sorted(diff)}
+    except Exception as e:
+        return JSONResponse({"success": False, "message": str(e)}, status_code=500)
+
+
+async def _register_by_id() -> dict:
+    """The company register by company id; {} when it can't be built."""
+    try:
+        from harvey.config import load_config
+        from harvey.register import build_register
+        return {r["id"]: r for r in await build_register(query_db, load_config())}
     except Exception as e:
         # A config that won't load must not take the Companies tab down with it.
         logger.warning(f"Company fit unavailable: {e}")
-    return rows[:COMPANIES_TAB_LIMIT]
+        return {}
+
+
+async def _companies_by_fit(register: dict, direction: str, offset: int, limit: int) -> dict:
+    """The same page shape as StateManager.companies_page, best fit first
+    (or last with dir=asc)."""
+    limit = max(1, min(int(limit), 200))
+    offset = max(0, int(offset))
+    ranked = sorted(register.values(), key=lambda r: r.get("fit", 0), reverse=direction != "asc")
+    ids = [r["id"] for r in ranked[offset:offset + limit]]
+    rows = await query_db(
+        "SELECT c.*, (SELECT COUNT(*) FROM prospects p WHERE p.company_id = c.id) AS contact_count "
+        f"FROM companies c WHERE c.id IN ({','.join('?' * len(ids))})", tuple(ids)) if ids else []
+    where = {cid: n for n, cid in enumerate(ids)}
+    rows.sort(key=lambda c: where[c["id"]])
+    return {"items": rows, "total": len(ranked), "offset": offset, "limit": limit,
+            "sort": "fit", "dir": "asc" if direction == "asc" else "desc"}
 
 
 @app.get("/api/export/companies.csv")
@@ -980,6 +1075,29 @@ async def get_prospects():
     return rows
 
 
+@app.get("/api/contacts")
+async def get_contacts(sort: str = "added", dir: str = "desc", status: str = "all",
+                       email: str = "all", q: str = "", offset: int = 0, limit: int = 50):
+    """One page of the Contacts tab, sorted, filtered and searched in the
+    database: the page never loads the whole list, however long it gets."""
+    try:
+        state = _state()
+        await state.init_db()
+        page = await state.contacts_page(sort=sort, direction=dir, status=status, email=email,
+                                         query=q[:200], offset=offset, limit=limit)
+        ids = [r["id"] for r in page["items"]]
+        # Someone whose opt-out was undone keeps a way to see what happened.
+        undone = {r["pid"] for r in await query_db(
+            "SELECT DISTINCT json_extract(details_json, '$.prospect_id') AS pid FROM actions "
+            "WHERE action_type = 'opt_out_undone' AND json_valid(details_json) "
+            f"AND json_extract(details_json, '$.prospect_id') IN ({_in(ids)})", tuple(ids))} if ids else set()
+        for r in page["items"]:
+            r["opt_out_undone"] = r["id"] in undone
+        return page
+    except Exception as e:
+        return {"error": str(e)}
+
+
 def _state():
     from harvey.state import StateManager
     return StateManager(db_path=str(DB_PATH))
@@ -1066,29 +1184,66 @@ async def _with_context(items: list[dict]) -> list[dict]:
     return items
 
 
+async def _with_website(items: list[dict]) -> list[dict]:
+    """Attach each email's company website: its own, else https://domain."""
+    pids = sorted({i["prospect_id"] for i in items if i.get("prospect_id")})
+    sites = {r["id"]: r["website"] or (f"https://{r['domain']}" if r["domain"] else "")
+             for r in (await query_db(
+                 "SELECT p.id, c.website, c.domain FROM prospects p "
+                 "JOIN companies c ON c.id = p.company_id "
+                 f"WHERE p.id IN ({_in(pids)})", tuple(pids)) if pids else [])}
+    for item in items:
+        item["website"] = sites.get(item.get("prospect_id"), "")
+    return items
+
+
+# The Outbox tab's lists: which rows each holds, in what order, how many a page.
+OUTBOX_LISTS = {
+    "pending": ("status = 'pending_review'", "send_at ASC, created_at ASC", 50),
+    # Mail going out right now leads the list.
+    "approved": ("status IN ('sending', 'approved')",
+                 "status = 'sending' DESC, send_at ASC, created_at ASC", 25),
+    "sent": ("status = 'sent'", "sent_at DESC", 25),
+    "failed": ("status IN ('failed', 'rejected', 'cancelled')", "updated_at DESC", 25),
+}
+
+
+async def _outbox_page(name: str, offset: int) -> tuple[list[dict], dict]:
+    """One page of one Outbox list, and where it stands (offset, limit, total)."""
+    where, order, limit = OUTBOX_LISTS[name]
+    total = (await query_db(f"SELECT COUNT(*) AS n FROM outbox WHERE {where}") or [{"n": 0}])[0]["n"]
+    offset = max(0, min(int(offset), max(0, (total - 1) // limit * limit)))
+    rows = await query_db(f"SELECT * FROM outbox WHERE {where} ORDER BY {order} LIMIT ? OFFSET ?",
+                          (limit, offset))
+    return rows, {"offset": offset, "limit": limit, "total": total}
+
+
 @app.get("/api/outbox")
-async def get_outbox_api():
-    """Outbox queue + kill-switch state for the Outbox tab."""
+async def get_outbox_api(pending_offset: int = 0, approved_offset: int = 0,
+                         sent_offset: int = 0, failed_offset: int = 0):
+    """Outbox queue + kill-switch state for the Outbox tab. Each list is one
+    page; ``pages`` says where each stands, ``held`` how many drafts Harvey
+    held for a look (Approve all leaves those)."""
     try:
         state = _state()
         await state.init_db()
         # A send cut off mid-way shows up under Didn't send even when Harvey
         # isn't running.
         await state.fail_stale_sending_outbox()
+        offsets = {"pending": pending_offset, "approved": approved_offset,
+                   "sent": sent_offset, "failed": failed_offset}
+        lists, pages = {}, {}
+        for name, offset in offsets.items():
+            lists[name], pages[name] = await _outbox_page(name, offset)
         return {
             **_compliance_view(),
             "paused": await state.get_setting("sending_paused"),
-            "pending": await _with_context(
-                await state.get_outbox(status="pending_review", limit=100)),
-            # Mail going out right now leads the list.
-            "approved": (await state.get_outbox(status="sending", limit=10)
-                         + await state.get_outbox(status="approved", limit=50)),
-            "sent": (await query_db(
-                "SELECT * FROM outbox WHERE status = 'sent' "
-                "ORDER BY sent_at DESC LIMIT 25")),
-            "failed": (await query_db(
-                "SELECT * FROM outbox WHERE status IN ('failed','rejected','cancelled') "
-                "ORDER BY updated_at DESC LIMIT 25")),
+            "pending": await _with_context(lists["pending"]),
+            "approved": await _with_website(lists["approved"]),
+            "sent": lists["sent"],
+            "failed": lists["failed"],
+            "pages": pages,
+            "held": await state.count_held_for_review(),
         }
     except Exception as e:
         return {"error": str(e)}
@@ -1420,6 +1575,21 @@ async def outbox_reject(item_id: str):
         return JSONResponse({"success": False, "message": str(e)}, status_code=500)
 
 
+@app.post("/api/outbox/{item_id}/unapprove")
+async def outbox_unapprove(item_id: str):
+    """Take an approval back: the email returns to the review desk, where it
+    can be edited, approved again or rejected. Never once it's sending."""
+    try:
+        state = _state()
+        await state.init_db()
+        if not await state.unapprove_outbox_item(item_id):
+            return _refuse("That email is already sending or sent, so it can't be taken back.")
+        await state.log_action("outbox_unapproved", "dashboard", {"outbox_id": item_id})
+        return {"success": True}
+    except Exception as e:
+        return JSONResponse({"success": False, "message": str(e)}, status_code=500)
+
+
 @app.post("/api/sending/{action}")
 async def sending_toggle(action: str):
     if action not in ("pause", "resume"):
@@ -1461,14 +1631,40 @@ async def export_prospects(all: bool = False, min_score: int = 0, email_status: 
 
 
 @app.get("/api/campaigns")
-async def get_campaigns():
-    rows = await query_db("SELECT * FROM campaigns ORDER BY created_at DESC LIMIT 100")
+async def get_campaigns(sort: str = "created", dir: str = "desc", offset: int = 0,
+                        limit: int = 20, empty: bool = False):
+    """One page of campaigns, sorted and paged in the database, with what the
+    tab needs for each: its emails, its people, where its first emails stand
+    in the Outbox, and why a draft isn't moving. Campaigns with no one left
+    in them only with ``empty``; ``page["empty"]`` counts them."""
+    try:
+        state = _state()
+        await state.init_db()
+        page = await state.campaigns_page(sort=sort, direction=dir, offset=offset,
+                                          limit=limit, include_empty=empty)
+    except Exception as e:
+        return {"error": str(e)}
+    rows = page["items"]
     harvey_sends = _harvey_can_send()
     send_as = "" if harvey_sends else _send_as()
     footer = _compliance_view()["footer"]
     committed = await _harvey_committed_ids()
     hand_sent = await _hand_sent_ids()
+    # Each campaign's first emails in the Outbox, by status: on Gmail, SMTP
+    # and Microsoft 365 they are written per person, not from the template.
+    first_emails: dict[str, dict] = {}
+    ids = [row["id"] for row in rows]
+    for o in await query_db(
+            "SELECT campaign_id, status, COUNT(*) AS n FROM outbox WHERE step = 1 "
+            f"AND campaign_id IN ({','.join('?' * len(ids))}) GROUP BY campaign_id, status",
+            tuple(ids)) if ids else []:
+        first_emails.setdefault(o["campaign_id"], {})[o["status"]] = o["n"]
+    paused = await query_db("SELECT value FROM settings WHERE key = 'sending_paused'")
+    paused = (paused[0]["value"] or "") if paused else ""
     for row in rows:
+        row["first_emails"] = first_emails.get(row["id"], {})
+        # Why a draft isn't moving: the Sender stages nothing while paused.
+        row["held"] = paused if row.get("status") == "draft" else ""
         try:
             row["sequence"] = json.loads(row.get("sequence_json", "[]"))
         except (json.JSONDecodeError, TypeError):
@@ -1500,7 +1696,7 @@ async def get_campaigns():
                 r["can_mark_sent"] and not harvey_sends
                 and (r.get("email_status") or "guess") in HAND_SENDABLE_EMAIL
             )
-    return rows
+    return page
 
 
 @app.get("/api/prospects/{prospect_id}/opt-out")
@@ -1564,19 +1760,54 @@ async def undo_opt_out(prospect_id: str, request: Request):
     return {"success": True, "status": "replied"}
 
 
+# The Conversations tab's filters, in the order its buttons show them.
+CONVERSATION_FILTERS = {
+    "needs": lambda c: bool(c.get("draft")) or c.get("status") == "needs_human",
+    "open": lambda c: c.get("status") not in ("closed", "awaiting_reply"),
+    "awaiting": lambda c: c.get("status") == "awaiting_reply",
+    "closed": lambda c: c.get("status") == "closed",
+    "all": lambda c: True,
+}
+
+
 @app.get("/api/conversations")
-async def get_conversations(awaiting: bool = False):
+async def get_conversations(awaiting: bool = False, filter: str = "", offset: int = 0,
+                            limit: int = 20):
+    """One page of conversations under one filter, with how many each filter
+    holds. Handed to you first, then answers waiting for approval, then
+    newest first; with ``awaiting``, people emailed who haven't replied come
+    after the real conversations. With no filter, "needs" when something
+    needs you, else "open" when anything is open, else "all"; ``filter`` in
+    the response says which."""
+    limit = max(1, min(int(limit), 100))
+    offset = max(0, int(offset))
     rows = await query_db("""
         SELECT c.*, p.first_name, p.last_name, p.email as prospect_email, p.company,
                p.status as prospect_status
         FROM conversations c
         LEFT JOIN prospects p ON c.prospect_id = p.id
-        ORDER BY c.updated_at DESC LIMIT 100
+        ORDER BY c.updated_at DESC
     """)
+    # Answers still waiting for approval decide "needs you", so every
+    # conversation's is read, not just this page's.
+    drafts = {d.pop("conversation_id"): d for d in await query_db(
+        "SELECT id, conversation_id, subject, body, send_at FROM outbox "
+        "WHERE kind = 'reply' AND status = 'pending_review' ORDER BY created_at")}
+    for row in rows:
+        row["draft"] = drafts.get(row["id"])
+    if awaiting:
+        rows += await _awaiting_reply()
+    counts = {name: sum(1 for r in rows if keep(r)) for name, keep in CONVERSATION_FILTERS.items()}
+    if filter not in CONVERSATION_FILTERS:
+        filter = "needs" if counts["needs"] else "open" if counts["open"] else "all"
+    rank = lambda c: 0 if c.get("status") == "needs_human" else 1 if c.get("draft") else 2  # noqa: E731
+    shown = sorted((r for r in rows if CONVERSATION_FILTERS[filter](r)), key=rank)
+    page = shown[offset:offset + limit]
     # The stored thread holds replies and Harvey's answers; the cold emails
-    # a reply answers live in the Outbox. Attach those (sent ones only) and
-    # any answer still waiting for approval, so the page shows the exchange.
-    pids = sorted({r["prospect_id"] for r in rows if r.get("prospect_id")})
+    # a reply answers live in the Outbox. Attach those (sent ones only), so
+    # the page shows the exchange. People awaiting a reply carry theirs.
+    synthetic = lambda r: str(r.get("id", "")).startswith("awaiting-")  # noqa: E731
+    pids = sorted({r["prospect_id"] for r in page if r.get("prospect_id") and not synthetic(r)})
     emails: dict[str, list] = {}
     if pids:
         for e in await query_db(
@@ -1584,12 +1815,9 @@ async def get_conversations(awaiting: bool = False):
                 f"WHERE kind = 'sequence' AND status = 'sent' AND prospect_id IN ({_in(pids)}) "
                 "ORDER BY sent_at", tuple(pids)):
             emails.setdefault(e.pop("prospect_id"), []).append(e)
-    cids = [r["id"] for r in rows]
-    drafts = {d.pop("conversation_id"): d for d in (await query_db(
-        "SELECT id, conversation_id, subject, body, send_at FROM outbox "
-        f"WHERE kind = 'reply' AND status = 'pending_review' AND conversation_id IN ({_in(cids)}) "
-        "ORDER BY created_at", tuple(cids)) if cids else [])}
-    for row in rows:
+    for row in page:
+        if synthetic(row):
+            continue
         try:
             row["thread"] = json.loads(row.get("thread_json", "[]"))
         except (json.JSONDecodeError, TypeError):
@@ -1599,10 +1827,8 @@ async def get_conversations(awaiting: bool = False):
         row["emails"] = [{k: v for k, v in e.items() if k != "campaign_id"}
                          for e in emails.get(row.get("prospect_id"), [])
                          if not camp or e.get("campaign_id") == camp]
-        row["draft"] = drafts.get(row["id"])
-    if awaiting:
-        rows += await _awaiting_reply()
-    return rows
+    return {"items": page, "total": len(shown), "offset": offset, "limit": limit,
+            "filter": filter, "counts": counts}
 
 
 async def _awaiting_reply() -> list[dict]:
@@ -1695,14 +1921,21 @@ async def get_trend(days: int = 14, tz: int = 0):
 
 
 @app.get("/api/activity")
-async def get_activity():
-    rows = await query_db("SELECT * FROM actions ORDER BY created_at DESC LIMIT 100")
+async def get_activity(offset: int = 0, limit: int = 50, heartbeats: bool = True):
+    """One page of what Harvey (and you) did, newest first. ``heartbeats=false``
+    leaves out the heartbeat's own entries (agent 'main')."""
+    limit = max(1, min(int(limit), 200))
+    offset = max(0, int(offset))
+    where = "" if heartbeats else "WHERE COALESCE(agent, '') != 'main'"
+    total = (await query_db(f"SELECT COUNT(*) AS n FROM actions {where}") or [{"n": 0}])[0]["n"]
+    rows = await query_db(f"SELECT * FROM actions {where} ORDER BY created_at DESC, rowid DESC "
+                          "LIMIT ? OFFSET ?", (limit, offset))
     for row in rows:
         try:
             row["details"] = json.loads(row.get("details_json", "{}"))
         except (json.JSONDecodeError, TypeError):
             row["details"] = {}
-    return rows
+    return {"items": rows, "total": total, "offset": offset, "limit": limit}
 
 
 # ── Dashboard UI ──

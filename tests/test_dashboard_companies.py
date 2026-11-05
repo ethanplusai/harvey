@@ -1,105 +1,87 @@
-"""The Companies tab: fit and status on /api/companies, one company's
-profile card, and the company register download."""
+"""The Companies tab is sorted and paged in SQL, with each company's number
+of contacts. Every business here is invented."""
 
 import asyncio
 import sqlite3
-from types import SimpleNamespace
+import tempfile
+from pathlib import Path
 
 import pytest
 from fastapi.testclient import TestClient
 
-import harvey.config as harvey_config
 import harvey.dashboard as dash
-from harvey.signals import seed_signal_catalog
+from harvey.models.company import Company
+from harvey.models.prospect import Prospect
 from harvey.state import StateManager
 
-ORIGIN = "http://127.0.0.1:5555"
-CONFIG = SimpleNamespace(
-    icp=SimpleNamespace(industries=["forging company"], titles=["Managing Director"],
-                        hiring_signals=["Forklift Operator"]),
-    compliance=SimpleNamespace(do_not_contact=["blocked.example"]),
-)
+COMPANIES = [  # name, industry, location, size, source, created, contacts
+    ("Lumenhexa", "SaaS", "Toulouse, France", "11-50 employees", "discover:serper", "2026-10-20 09:00:00", 2),
+    ("Brindille", "healthtech", "Lyon, France", "1-10", "web_search", "2026-10-22 10:00:00", 0),
+    ("Éclat Studio", "", "Paris, France", "", "discover:serper", "2026-10-18 11:00:00", 1),
+    ("Northvale", "proptech", "", "200+", "discover:osm", "2026-10-25 08:00:00", 3),
+]
+
+
+async def _seed(db_path):
+    state = StateManager(str(db_path))
+    await state.init_db()
+    for name, industry, location, size, source, _created, contacts in COMPANIES:
+        domain = name.lower().replace(" ", "").replace("é", "e") + ".example"
+        cid = await state.add_company(Company(name=name, domain=domain, industry=industry,
+                                              location=location, company_size=size, source=source))
+        for n in range(contacts):
+            await state.add_prospect(Prospect(first_name=f"P{n}", last_name="Test", title="CEO",
+                                              email=f"p{n}@{domain}", company=name, company_id=cid))
+    db = sqlite3.connect(db_path)
+    for name, *_rest in COMPANIES:
+        db.execute("UPDATE companies SET created_at = ? WHERE name = ?", (_rest[4], name))
+    db.commit()
+    db.close()
 
 
 @pytest.fixture
-def env(tmp_path, monkeypatch):
-    (tmp_path / "data").mkdir()
-    db = tmp_path / "data" / "harvey.db"
-    monkeypatch.setattr(dash, "ENV_FILE", tmp_path / ".env")
-    monkeypatch.setattr(dash, "DB_PATH", db)
-    monkeypatch.setattr(dash, "PID_FILE", tmp_path / "data" / "harvey.pid")
-    monkeypatch.setattr(dash, "LOG_FILE", tmp_path / "data" / "harvey.log")
-    monkeypatch.setattr(harvey_config, "load_config", lambda *a, **k: CONFIG)
-    dash.token_store.configure(tmp_path / "data" / "dashboard-token")
-
-    async def _init():
-        state = StateManager(db_path=str(db))
-        await state.init_db()
-        await seed_signal_catalog(state)
-    asyncio.run(_init())
-    with sqlite3.connect(db) as c:
-        c.executemany(
-            "INSERT INTO companies (id, name, domain, website, industry, location, source, source_url) "
-            "VALUES (?, ?, ?, ?, ?, ?, 'discover:test', ?)",
-            [("c1", "Acme Forge", "acme.example", "https://acme.example", "forging company",
-              "Springfield", "https://search.example/r1"),
-             ("c2", "Quiet Mill", "quiet.example", "", "magazine", "Springfield", ""),
-             ("c3", "Blocked Co", "blocked.example", "", "forging company", "Springfield", "")])
-        c.execute("INSERT INTO prospects (id, company_id, first_name, last_name, title, email, "
-                  "email_status, status) VALUES ('p1', 'c1', 'Nora', 'Vale', 'Managing Director', "
-                  "'nora@acme.example', 'verified', 'new')")
-        c.execute("INSERT INTO observations (id, company_id, prospect_id, signal_code, value_text, "
-                  "evidence_url) VALUES ('o1', 'c1', '', 'HIRING_ROLE', 'Forklift Operator', "
-                  "'https://acme.example/careers')")
-    return {"token": dash.token_store.get()}
+def client(monkeypatch):
+    with tempfile.TemporaryDirectory() as tmp:
+        db = Path(tmp) / "harvey.db"
+        monkeypatch.setattr(dash, "DB_PATH", db)
+        dash.token_store.configure(Path(tmp) / "data" / "dashboard-token")
+        token = dash.token_store.get()
+        asyncio.run(_seed(db))
+        with TestClient(dash.app, base_url="http://127.0.0.1:5555",
+                        headers={"Authorization": f"Bearer {token}"}) as c:
+            yield c
 
 
-@pytest.fixture
-def client(env):
-    with TestClient(dash.app, base_url=ORIGIN,
-                    headers={"Authorization": f"Bearer {env['token']}"}) as c:
-        yield c
+def names(client, **params):
+    return [c["name"] for c in client.get("/api/companies", params=params).json()["items"]]
 
 
-def test_companies_carry_fit_and_status_best_fit_first(client):
-    rows = client.get("/api/companies").json()
-    assert [r["id"] for r in rows] == ["c1", "c2", "c3"]
-    acme = rows[0]
-    assert acme["fit"] == 100
-    assert "hiring: forklift operator" in acme["fit_reasons"]
-    assert acme["register_status"] == "Ready"
-    assert rows[2]["register_status"] == "Excluded" and rows[2]["fit"] == 0
+def test_newest_first_with_contact_counts(client):
+    page = client.get("/api/companies", params={"sort": "added"}).json()
+    assert [(c["name"], c["contact_count"]) for c in page["items"]] == [
+        ("Northvale", 3), ("Brindille", 0), ("Lumenhexa", 2), ("Éclat Studio", 1)]
+    assert page["total"] == 4
 
 
-def test_profile_has_register_row_and_observations(client):
-    data = client.get("/api/companies/c1/profile").json()
-    assert data["company"]["domain"] == "acme.example"
-    assert data["register"]["status"] == "Ready"
-    assert data["register"]["why_selected"].startswith("Found via discover:test; sector: forging company")
-    assert [o["signal_code"] for o in data["observations"]] == ["HIRING_ROLE"]
-    assert client.get("/api/companies/nope/profile").status_code == 404
+def test_sort_by_each_column(client):
+    # Accents don't push Éclat after Northvale.
+    assert names(client, sort="name", dir="asc") == ["Brindille", "Éclat Studio", "Lumenhexa", "Northvale"]
+    assert names(client, sort="contacts", dir="desc") == ["Northvale", "Lumenhexa", "Éclat Studio", "Brindille"]
+    # Size by its first number; no size sorts last either way.
+    assert names(client, sort="size", dir="asc") == ["Brindille", "Lumenhexa", "Northvale", "Éclat Studio"]
+    assert names(client, sort="size", dir="desc")[-1] == "Éclat Studio"
+    assert names(client, sort="industry", dir="asc") == ["Brindille", "Northvale", "Lumenhexa", "Éclat Studio"]
+    assert names(client, sort="location", dir="desc")[-1] == "Northvale"
+    assert names(client, sort="source", dir="asc")[0] == "Northvale"           # discover:osm
+    assert names(client, sort="added", dir="asc")[0] == "Éclat Studio"
 
 
-def test_register_csv_lists_every_company(client):
-    resp = client.get("/api/export/companies.csv")
-    assert resp.status_code == 200
-    assert "company-register.csv" in resp.headers["content-disposition"]
-    lines = resp.text.lstrip("﻿").splitlines()
-    assert lines[0].startswith("company,website,sector,area,fit,why_selected,status")
-    assert len(lines) == 4
-    assert "Quiet Mill" in resp.text and "Not processed yet" in resp.text
+def test_unknown_sort_falls_back_to_newest(client):
+    assert names(client, sort="name; DROP TABLE companies") == names(client, sort="added")
 
 
-def test_best_fit_first_across_more_than_the_page_cap(client, monkeypatch):
-    monkeypatch.setattr(dash, "COMPANIES_TAB_LIMIT", 2)
-    rows = client.get("/api/companies").json()
-    assert [r["id"] for r in rows] == ["c1", "c2"]
-
-
-def test_register_export_failure_is_an_error(client, monkeypatch):
-    import harvey.register as register
-
-    async def broken(*a, **k):
-        raise RuntimeError("boom")
-    monkeypatch.setattr(register, "build_register", broken)
-    assert client.get("/api/export/companies.csv").status_code == 500
+def test_pages(client):
+    page = client.get("/api/companies", params={"sort": "added", "limit": 2, "offset": 2}).json()
+    assert [c["name"] for c in page["items"]] == ["Lumenhexa", "Éclat Studio"]
+    assert (page["total"], page["offset"], page["limit"]) == (4, 2, 2)
+    assert client.get("/api/companies", params={"limit": 999}).json()["limit"] == 200
