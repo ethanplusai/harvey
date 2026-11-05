@@ -9,6 +9,15 @@ minor versions can still change behaviour.
 
 ### Added
 
+- **`harvey import`.** Load companies and prospects from a CSV you already
+  have. It is a dry run until you add `--apply`, matches common header names
+  (firm name, website, email, attorney name and so on), and lands rows through
+  the same company and prospect paths Harvey uses, so a company is its domain
+  and a prospect is its email: importing a file twice changes nothing. It
+  reports rows landed and rows rejected with the reason (no email, malformed,
+  duplicate in the file, already in the database). Addresses land as `guess`,
+  which is never sent, unless the file carries an `email_status` column or you
+  pass `--verify` to grade them with your configured verifiers.
 - **Company fit and the company register.** The Companies tab now sorts by a
   0-100 fit score worked out from what Harvey already holds: the ICP sector
   match, a contact with a target title, the best email found, and an open

@@ -454,6 +454,38 @@ def cmd_export(args):
     asyncio.run(_export())
 
 
+def cmd_import(args):
+    """Load companies and prospects from a CSV (dry run unless --apply)."""
+    import csv
+    from harvey.config import load_env
+    from harvey.importer import import_csv
+    from harvey.state import StateManager
+
+    async def _import():
+        state = StateManager()
+        await state.init_db()
+        return await import_csv(
+            state, args.file, apply=args.apply, source=args.source,
+            industry=args.industry, verify=args.verify, env=load_env())
+
+    report = asyncio.run(_import())
+    verb = "Imported" if args.apply else "Would import"
+    print(f"\n  {args.file}: {report.rows} rows")
+    print(f"  {verb}: {report.prospects_new} prospects, {report.companies_new} new companies")
+    print(f"  Rejected: {sum(report.rejected.values())}")
+    for reason, n in report.rejected.most_common():
+        print(f"    {n:>6}  {reason}")
+    if args.rejects:
+        with open(args.rejects, "w", newline="", encoding="utf-8") as fh:
+            writer = csv.writer(fh)
+            writer.writerow(["line", "reason", "row"])
+            writer.writerows(report.rejects)
+        print(f"  Rejected rows written to {args.rejects}")
+    if not args.apply:
+        print("  Dry run: nothing written. Add --apply to import.")
+    print()
+
+
 def cmd_gmail(args):
     """Gmail provider utilities (auth / test)."""
     from harvey.config import load_env
@@ -1047,6 +1079,18 @@ def main():
     sub.add_argument("--status", default="", help="Comma-separated pipeline statuses (e.g. new,queued); opted-out contacts stay excluded")
     sub.add_argument("--all", action="store_true", help="Export the raw list without filters, including opted-out contacts (not for outreach)")
     sub.set_defaults(func=cmd_export)
+
+    # harvey import
+    sub = subparsers.add_parser(
+        "import", help="Load companies and prospects from a CSV (dry run unless --apply)"
+    )
+    sub.add_argument("file", help="CSV with an email column and a company name, website or domain column")
+    sub.add_argument("--apply", action="store_true", help="Write to the database (default is a dry run)")
+    sub.add_argument("--source", default="import", help="Source tag on imported rows (default: import)")
+    sub.add_argument("--industry", default="", help="Industry to set on imported rows")
+    sub.add_argument("--verify", action="store_true", help="Grade each address with your configured verifiers (spends their credits); otherwise they land as 'guess' and are never sent")
+    sub.add_argument("--rejects", default="", metavar="CSV", help="Write the rejected rows and reasons to this file")
+    sub.set_defaults(func=cmd_import)
 
     # harvey companies
     sub = subparsers.add_parser(
