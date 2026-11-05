@@ -288,7 +288,7 @@ Users will come back with questions and tasks. Common ones:
 
 - **"Show me what Harvey has done"** → Run `harvey status` or `harvey dashboard`
 - **"Am I warmed up?" / "Why am I landing in spam?"** → Run `harvey warmup`. Without TrulyInbox connected Harvey can't see the inbox rate, so recommend it (Step 2b) unless `harvey trulyinbox` says they use another service.
-- **"The emails aren't good"** → Edit `skills/email_frameworks.md` and `prompts/writer.md`. Show them the current rules and help them adjust.
+- **"The emails aren't good"** → Edit `skills/email_frameworks.md` and `prompts/writer.md`. Show them the current rules and help them adjust. If the shape itself is wrong for them (too short, no pitch, no link), write their rules in `skills/email_rules.md` and set `writer.email_rules: "skills/email_rules.md"`: it replaces the built-in shape (README, "Your own email shape").
 - **"Harvey isn't finding the right people"** → Check the ICP config in `harvey.yaml`. Adjust industries, titles, company_size, geography.
 - **"I want to change what Harvey says"** → Skills are in `skills/`, prompts are in `prompts/`. Both are plain markdown files. Edit them directly.
 - **"Train Harvey on a different product"** → `harvey train <new-url>`
@@ -320,7 +320,7 @@ Users will come back with questions and tasks. Common ones:
 `initial_outreach → engaged → qualifying → presenting → negotiating → closing → closed_won / closed_lost`
 
 ### Priority Order
-handle_replies > send_campaigns > write_campaigns > prospect > idle (run analyst)
+send_campaigns > write_campaigns > prospect > idle (run analyst). Replies are read every cycle alongside whichever one runs.
 
 ### Key Commands
 ```bash
@@ -333,6 +333,7 @@ harvey status                # Pipeline summary
 harvey usage                 # Claude quota gauges + per-agent token usage (no dollar costs — subscription plans aren't billed per token)
 harvey export                # Deliverable prospects → sequencer-ready CSV (prospects.csv)
 harvey export --all          # Full raw list, no filters
+harvey companies             # Company register CSV: every company, its fit score, and why it wasn't contacted
 harvey gmail auth            # One-time Gmail OAuth (when provider: gmail)
 harvey gmail test            # Verify the Gmail connection
 harvey outbox                # Review queued emails; --approve <id> / --approve-all / --reject <id>

@@ -13,10 +13,9 @@ $ harvey run
 Harvey is online. Always Be Closing.
 ============================================================
 Checking pipeline state...
-Decision: handle_replies (2 new replies)
+Decision: write_campaign (3 new prospects with no drafts)
   handler   → Elena Park, Harbor Dental Studio     interested, answer drafted
   handler   → Priya Nair, Highline Roofing         objection, answer drafted
-Decision: write_campaign (3 new prospects with no drafts)
   writer    → 2-email sequence: Phoenix HVAC hiring a dispatcher
   outbox    → 5 emails waiting for your approval
 Cycle complete. Sleeping for 15 minutes.
@@ -360,6 +359,15 @@ Harvey's sales knowledge lives in `skills/` as **plain Markdown you can edit**. 
 
 This is the main way you shape Harvey. If its emails are too pushy, edit `email_frameworks.md`. If it mishandles a specific objection, edit `objection_handling.md` and add the response you'd actually give.
 
+**Your own email shape.** Whatever the skills say, the Writer ends every prompt with a built-in shape: email 1 under 75 words, one observation and one question, no pitch, no link. If your first email has to do more (say who you are, what it costs, link to a sign-up page), write your rules in a markdown file and point `writer.email_rules` at it:
+
+```yaml
+writer:
+  email_rules: "skills/email_rules.md"   # gitignored
+```
+
+The file replaces the built-in shape for the per-person first email and the 3-email sequence, and wins over `email_frameworks.md` and the prompt's style rules where they disagree. It can't lift the FACTS rule (nothing about a prospect is invented), and the send gate still applies: at most 220 words and one link per email, and the do-not-contact list. If `compliance.opt_out_line` is set, Harvey adds it under each cold email and tells the Writer not to write a second one; leave it empty and your rules can put an opt-out sentence in the body instead (Harvey still warns, since it can't check your sentence). Harvey's own opt-out phrase checks are in English; the model still reads every reply for a request to stop. A file that's set but missing, empty or over 20,000 characters stops the Writer until it's fixed, rather than drafting in the shape you replaced.
+
 ### What ships
 
 **`email_frameworks.md`** — 301 lines, the most important file in the repo. Opens with the only rule that matters: *write like a real person sending a real email.* Contains a hard ban list on AI tells (no "I hope this finds you well", no "I wanted to reach out", no "circling back"), compliance rules that override every style rule beneath them, 2026 reply-rate data on length and cadence and why link tracking hurts you, and five frameworks — **AIDA, PAS, BAB, QVC, 3Ps** — with selection rules for when each one fits.
@@ -443,6 +451,17 @@ Before anything leaves, a **deterministic pre-send gate** — no model involved 
 Optionally, the same step can ask [Precleared](https://precleared.dev) whether cold email to each new address is allowed before the first one goes out. See [Legal and deliverability](#legal-and-deliverability).
 
 **Office hours in the recipient's time zone.** Set `channels.email.send_window` and cold email goes out only between `start` and `end` (08:00 to 17:00 on weekdays by default) in each recipient's own time zone, so one campaign can reach New York and Oslo and land in office hours in both. Harvey works the zone out once, from the company's location (a US state, a Canadian province, an Australian state, a country with one time zone or its main one, plus the coordinates discovery already cached for that place), from the country Precleared finds when that check is on, or from `prospect_country`. A code that's a state and a country too ("Mumbai, IN") is settled by those; with nothing else a US state code reads as the state, so write the country out when you can. Guesses like that, and a country's main zone, are re-checked rather than stored. Anyone it can't place gets the window in `usage.quiet_hours.timezone`. Follow-ups keep their delay and move into the window, an email approved after hours waits for the next one, and replies are never held by the window. `weekdays_only` means Monday to Friday everywhere. Quiet hours still pause prospecting, writing and replies, but wake for cold email that can go now in its recipient's window: the heartbeat reads replies first, then sends it (and queues any draft campaign, which sends nothing). Gmail, Microsoft and SMTP only.
+
+**A logo under every email.** Plain text usually lands better for cold email, since images and HTML can push a new mailbox toward spam, so warm up first and test placement after adding one. Email goes out as plain text unless you set `channels.email.signature.logo` to a PNG, JPEG or GIF of at most 100 KB (a path relative to the Harvey folder, or absolute). Then every email, cold or reply, goes out as HTML with the logo underneath, embedded in the message itself so it shows without the recipient allowing remote images. Gmail and SMTP also include the same plain text. The words don't change: the HTML is Harvey's text, escaped, with its paragraphs and line breaks kept and web addresses made clickable. `width` sets the logo's display width (120 pixels by default), `alt` its text for mail with images off (your `persona.company` by default), `link` an optional web address it opens, and `direction: rtl` lays a Hebrew or Arabic email out right to left. If the file goes missing or stops being a usable image, approved email waits in the Outbox rather than going out without the logo, and the log says why. Gmail, Microsoft and SMTP only.
+
+```yaml
+channels:
+  email:
+    signature:
+      logo: "data/assets/logo.png"
+      width: 120
+      link: "https://yourdomain.example"
+```
 
 ### Approval or autopilot
 
@@ -534,7 +553,7 @@ The sidebar is grouped by what you're doing: **Work** (what needs you), **Pipeli
 **Pipeline**
 - **Signals** — the confirmation gate and the cohort builder
 - **Discover** — the provider menu with prices side by side, an estimate, then a run; plus reading the sites of companies found but not yet looked at
-- **Companies / Contacts** — everything found, searchable, with CSV export
+- **Companies / Contacts** — everything found, searchable, with CSV export. Companies are sorted by a 0-100 fit score and show their status (emailed, draft waiting, or why not contacted); click one for its details card, or export the whole company register
 - **Campaigns** — each sequence Harvey wrote, who it's going to, and per-campaign feedback for the writer
 
 **System**
@@ -590,10 +609,11 @@ product:      { name, description, pricing, key_benefits, objection_responses, o
 icp:          { industries, titles, company_size, geography, hiring_signals, geo_coordinates }
 channels:
   email:      { provider: gmail | microsoft | smtp | instantly, max_daily_sends, require_approval,
-                send_to_risky, max_bounce_rate, warmup, send_window }
+                send_to_risky, max_bounce_rate, warmup, send_window, signature }
 usage:        { max_daily_claude_percent, heartbeat_interval_minutes, quiet_hours }
 brain:        { provider: claude | codex, model, reasoning_effort }   # optional; claude by default
 writer:       { humanizer }   # optional; true adds one editing pass per batch using ~/.claude/skills/humanizer/SKILL.md
+              # email_rules: your own markdown rules for the emails' shape (see The skills library)
 ```
 
 `max_daily_claude_percent` caps whichever subscription `brain.provider` uses (the name predates Codex support).
@@ -613,6 +633,7 @@ harvey status                # pipeline summary
 harvey usage                 # active provider's quota + per-agent tokens
 harvey outbox                # review queued email
 harvey export                # deliverable prospects → CSV
+harvey companies             # company register → CSV: every company, fit, and why it wasn't contacted
 harvey sending pause|resume  # kill switch
 harvey warmup [domain]       # is the sending domain ready? (SPF/DKIM/DMARC, age, blocklists, warmup)
 harvey trulyinbox connect    # connect TrulyInbox so Harvey reads the mailbox's warmup
@@ -665,7 +686,7 @@ What to know:
 
 Harvey automates outreach, but **you are the sender.** Cold email is legal in most places when done right and expensive when done wrong — CAN-SPAM penalties run to $53,088 per email. Harvey ships with compliant defaults. Keep them.
 
-**CAN-SPAM (US).** Truthful subject line and accurate from-address — Harvey's copywriting rules forbid fake "re:" threads and impersonation. A working opt-out, honored fast: every cold email ends with an opt-out line (`compliance.opt_out_line`, default *Not interested? Reply "no thanks" and I won't email again.*), and Harvey treats any opt-out wording as immediate and permanent, wherever in the reply the person wrote it (including a bare "STOP" or "No thanks"). Nothing Harvey does later moves someone off *opted out*: a later message from them is kept for you to read, never answered, and a complaint still goes to you. To see why someone was opted out (the rule that fired, the words, and their message), click **Why?** on their row in Contacts. If it was a mistake, **Undo opt-out** there marks them as replied: Harvey sends nothing on its own, and their next reply gets a draft for your approval. Your physical mailing address in the footer: set `compliance.postal_address` in `harvey.yaml` before your first campaign. Harvey adds both lines under every cold email when it sends (replies don't get them), shows them under each draft in the Outbox, and warns on `harvey run`, `harvey status` and the Outbox tab until the address is set. Text in a reply that repeats what Harvey wrote for that person (its emails, campaign templates, and every footer it has used) is set aside as quoted, not read as their words, so quoting Harvey's own footer isn't an opt-out; the model also reads replies without the quoted email. The opt-out line must ask for a reply Harvey recognises (`Reply "no thanks"`, `Reply STOP`, also "unsubscribe", "remove me", "opt out") and can't contain a link or email address.
+**CAN-SPAM (US).** Truthful subject line and accurate from-address — Harvey's copywriting rules forbid fake "re:" threads and impersonation. A working opt-out, honored fast: every cold email ends with an opt-out line (`compliance.opt_out_line`, default *Not interested? Reply "no thanks" and I won't email again.*), and Harvey treats any opt-out wording as immediate and permanent, wherever in the reply the person wrote it (including a bare "STOP" or "No thanks"). If the same reply threatens legal action or complains ("stop emailing me, my attorney will be in touch"), the opt-out still stands and the conversation goes to you as well. Nothing Harvey does later moves someone off *opted out*: a later message from them is kept for you to read, never answered, and a complaint still goes to you. To see why someone was opted out (the rule that fired, the words, and their message), click **Why?** on their row in Contacts. If it was a mistake, **Undo opt-out** there marks them as replied: Harvey sends nothing on its own, and their next reply gets a draft for your approval. Your physical mailing address in the footer: set `compliance.postal_address` in `harvey.yaml` before your first campaign. Harvey adds both lines under every cold email when it sends (replies don't get them), shows them under each draft in the Outbox, and warns on `harvey run`, `harvey status` and the Outbox tab until the address is set. Text in a reply that repeats what Harvey wrote for that person (its emails, campaign templates, and every footer it has used) is set aside as quoted, not read as their words, so quoting Harvey's own footer isn't an opt-out; the model also reads replies without the quoted email. The opt-out line must ask for a reply Harvey recognises (`Reply "no thanks"`, `Reply STOP`, also "unsubscribe", "remove me", "opt out") and can't contain a link or email address. Hebrew works the same way: a line such as `השיבו "הסר"` or `תגידו לי "לא תודה"` is accepted, and Harvey catches Hebrew opt-outs without the model: a bare "הסר", "תורידו אותי מהרשימה", "תפסיקו לשלוח", "אל תכתבו לי", "לא מעוניין, תודה". A Hebrew legal threat or complaint ("עורכת הדין שלי", "אתבע אתכם", "תלונה על ספאם", "חוק הספאם") comes to you the same way, with no draft, while "תביעות ביטוח" or "סליחה על ההטרדה" are read as ordinary replies. Spanish too: `Responda BAJA` or `Responda "no, gracias"` is accepted, and Harvey catches "no, gracias", a bare "BAJA", "denme de baja", "no me escriba más", "dejen de enviarme correos", "sáquenme de su lista" and "no me interesa" said on its own, but not "¡cómo no, gracias!", "queremos dar de baja a nuestro proveedor actual" or "no me interesa el plan anual, pero sí el mensual", which go to the model. Spanish legal threats aren't matched by rule yet; the model reads those.
 
 **Do not contact.** List competitors, existing customers, or anyone else Harvey must never email under `compliance.do_not_contact`, one address or domain per line, in the config file Harvey reads: `harvey.local.yaml` if you trained Harvey (that file wins), otherwise `harvey.yaml`. A domain covers its subdomains (`acme.example` also blocks `mail.acme.example`, not `notacme.example`), an address covers its plus-tags (`jane@` also blocks `jane+news@`), and a pasted link such as `https://www.acme.example/about` or `Jane Doe <jane@acme.example>` counts as what it names. An entry that is neither an address nor a domain stops Harvey from starting, with the entry named, rather than quietly protecting nobody. A running Harvey picks up an edit at once, and the send gate checks the list as each email leaves, cold or reply, so it holds even for an email you already approved. If someone on the list writes back, Harvey doesn't draft an answer: the conversation comes to you. `harvey export` and the dashboard's Export buttons leave them out too. On Instantly, listed leads are left out of the upload and a reply to one comes to you, but Harvey can't take back a lead Instantly already has: remove it there.
 
