@@ -247,6 +247,7 @@
 <div id="campaigns" class="section">
   <div class="section-head"><div><h2>Campaigns</h2><p>Email sequences Harvey has written, and how far each one has got.</p></div></div>
   <div id="campaigns-list"></div>
+  <dialog id="campaign-drawer" class="drawer" tabindex="-1" aria-labelledby="campaign-drawer-title" onclose="campaignClosed()" onclick="if (event.target === this) closeCampaign()"></dialog>
 </div>
 
 <!-- Outbox: the decisions desk -->

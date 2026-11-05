@@ -720,6 +720,11 @@ details[open] > summary::before { rotate: 45deg; }
   .desk-pane { padding: var(--sp-4); }
 }
 
+/* The lists under the desk: one at a time, in a panel that scrolls by itself. */
+.outbox-tabs { margin-top: var(--sp-6); }
+.outbox-panel { max-height: min(420px, 70vh); overscroll-behavior: contain; }
+.segmented button .n.bad { color: var(--bad); }
+
 .banner {
   display: flex; gap: var(--sp-3); align-items: flex-start; padding: var(--sp-4); margin-bottom: var(--sp-4);
   border-radius: var(--r-lg); border: 1px solid transparent; font-size: var(--fs-ui);
@@ -815,17 +820,40 @@ textarea.form-input { height: auto; padding: 8px 12px; }
 
 /* ── Campaigns ───────────────────────────────────────────────── */
 
-.campaign-card {
-  background: var(--surface); border: 1px solid transparent; border-radius: var(--r-lg);
-  box-shadow: var(--shadow-border); margin-bottom: var(--sp-4); overflow: hidden;
+.campaign-table td { padding-top: var(--sp-2); padding-bottom: var(--sp-2); }
+.campaign-name-cell { max-width: 360px; }
+.campaign-name {
+  display: block; max-width: 100%; padding: 0; border: none; background: none; cursor: pointer;
+  font: 500 var(--fs-ui)/1.4 var(--sans); color: var(--text); text-align: left;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
 }
-.campaign-top { padding: var(--sp-5); }
-.campaign-title { display: flex; align-items: center; justify-content: space-between; gap: var(--sp-3); flex-wrap: wrap; }
-.campaign-title h3 { font-size: var(--fs-h3); font-weight: 600; letter-spacing: -0.01em; }
-.campaign-card .meta { display: flex; gap: var(--sp-3); flex-wrap: wrap; align-items: center; font-size: var(--fs-caption); color: var(--text-3); margin-top: 6px; }
-.campaign-progress { margin-top: var(--sp-4); }
+.campaign-progress-cell { width: 280px; min-width: 200px; }
+.campaign-more { display: block; margin: var(--sp-3) auto 0; }
+@media (max-width: 720px) {
+  .campaign-table th:nth-child(2), .campaign-table td:nth-child(2),
+  .campaign-table th:nth-child(3), .campaign-table td:nth-child(3),
+  .campaign-table th:nth-child(5), .campaign-table td:nth-child(5) { display: none; }
+}
+
+/* The side panel: a modal dialog pinned to the right edge. */
+.drawer {
+  inset: 0 0 0 auto; width: min(640px, 100vw); height: 100dvh; max-width: none; max-height: none;
+  margin: 0; padding: 0; border: none; background: var(--surface); color: var(--text); box-shadow: var(--shadow-pop);
+}
+.drawer[open] { display: flex; flex-direction: column; animation: drawer-in 180ms ease-out; }
+.drawer:focus { outline: none; }
+.drawer::backdrop { background: rgb(0 0 0 / 0.32); }
+@keyframes drawer-in { from { translate: 24px 0; opacity: 0; } }
+@media (prefers-reduced-motion: reduce) { .drawer[open] { animation: none; } }
+.drawer-head { padding: var(--sp-4) var(--sp-5); border-bottom: 1px solid var(--line); }
+.drawer-title { display: flex; align-items: center; gap: var(--sp-1); }
+.drawer-title h3 { flex: 1; min-width: 0; font-size: var(--fs-h3); font-weight: 600; letter-spacing: -0.01em; overflow-wrap: anywhere; }
+.drawer-title [aria-label="Close"] { font-size: 20px; line-height: 1; }
+.drawer-head .meta { display: flex; gap: var(--sp-3); flex-wrap: wrap; align-items: center; font-size: var(--fs-caption); color: var(--text-3); margin: 6px 0 var(--sp-3); }
+.drawer-body { flex: 1; min-height: 0; overflow-y: auto; overscroll-behavior: contain; border-top: none; }
+.campaign-progress { min-width: 0; }
 .campaign-progress .bar { height: 8px; gap: 2px; background: var(--surface-3); }
-.campaign-legend { display: flex; flex-wrap: wrap; gap: 6px 16px; margin-top: 10px; }
+.campaign-legend { display: flex; flex-wrap: wrap; gap: 4px 12px; margin-top: 6px; }
 .campaign-legend span { display: inline-flex; align-items: center; gap: 6px; font-size: var(--fs-caption); color: var(--text-2); }
 .campaign-legend i { width: 8px; height: 8px; border-radius: 2px; }
 .campaign-legend b { color: var(--text); font-weight: 600; }
