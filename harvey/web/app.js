@@ -264,6 +264,8 @@ function actionText(a) {
     case 'reply_after_opt_out': return who + ' wrote again after opting out · no reply sent';
     case 'escalation': return 'Flagged ' + who + ' for you' + (d.reason ? ' · ' + escHtml(d.reason) : '');
     case 'bounce': return 'Email to ' + who + ' bounced';
+    case 'company_edited': return 'You edited ' + (d.company ? '“' + escHtml(d.company) + '”' : 'a company') +
+      ': ' + escHtml(Object.keys(d.changes || {}).join(', ').replace(/_/g, ' '));
     case 'manual_send': return 'You marked a contact as emailed by hand';
     case 'manual_send_undone': return 'You undid a hand-sent mark';
     case 'outbox_edited': return 'You edited a draft';
@@ -601,10 +603,10 @@ async function loadFunnel() {
 async function loadTodayActivity() {
   const el = document.getElementById('today-activity');
   if (!el) return;
-  const data = await api('/api/activity');
-  if (!Array.isArray(data)) return;  // offline: Today's queue says so
   // Heartbeats are noise here; the Activity tab keeps them.
-  const shown = data.filter(a => a.agent !== 'main').slice(0, 8);
+  const data = await api('/api/activity?limit=8&heartbeats=false');
+  if (!data || !Array.isArray(data.items)) return;  // offline: Today's queue says so
+  const shown = data.items;
   if (!shown.length) {
     el.innerHTML = '<p class="muted" style="font-size:13px">' +
       'Nothing yet. Every action Harvey takes shows up here.</p>';
@@ -1594,8 +1596,23 @@ async function loadUsage() {
 // the approval ladder exists to prevent. One email fills the pane; the rest
 // wait in the rail.
 
+// Where each Outbox list is paged to; the server pages (/api/outbox) and
+// says how many each list holds.
+let _outboxOffsets = {pending: 0, approved: 0, sent: 0, failed: 0}, _outboxPages = {};
+const OUTBOX_PAGERS = {};
+for (const name of Object.keys(_outboxOffsets)) {
+  OUTBOX_PAGERS[name] = n => {
+    if (deskBusy()) return;
+    const page = _outboxPages[name] || {limit: 25, total: 0};
+    _outboxOffsets[name] = pageOffset(n, page.limit, page.total);
+    if (name === 'pending') _desk.i = 0;
+    loadOutbox();
+  };
+}
+
 async function loadOutbox() {
-  const [data, mode] = await Promise.all([api('/api/outbox'), api('/api/sending-mode')]);
+  const params = new URLSearchParams(Object.entries(_outboxOffsets).map(([k, v]) => [k + '_offset', v]));
+  const [data, mode] = await Promise.all([api('/api/outbox?' + params), api('/api/sending-mode')]);
   _sendingMode = mode && !mode.error ? mode : null;
   const banner = document.getElementById('outbox-banner');
   const desk = document.getElementById('outbox-desk');
@@ -1610,6 +1627,10 @@ async function loadOutbox() {
   }
 
   const pending = data.pending || [];
+  _outboxPages = data.pages || {};
+  for (const [name, page] of Object.entries(_outboxPages)) _outboxOffsets[name] = page.offset;
+  const waiting = (_outboxPages.pending || {}).total || pending.length;
+  const approvable = waiting - (data.held || 0);
   _desk.items = pending;
   _desk.footer = data.footer || '';
   // Keep the desk on the draft being edited even if the list shifted.
@@ -1620,14 +1641,14 @@ async function loadOutbox() {
     _desk.unsaved = null;
   }
   if (_desk.i >= pending.length) _desk.i = Math.max(0, pending.length - 1);
-  navCount('nav-outbox', pending.length);
+  navCount('nav-outbox', waiting);
 
   actions.innerHTML =
-    (pending.length && !data.paused
-      ? (pending.length > pending.filter(p => heldReason(p)).length
+    (waiting && !data.paused
+      ? (approvable > 0
         ? '<button class="btn btn-primary btn-sm" onclick="outboxApproveAll()" ' +
           'title="Emails Harvey held are left for you to approve one by one">Approve all ' +
-          (pending.length - pending.filter(p => heldReason(p)).length) + '</button>' : '') : '') +
+          approvable + '</button>' : '') : '') +
     (data.paused
       ? '<button class="btn btn-secondary btn-sm" onclick="sendingToggle(\'resume\')">' +
         'Resume sending</button>'
@@ -1655,31 +1676,42 @@ async function loadOutbox() {
         : 'Every draft Harvey writes lands here first. Approve one and it sends on schedule.') +
     '</div>';
 
-  const table = (title, rows, cols) => {
+  const table = (title, rows, cols, name) => {
     if (!rows || !rows.length) return '';
-    let h = '<div class="subhead">' + title + ' <span class="hint">' + rows.length + '</span></div>' +
+    const page = _outboxPages[name] || {offset: 0, limit: rows.length, total: rows.length};
+    let h = '<div class="subhead">' + title + ' <span class="hint">' + page.total + '</span></div>' +
       '<div class="table-card"><table class="nowrap clip"><thead><tr>' +
       cols.map(c => '<th>' + c[0] + '</th>').join('') + '</tr></thead><tbody>';
     for (const r of rows) {
       h += '<tr>' + cols.map(c => '<td' + (c[2] ? ' class="muted"' : '') + '>' +
         (c[3] ? c[1](r) : escHtml(String(c[1](r) ?? ''))) + '</td>').join('') + '</tr>';
     }
-    return h + '</tbody></table></div>';
+    const foot = page.total > page.limit
+      ? '<div class="table-foot">' + (page.offset + 1) + '–' + (page.offset + rows.length) + ' of ' + page.total +
+        pagerHtml({...page, items: rows}, page.limit, 'OUTBOX_PAGERS.' + name) + '</div>'
+      : '';
+    return h + '</tbody></table></div>' + foot;
   };
 
   list.innerHTML =
     table('Approved &amp; scheduled', data.approved, [
-      ['To', r => r.to_email], ['Step', r => r.step], ['Subject', r => r.subject],
+      ['To', r => r.to_email], ['Website', r => siteLink(r.website), false, true],
+      ['Step', r => r.step], ['Subject', r => r.subject],
       ['Sends', r => r.status === 'sending' ? badge(r.status) : escHtml(formatDate(r.send_at)), true, true],
-    ]) +
+      ['', r => r.status !== 'approved' ? '' :
+        '<button class="btn btn-ghost btn-sm" onclick="outboxUnapprove(' + jsq(r.id) + ', true)" ' +
+          'title="Back to review, open to edit">Edit</button>' +
+        '<button class="btn btn-ghost btn-sm" onclick="outboxUnapprove(' + jsq(r.id) + ', false)" ' +
+          'title="Back to review: it won\'t send until you approve it again">Unapprove</button>', false, true],
+    ], 'approved') +
     table('Recently sent', data.sent, [
       ['To', r => r.to_email], ['Step', r => r.step], ['Subject', r => r.subject],
       ['Sent', r => formatDate(r.sent_at), true],
-    ]) +
+    ], 'sent') +
     table('Didn\'t send', data.failed, [
       ['To', r => r.to_email], ['Status', r => badge(r.status), false, true],
       ['Reason', r => r.error, true], ['Updated', r => formatDate(r.updated_at), true],
-    ]);
+    ], 'failed');
 }
 
 const CONTACT_SOURCES = {
@@ -1691,6 +1723,16 @@ const CONTACT_SOURCES = {
   job_board: 'job board',
   web_search: 'web search',
 };
+
+// A company's website as a short link that opens in a new tab ("" when none).
+// It never selects the row or draft it sits in.
+function siteLink(url) {
+  const href = safeHref(url);
+  if (!href) return '';
+  const host = String(url).replace(/^https?:\/\//i, '').replace(/^www\./i, '').replace(/\/$/, '');
+  return '<a href="' + href + '" target="_blank" rel="noopener noreferrer" ' +
+    'onclick="event.stopPropagation()" title="' + escHtml(url) + '">' + escHtml(host) + ' &#8599;</a>';
+}
 
 // What the draft is built on, so every claim can be checked against it.
 function renderDeskContext(ctx) {
@@ -1833,6 +1875,14 @@ function heldReason(item) {
   return why.charAt(0).toUpperCase() + why.slice(1);
 }
 
+// Under the review rail, when more drafts wait than one page holds.
+function deskPager(items) {
+  const page = _outboxPages.pending;
+  if (!page || page.total <= page.limit) return '';
+  return '<div class="desk-pager"><span>' + (page.offset + 1) + '–' + (page.offset + items.length) +
+    ' of ' + page.total + '</span>' + pagerHtml({...page, items}, page.limit, 'OUTBOX_PAGERS.pending') + '</div>';
+}
+
 function renderDesk(items, i) {
   const cur = items[i];
   const rail = items.map((it, n) => {
@@ -1843,7 +1893,9 @@ function renderDesk(items, i) {
       '<div class="di-text"><div class="to">' + escHtml(who) +
         (heldReason(it) ? ' <span class="tag t-bad" title="Harvey held this instead of sending it">Held</span>' : '') +
         '</div>' +
-      '<div class="sub">' + escHtml(it.subject || '(no subject)') + '</div></div>' +
+      '<div class="sub">' + escHtml(it.subject || '(no subject)') + '</div>' +
+      (it.context && siteLink(it.context.website)
+        ? '<div class="sub site">' + siteLink(it.context.website) + '</div>' : '') + '</div>' +
     '</div>';
   }).join('');
 
@@ -1877,7 +1929,7 @@ function renderDesk(items, i) {
         'Reject <kbd>R</kbd></button>';
 
   return '<div class="desk">' +
-    '<div class="desk-list">' + rail + '</div>' +
+    '<div class="desk-list">' + rail + deskPager(items) + '</div>' +
     '<div class="desk-pane">' +
       '<div class="to-line">To <b>' + escHtml(cur.to_email) + '</b>' +
         '<span class="tag">' + (cur.kind === 'reply' ? 'Reply' : 'Email ' + escHtml(String(cur.step))) + '</span>' +
@@ -1978,6 +2030,26 @@ async function outboxAct(id, action) {
   loadOutbox();
 }
 
+// Take an approval back before the email starts sending: it returns to the
+// review desk above, open to edit when asked, and waits for a new approval.
+async function outboxUnapprove(id, edit) {
+  if (deskBusy()) return;
+  const data = await api('/api/outbox/' + encodeURIComponent(id) + '/unapprove', {method: 'POST'});
+  if (!data || !data.success) {
+    showToast(failMsg(data, 'Could not take that approval back.'), 'error');
+    loadOutbox();
+    return;
+  }
+  if (edit) { _desk.editing = id; _desk.unsaved = null; }
+  await loadOutbox();
+  const at = _desk.items.findIndex(p => p.id === id);
+  if (at >= 0 && !edit) deskGo(at);
+  if (!edit) showToast('Back in review. It won\'t send until you approve it again.', 'success');
+  document.getElementById('outbox-desk').scrollIntoView({behavior: 'smooth', block: 'start'});
+  const subject = document.getElementById('desk-subject');
+  if (edit && subject) subject.focus();
+}
+
 async function outboxApproveAll() {
   if (deskBusy()) return;
   const data = await api('/api/outbox/approve-all', {method: 'POST'});
@@ -1995,66 +2067,248 @@ async function sendingToggle(action) {
   loadOutbox();
 }
 
-const COMPANIES_PER_PAGE = 50;
-let _companiesPage = 0;
+// Sort, filters and page live outside the table, so the 15-second refresh
+// re-fetches the same page. The server filters, sorts and pages
+// (/api/companies). The filter bar is built once: a refresh redraws the rows
+// only, never an input being typed in.
+let _companySort = {key: 'fit', dir: 'desc'};
+let _companyOffset = 0, _companyPage = null, _companySeq = 0, _companySig = '';
+let _companyFilters = {q: '', location: '', status: '', source: '', fit_min: '', fit_max: ''};
+let _companyTimer = null, _companyFacetSig = '', _companyOpen = null;
+const COMPANY_PAGE_SIZE = 50;
+const COMPANY_SORT_FIRST = {fit: 'desc', contacts: 'desc', added: 'desc', size: 'desc'};   // the rest start A→Z
 
 async function loadCompanies() {
   companyDrill = false;
+  _companyOpen = null;
   const el = document.getElementById('companies-list');
-  const data = await api('/api/companies');
-  if (!data) { el.innerHTML = offlineState(); return; }
-  _companies = data;
-  if (!data.length) {
+  const seq = ++_companySeq;
+  const params = new URLSearchParams({
+    sort: _companySort.key, dir: _companySort.dir, offset: _companyOffset, limit: COMPANY_PAGE_SIZE,
+  });
+  for (const [k, v] of Object.entries(_companyFilters)) {
+    if (String(v).trim() !== '') params.set(k, String(v).trim());
+  }
+  const data = await api('/api/companies?' + params);
+  if (seq !== _companySeq || companyDrill) return;   // a newer request won, or a company was opened
+  if (!data || data.error) { el.innerHTML = offlineState(); return; }
+  const everyone = ((data.facets || {}).sources || []).reduce((n, s) => n + s[1], 0);
+  if (!everyone) {
+    _companies = [];
     el.innerHTML = emptyState(icon('companies'), 'No companies yet',
       'Confirm your <b>Signals</b>, then find businesses on the <b>Discover</b> tab. ' +
       'OpenStreetMap is free and needs no account.');
     return;
   }
-  renderCompaniesPage(_companiesPage);
+  // A page past the end (companies left the filter meanwhile): go to the last one.
+  if (!data.items.length && data.total && _companyOffset) {
+    _companyOffset = Math.max(0, Math.floor((data.total - 1) / COMPANY_PAGE_SIZE) * COMPANY_PAGE_SIZE);
+    return loadCompanies();
+  }
+  if (!document.getElementById('company-rows')) {
+    el.innerHTML = companyToolbar() + '<div id="company-rows"></div>';
+    // A rebuild (back from a company, after an offline blip) shows the filters still applied.
+    for (const [k, v] of Object.entries(_companyFilters)) {
+      const input = document.getElementById('company-' + k);
+      if (input && input.tagName !== 'SELECT' && input.type !== 'range') input.value = v;
+    }
+    _companySig = _companyFacetSig = '';
+    paintFit();
+  }
+  companyFacets(data.facets || {});
+  showClearFilters();
+  // The 15-second refresh re-renders only when something changed.
+  const sig = JSON.stringify(data);
+  if (sig === _companySig) return;
+  _companySig = sig;
+  _companies = data.items;
+  _companyPage = data;
+  renderCompanyRows();
 }
 
-function renderCompaniesPage(page) {
-  const el = document.getElementById('companies-list');
-  const data = _companies;
-  const pages = Math.max(1, Math.ceil(data.length / COMPANIES_PER_PAGE));
-  _companiesPage = Math.min(Math.max(0, page), pages - 1);
-  const start = _companiesPage * COMPANIES_PER_PAGE;
-  let html = '<div class="table-card"><table class="nowrap"><thead><tr><th>Company</th>' +
-    '<th title="Company fit, 0-100: sector, decision maker, reachability, buying signal. Hover a score for why.">Fit</th>' +
+function companyToolbar() {
+  const typed = (key, label, cls) => '<input class="form-input ' + cls + '" id="company-' + key +
+    '" type="search" placeholder="' + label + '" aria-label="' + label + '"' +
+    ' oninput="filterCompanies(\'' + key + '\', this.value, true)">';
+  const thumb = (key, label, value) => '<input type="range" min="0" max="100" step="1" value="' + value +
+    '" id="company-' + key + '" aria-label="' + label + '" oninput="fitSlide(\'' + key + '\')">';
+  const picked = (key, label) => '<select class="form-input filter-select" id="company-' + key + '" aria-label="' +
+    label + '" onchange="filterCompanies(\'' + key + '\', this.value)"><option value="">' + label + '</option></select>';
+  return '<div class="toolbar company-filters">' +
+    '<label class="search">' + icon('discover') +
+      '<input class="form-input" id="company-q" type="search" placeholder="Search name or domain" ' +
+      'aria-label="Search companies" oninput="filterCompanies(\'q\', this.value, true)"></label>' +
+    typed('location', 'Location', 'filter-text') +
+    picked('status', 'Any status') + picked('source', 'Any source') +
+    '<div class="fit-filter" role="group" aria-label="Fit range">' +
+      '<span class="fit-label">Fit <b id="company-fit-value">any</b></span>' +
+      '<div class="fit-slider"><div class="fit-hist" id="company-fit-hist"></div>' +
+        '<div class="fit-track"><div class="fit-fill" id="company-fit-fill"></div></div>' +
+        thumb('fit_min', 'Lowest fit', 0) + thumb('fit_max', 'Highest fit', 100) + '</div></div>' +
+    '<button class="btn btn-ghost btn-sm" id="company-clear" onclick="clearCompanyFilters()" hidden>Clear filters</button>' +
+    '</div>';
+}
+
+// Every status and source, with how many companies have it. Rebuilt only
+// when they change, keeping what's picked.
+function companyFacets(facets) {
+  const sig = JSON.stringify(facets);
+  if (sig === _companyFacetSig) return;
+  _companyFacetSig = sig;
+  const fill = (key, label, items, name) => {
+    const select = document.getElementById('company-' + key);
+    if (!select) return;
+    const current = _companyFilters[key];
+    const known = items.some(([v]) => v === current);
+    select.innerHTML = '<option value="">' + label + '</option>' +
+      (current && !known ? '<option value="' + escHtml(current) + '">' + name(current) + ' (0)</option>' : '') +
+      items.map(([v, n]) => '<option value="' + escHtml(v) + '">' + name(v) + ' (' + n + ')</option>').join('');
+    select.value = current;
+  };
+  fill('status', 'Any status', facets.statuses || [], v => escHtml(v));
+  fill('source', 'Any source', facets.sources || [], v => sourceLabel(v) || 'Unknown');
+  _companyFitHist = facets.fit || [];
+  paintFit();
+}
+
+// The fit filter: two thumbs on one track, over a histogram of where every
+// company's fit falls. Dragging updates the label and the bars at once and
+// filters when you pause; a click on a bar picks that tenth of the scale.
+let _companyFitHist = [];
+
+function fitRange() {
+  return [+(_companyFilters.fit_min || 0), +(_companyFilters.fit_max === '' ? 100 : _companyFilters.fit_max)];
+}
+
+function fitSlide(key) {
+  const lo = document.getElementById('company-fit_min'), hi = document.getElementById('company-fit_max');
+  let a = +lo.value, b = +hi.value;
+  if (a > b) {    // the thumbs never cross: the one moved stops at the other
+    if (key === 'fit_min') lo.value = a = b; else hi.value = b = a;
+  }
+  setFitRange(a, b, true);
+}
+
+function fitBar(tenth) {
+  const [a, b] = fitRange();
+  const lo = tenth * 10, hi = tenth === 9 ? 100 : lo + 9;
+  // A second click on the only bar picked lets go of it.
+  if (a === lo && b === hi) setFitRange(0, 100); else setFitRange(lo, hi);
+}
+
+function setFitRange(a, b, typed) {
+  _companyFilters.fit_min = a > 0 ? String(a) : '';
+  _companyFilters.fit_max = b < 100 ? String(b) : '';
+  paintFit();
+  filterCompanies('fit_min', _companyFilters.fit_min, typed);
+}
+
+function paintFit() {
+  const [a, b] = fitRange();
+  const lo = document.getElementById('company-fit_min'), hi = document.getElementById('company-fit_max');
+  if (!lo || !hi) return;
+  lo.value = a; hi.value = b;
+  // The upper thumb on top, unless both sit at the right end: then the
+  // lower one must be reachable.
+  lo.style.zIndex = a >= 95 ? 3 : 1;
+  const fill = document.getElementById('company-fit-fill');
+  fill.style.left = a + '%';
+  fill.style.right = (100 - b) + '%';
+  document.getElementById('company-fit-value').textContent = a === 0 && b === 100 ? 'any' : a + '–' + b;
+  const most = Math.max(1, ..._companyFitHist);
+  document.getElementById('company-fit-hist').innerHTML = _companyFitHist.map((n, t) => {
+    const from = t * 10, to = t === 9 ? 100 : from + 9;
+    const on = from <= b && to >= a;
+    return '<button type="button" class="' + (on ? 'on' : '') + '" style="height:' +
+      Math.max(8, Math.round(100 * n / most)) + '%" title="Fit ' + from + '–' + to + ': ' + n +
+      ' compan' + (n === 1 ? 'y' : 'ies') + '" aria-label="Fit ' + from + ' to ' + to + ', ' + n +
+      ' companies" onclick="fitBar(' + t + ')"></button>';
+  }).join('');
+}
+
+// Typing filters once you pause, not on every keystroke.
+function filterCompanies(key, value, typed) {
+  _companyFilters[key] = value;
+  showClearFilters();
+  clearTimeout(_companyTimer);
+  const run = () => { _companyOffset = 0; loadCompanies(); };
+  if (typed) _companyTimer = setTimeout(run, 250); else run();
+}
+
+function clearCompanyFilters() {
+  for (const k of Object.keys(_companyFilters)) {
+    _companyFilters[k] = '';
+    const input = document.getElementById('company-' + k);
+    if (input && input.type !== 'range') input.value = '';
+  }
+  paintFit();
+  showClearFilters();
+  _companyOffset = 0;
+  loadCompanies();
+}
+
+function showClearFilters() {
+  const button = document.getElementById('company-clear');
+  if (button) button.hidden = !Object.values(_companyFilters).some(v => String(v).trim() !== '');
+}
+
+function renderCompanyRows() {
+  const data = _companyPage;
+  const rows = document.getElementById('company-rows');
+  if (!data.items.length) {
+    rows.innerHTML = '<div class="card">' + emptyState(icon('companies'), 'No company matches these filters',
+      'Loosen a filter, or <a href="#" onclick="clearCompanyFilters();return false">clear them all</a>.') + '</div>';
+    return;
+  }
+  const sort = (key, label, cls) => sortHeader(key, label, _companySort, 'sortCompaniesBy', cls);
+  let html = '<div class="table-card"><table class="nowrap"><thead><tr>' +
+    sort('name', 'Company') + sort('fit', 'Fit') +
     '<th title="Hover a status for why the company was or wasn\'t contacted">Status</th>' +
-    '<th>Industry</th><th>Location</th><th class="num">Contacts</th><th>Added</th></tr></thead><tbody>';
-  data.slice(start, start + COMPANIES_PER_PAGE).forEach((c, j) => {
-    const i = start + j;
+    sort('industry', 'Industry') + sort('location', 'Location') + sort('size', 'Size') +
+    sort('contacts', 'Contacts', 'num') + sort('source', 'Source') +
+    sort('added', 'Added') + '</tr></thead><tbody>';
+  _companies.forEach((c, i) => {
     const website = c.website || (c.domain ? 'https://' + c.domain : '');
     const domain = safeHref(website)
       ? '<a href="' + safeHref(website) + '" target="_blank" rel="noopener noreferrer" onclick="event.stopPropagation()">' +
         escHtml(c.domain || website.replace(/^https?:\/\//i, '')) + '</a>'
       : escHtml(c.domain);
+    const note = c.notes ? ' <span class="note-mark" title="' + escHtml(c.notes.slice(0, 300)) + '">' +
+      icon('pen') + '</span>' : '';
     html += '<tr class="clickable" onclick="showCompanyContacts(' + i + ')">' +
-      '<td><div class="cell-stack"><span class="cell-main">' + escHtml(c.name) + '</span>' +
+      '<td><div class="cell-stack"><span class="cell-main">' + escHtml(c.name) + note + '</span>' +
         '<span class="cell-sub">' + domain + '</span></div></td>' +
       '<td title="' + escHtml((c.fit_reasons || []).join(' · ')) + '">' +
         (typeof c.fit === 'number' ? meterHtml(c.fit) : '') + '</td>' +
       '<td title="' + escHtml(c.register_why || '') + '">' + escHtml(c.register_status || '') + '</td>' +
       '<td>' + (c.industry ? '<span class="tag">' + escHtml(c.industry) + '</span>' : '') + '</td>' +
       '<td>' + escHtml(c.location) + '</td>' +
+      '<td class="muted">' + escHtml(c.company_size) + '</td>' +
       '<td class="num">' + (c.contact_count || 0) + '</td>' +
+      '<td class="muted">' + sourceLabel(c.source) + '</td>' +
       '<td class="muted">' + relTime(c.created_at) + '</td></tr>';
   });
-  const pager = pages > 1
-    ? ' &nbsp; <button class="btn btn-ghost btn-sm" ' + (_companiesPage === 0 ? 'disabled ' : '') +
-        'onclick="renderCompaniesPage(' + (_companiesPage - 1) + ')">&larr; Prev</button> ' +
-      'Page ' + (_companiesPage + 1) + ' of ' + pages +
-      ' <button class="btn btn-ghost btn-sm" ' + (_companiesPage >= pages - 1 ? 'disabled ' : '') +
-        'onclick="renderCompaniesPage(' + (_companiesPage + 1) + ')">Next &rarr;</button>'
-    : '';
-  el.innerHTML = html + '</tbody></table></div>' +
-    '<div class="table-foot">' + (start + 1) + '–' + Math.min(start + COMPANIES_PER_PAGE, data.length) +
-    ' of ' + data.length + ' compan' + (data.length === 1 ? 'y' : 'ies') + pager + '</div>';
+  const first = data.offset + 1, last = data.offset + _companies.length;
+  rows.innerHTML = html + '</tbody></table></div>' +
+    '<div class="table-foot">' + first + '–' + last + ' of ' + data.total +
+      ' compan' + (data.total === 1 ? 'y' : 'ies') + pagerHtml(data, COMPANY_PAGE_SIZE, 'companyPage') + '</div>';
+}
+
+function sortCompaniesBy(key) {
+  _companySort = _companySort.key === key
+    ? {key, dir: _companySort.dir === 'asc' ? 'desc' : 'asc'}
+    : {key, dir: COMPANY_SORT_FIRST[key] || 'asc'};
+  _companyOffset = 0;
+  loadCompanies();
+}
+
+function companyPage(n) {
+  _companyOffset = pageOffset(n, COMPANY_PAGE_SIZE, _companyPage && _companyPage.total);
+  loadCompanies();
 }
 
 // Basic facts about one company, above its contacts: where it came from,
-// why it fits, what's been done, and what Harvey saw on its own site.
+// why it fits, what's been done, what Harvey saw on its own site, and your notes.
 function companyInfoCard(company, profile) {
   const c = (profile && profile.company) || company;
   const reg = (profile && profile.register) || {};
@@ -2079,11 +2333,15 @@ function companyInfoCard(company, profile) {
   const shown = new Set(['DECISION_MAKER_TITLE', 'CONTACT_FOUND', 'CONTACT_FORM_URL', 'HIRING_ROLE', 'FOUND_IN_SERP', 'TECH_STACK']);
   const other = Object.values(latest).filter(o => !shown.has(o.signal_code));
   let html = '<div class="card" style="margin-bottom:16px"><div class="card-head"><h3>' + escHtml(c.name || c.domain) + '</h3>' +
-    '<span class="meta">' + (typeof company.fit === 'number' ? 'Fit ' + company.fit + ' / 100' : '') + '</span></div>' +
+    '<span class="meta">' + (typeof company.fit === 'number' ? 'Fit ' + company.fit + ' / 100' : '') + '</span>' +
+    '<button class="btn btn-secondary btn-sm" onclick="editCompany()">' + icon('pen') + 'Edit</button></div>' +
     '<table><tbody>' +
+    row('Notes', c.notes ? '<div class="company-notes">' + escHtml(c.notes) + '</div>' : '') +
     row('Website', link(website, c.domain || website)) +
     row('Sector', escHtml(c.industry)) +
     row('Area', escHtml(c.location)) +
+    row('Size', escHtml(c.company_size)) +
+    row('About', escHtml(c.description)) +
     row('Why selected', escHtml(reg.why_selected || (company.fit_reasons || []).join(' · '))) +
     row('Status', '<b>' + escHtml(reg.status || company.register_status || '') + '</b>' +
       (reg.why_not_contacted || company.register_why ? ' — ' + escHtml(reg.why_not_contacted || company.register_why) : '')) +
@@ -2099,6 +2357,59 @@ function companyInfoCard(company, profile) {
   return html;
 }
 
+// What can be changed on a company. Not its domain: Harvey knows it by it.
+const COMPANY_EDIT_FIELDS = [
+  ['name', 'Name'], ['website', 'Website'], ['industry', 'Sector'], ['location', 'Area'],
+  ['company_size', 'Size'], ['description', 'About', 3],
+  ['notes', 'Notes', 6, 'Calls, context, why not now: plain text, kept with the company. Every change is logged.'],
+];
+
+function editCompany() {
+  if (!_companyOpen) return;
+  const c = (_companyOpen.profile && _companyOpen.profile.company) || _companyOpen.company;
+  const field = ([key, label, rows, hint]) => '<div class="form-group"><label class="form-label" for="edit-' + key + '">' +
+    label + '</label>' + (rows
+      ? '<textarea class="form-input" id="edit-' + key + '" rows="' + rows + '"' +
+        (hint ? ' placeholder="' + escHtml(hint) + '"' : '') + '>' + escHtml(c[key] || '') + '</textarea>'
+      : '<input class="form-input" id="edit-' + key + '" value="' + escHtml(c[key] || '') + '">') + '</div>';
+  const of = key => field(COMPANY_EDIT_FIELDS.find(f => f[0] === key));
+  document.getElementById('company-card').innerHTML =
+    '<div class="card" style="margin-bottom:16px"><div class="card-head"><h3>Edit ' + escHtml(c.name || c.domain) + '</h3>' +
+      '<span class="meta">' + escHtml(c.domain || '') + '</span></div>' +
+    '<div class="company-edit">' + of('notes') +
+      '<div class="form-row">' + ['name', 'website', 'industry', 'location', 'company_size'].map(of).join('') + '</div>' +
+      of('description') +
+      '<div class="desk-actions"><button class="btn btn-primary" onclick="saveCompany()">Save</button>' +
+        '<button class="btn btn-secondary" onclick="renderCompanyCard()">Cancel</button>' +
+        '<span class="muted" style="font-size:12px;margin-left:auto">A name you change is kept: ' +
+        'Harvey\'s automatic renaming leaves it alone.</span></div>' +
+    '</div></div>';
+  document.getElementById('edit-notes').focus();
+}
+
+async function saveCompany() {
+  if (!_companyOpen) return;
+  const id = _companyOpen.company.id;
+  const body = {};
+  for (const [key] of COMPANY_EDIT_FIELDS) body[key] = document.getElementById('edit-' + key).value;
+  const data = await api('/api/companies/' + encodeURIComponent(id), {
+    method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(body),
+  });
+  if (!data || !data.success) { showToast(failMsg(data, 'Could not save.'), 'error'); return; }
+  showToast(data.changed && data.changed.length ? 'Saved.' : 'Nothing changed.', 'success');
+  const profile = await api('/api/companies/' + encodeURIComponent(id) + '/profile');
+  if (_companyOpen && _companyOpen.company.id === id && profile && !profile.error) {
+    _companyOpen.profile = profile;
+    Object.assign(_companyOpen.company, profile.company);
+  }
+  renderCompanyCard();
+}
+
+function renderCompanyCard() {
+  const card = document.getElementById('company-card');
+  if (card && _companyOpen) card.innerHTML = companyInfoCard(_companyOpen.company, _companyOpen.profile);
+}
+
 async function showCompanyContacts(index) {
   const company = _companies[index];
   if (!company) return;
@@ -2108,8 +2419,10 @@ async function showCompanyContacts(index) {
     api('/api/companies/' + encodeURIComponent(company.id) + '/contacts'),
     api('/api/companies/' + encodeURIComponent(company.id) + '/profile'),
   ]);
+  _companySig = '';   // coming back re-renders the list it replaces
+  _companyOpen = {company, profile};
   let html = '<button class="btn btn-ghost btn-sm" onclick="loadCompanies()" style="margin-bottom:12px">' +
-    '&larr; All companies</button>' + companyInfoCard(company, profile) +
+    '&larr; All companies</button><div id="company-card">' + companyInfoCard(company, profile) + '</div>' +
     '<div class="card flush"><div class="card-head"><h3>Contacts</h3>' +
     '<span class="meta">' + escHtml([company.industry, company.location].filter(Boolean).join(' · ')) + '</span></div>';
   if (!data || !data.length) {
@@ -2154,33 +2467,65 @@ function fbCampaign(i) {
   if (c) submitFeedback('campaign', c.id, 'What should Harvey do differently in the emails it writes next? (e.g. "shorter; don\'t mention reviews")');
 }
 
-// Search and status filter live outside the table, so the 15-second refresh
-// re-renders rows without losing what you typed.
-let _contactQuery = '', _contactFilter = 'all';
+// Search, filters, sort and page live outside the table, so the 15-second
+// refresh re-fetches the same page without losing what you typed or clicked.
+// The server sorts, filters, searches and pages (/api/contacts): the page
+// only ever holds one page of contacts, however long the list gets.
+let _contactQuery = '', _contactFilter = 'all', _contactEmail = 'all';
+let _contactSort = {key: 'added', dir: 'desc'};
+let _contactOffset = 0, _contactPage = null, _contactSeq = 0, _contactTimer = null, _contactSig = '';
+const CONTACT_PAGE_SIZE = 50;
 const CONTACT_FILTERS = [
-  ['all', 'All', null],
-  ['todo', 'To write', ['new', 'queued']],
-  ['contacted', 'Contacted', ['contacted']],
-  ['replied', 'Replied', ['replied', 'interested', 'meeting']],
-  ['closed', 'Closed out', null],
+  ['all', 'All'],
+  ['todo', 'To write'],
+  ['contacted', 'Contacted'],
+  ['replied', 'Replied'],
+  ['closed', 'Closed out'],
 ];
+const EMAIL_FILTERS = [
+  ['all', 'Any email'],
+  ['verified', 'Verified'],
+  ['risky', 'Catch-all'],
+  ['guess', 'Unverified'],
+  ['invalid', 'Invalid'],
+];
+const CONTACT_SORT_FIRST = {score: 'desc', added: 'desc'};   // the rest start A→Z
 
 async function loadProspects() {
   const el = document.getElementById('prospects-table');
-  const data = await api('/api/prospects');
-  if (!data) { el.innerHTML = offlineState(); return; }
-  _prospects = data;
-  if (!data.length) {
+  const seq = ++_contactSeq;
+  const params = new URLSearchParams({
+    sort: _contactSort.key, dir: _contactSort.dir, status: _contactFilter, email: _contactEmail,
+    q: _contactQuery.trim(), offset: _contactOffset, limit: CONTACT_PAGE_SIZE,
+  });
+  const data = await api('/api/contacts?' + params);
+  if (seq !== _contactSeq) return;   // a newer request (a click, a keystroke) won
+  if (!data || data.error) { el.innerHTML = offlineState(); return; }
+  if (!data.everyone) {
+    _prospects = [];
     el.innerHTML = emptyState(icon('contacts'), 'No contacts yet',
       'Harvey hasn\'t found any prospects. Once it\'s running, the Scout agent searches the web for people matching your ideal customer profile in <b>harvey.yaml</b>.');
     return;
   }
+  // A page past the end (contacts left the filter meanwhile): go to the last one.
+  if (!data.items.length && data.total && _contactOffset) {
+    _contactOffset = Math.max(0, Math.floor((data.total - 1) / CONTACT_PAGE_SIZE) * CONTACT_PAGE_SIZE);
+    return loadProspects();
+  }
+  // The 15-second refresh re-renders only when something changed, so a row
+  // being hovered or a button about to be clicked isn't swapped out under you.
+  const sig = JSON.stringify(data);
+  if (sig === _contactSig && document.getElementById('contact-rows')) return;
+  _contactSig = sig;
+  _prospects = data.items;
+  _contactPage = data;
   if (!document.getElementById('contact-rows')) {
     el.innerHTML = '<div class="toolbar">' +
       '<label class="search">' + icon('discover') +
         '<input class="form-input" id="contact-search" type="search" placeholder="Search name, company, email" ' +
-        'aria-label="Search contacts" oninput="_contactQuery=this.value;renderContacts()"></label>' +
+        'aria-label="Search contacts" oninput="searchContacts(this.value)"></label>' +
       '<div class="segmented" id="contact-filters" role="group" aria-label="Filter by status"></div>' +
+      '<div class="segmented" id="contact-email-filters" role="group" aria-label="Filter by email"></div>' +
       '</div><div id="contact-rows"></div>';
     // A rebuild after an offline blip must show the search still applied.
     document.getElementById('contact-search').value = _contactQuery;
@@ -2188,35 +2533,109 @@ async function loadProspects() {
   renderContacts();
 }
 
-function contactMatches(p, f) {
-  const known = ['new', 'queued', 'contacted', 'replied', 'interested', 'meeting'];
-  if (f === 'all') return true;
-  if (f === 'closed') return !known.includes(p.status);
-  const hit = CONTACT_FILTERS.find(x => x[0] === f);
-  return !!(hit && hit[2] && hit[2].includes(p.status));
+// Typing searches once you pause, not on every keystroke.
+function searchContacts(value) {
+  _contactQuery = value;
+  clearTimeout(_contactTimer);
+  _contactTimer = setTimeout(() => { _contactOffset = 0; loadProspects(); }, 250);
 }
 
-function setContactFilter(f) { _contactFilter = f; renderContacts(); }
+function setContactFilter(f) { _contactFilter = f; _contactOffset = 0; loadProspects(); }
+
+function setContactEmail(f) { _contactEmail = f; _contactOffset = 0; loadProspects(); }
+
+function sortContactsBy(key) {
+  _contactSort = _contactSort.key === key
+    ? {key, dir: _contactSort.dir === 'asc' ? 'desc' : 'asc'}
+    : {key, dir: CONTACT_SORT_FIRST[key] || 'asc'};
+  _contactOffset = 0;
+  loadProspects();
+}
+
+function contactPage(n) {
+  _contactOffset = pageOffset(n, CONTACT_PAGE_SIZE, _contactPage && _contactPage.total);
+  loadProspects();
+}
+
+// A sortable column header. ``sort`` is {key, dir}; ``handler`` the name of
+// the function a click calls with the column's key.
+function sortHeader(key, label, sort, handler, cls) {
+  const on = sort.key === key;
+  const dir = on ? sort.dir : '';
+  return '<th' + (cls ? ' class="' + cls + '"' : '') +
+    ' aria-sort="' + (on ? (dir === 'asc' ? 'ascending' : 'descending') : 'none') + '">' +
+    '<button class="th-sort' + (on ? ' on' : '') + '" onclick="' + handler + '(\'' + key + '\')" ' +
+    'title="Sort by ' + label.toLowerCase() + '">' + label +
+    '<span class="sort-ind" aria-hidden="true">' + (on ? (dir === 'asc' ? '▲' : '▼') : '↕') + '</span>' +
+    '</button></th>';
+}
+
+// Previous / Next under a paged table, when there is more than one page.
+// Numbered pages under a list: Previous, 1 … 4 5 6 … 12, Next. `handler`
+// names a function that takes the page to show, counted from 0. Nothing
+// when everything fits on one page.
+function pagerHtml(page, size, handler) {
+  const pages = Math.ceil((page.total || 0) / size);
+  if (pages <= 1) return '';
+  const cur = Math.min(Math.floor((page.offset || 0) / size), pages - 1);
+  // The first and last pages, two either side of this one, and enough near
+  // either end that a gap never hides a single page.
+  const keep = new Set([0, pages - 1]);
+  for (let n = cur - 2; n <= cur + 2; n++) keep.add(n);
+  if (cur < 4) for (let n = 0; n < 6; n++) keep.add(n);
+  if (cur > pages - 5) for (let n = pages - 6; n < pages; n++) keep.add(n);
+  const nums = [...keep].filter(n => n >= 0 && n < pages).sort((a, b) => a - b);
+  const go = n => ' onclick="' + handler + '(' + n + ')"';
+  let html = '<button class="btn btn-ghost btn-sm" aria-label="Previous page"' +
+    (cur > 0 ? go(cur - 1) : ' disabled') + '>&lsaquo; Previous</button>';
+  let last = -1;
+  for (const n of nums) {
+    if (n - last > 1) html += '<span class="pager-gap" aria-hidden="true">…</span>';
+    html += n === cur
+      ? '<button class="btn btn-sm pager-num on" aria-current="page" disabled>' + (n + 1) + '</button>'
+      : '<button class="btn btn-ghost btn-sm pager-num" aria-label="Page ' + (n + 1) + '"' + go(n) + '>' + (n + 1) + '</button>';
+    last = n;
+  }
+  html += '<button class="btn btn-ghost btn-sm" aria-label="Next page"' +
+    (cur < pages - 1 ? go(cur + 1) : ' disabled') + '>Next &rsaquo;</button>';
+  // Not a <nav>: that element is styled as the sidebar.
+  return ' <div class="pager" role="navigation" aria-label="Pages">' + html + '</div>';
+}
+
+// The offset of page n (from 0), kept inside the list.
+function pageOffset(n, size, total) {
+  return Math.max(0, Math.min(n, Math.ceil((total || 0) / size) - 1)) * size;
+}
+
+function filterButtons(list, current, counts, setter) {
+  return list.map(f =>
+    '<button class="' + (f[0] === current ? 'on' : '') + '" aria-pressed="' + (f[0] === current) + '" ' +
+      'onclick="' + setter + '(\'' + f[0] + '\')">' + f[1] +
+      ' <span class="n">' + ((counts && counts[f[0]]) || 0) + '</span></button>'
+  ).join('');
+}
 
 function renderContacts() {
   const rowsEl = document.getElementById('contact-rows');
-  const filtersEl = document.getElementById('contact-filters');
-  if (!rowsEl) return;
-  const q = _contactQuery.trim().toLowerCase();
-  const found = p => !q || [p.first_name, p.last_name, p.company, p.email, p.title].join(' ').toLowerCase().includes(q);
-  filtersEl.innerHTML = CONTACT_FILTERS.map(f =>
-    '<button class="' + (f[0] === _contactFilter ? 'on' : '') + '" aria-pressed="' + (f[0] === _contactFilter) + '" onclick="setContactFilter(\'' + f[0] + '\')">' +
-      f[1] + ' <span class="n">' + _prospects.filter(p => contactMatches(p, f[0]) && found(p)).length + '</span></button>'
-  ).join('');
+  const page = _contactPage;
+  if (!rowsEl || !page) return;
+  // Each set of counts honours the search and the other filter (server-side).
+  document.getElementById('contact-filters').innerHTML =
+    filterButtons(CONTACT_FILTERS, _contactFilter, page.counts.status, 'setContactFilter');
+  document.getElementById('contact-email-filters').innerHTML =
+    filterButtons(EMAIL_FILTERS, _contactEmail, page.counts.email, 'setContactEmail');
 
-  const rows = _prospects.map((p, i) => [p, i]).filter(([p]) => contactMatches(p, _contactFilter) && found(p));
+  const rows = _prospects.map((p, i) => [p, i]);
   if (!rows.length) {
     rowsEl.innerHTML = '<div class="table-card">' + emptyState(icon('discover'), 'No matches',
       'Nothing matches that search and filter.') + '</div>';
     return;
   }
-  let html = '<div class="table-card"><table class="nowrap"><thead><tr><th>Name</th><th>Company</th><th>Email</th>' +
-    '<th>Score</th><th>Status</th><th>Source</th><th>Added</th><th></th></tr></thead><tbody>';
+  const sort = (key, label) => sortHeader(key, label, _contactSort, 'sortContactsBy');
+  let html = '<div class="table-card"><table class="nowrap"><thead><tr>' +
+    sort('name', 'Name') + sort('company', 'Company') + sort('email', 'Email') +
+    sort('score', 'Score') + sort('status', 'Status') + '<th>Source</th>' +
+    sort('added', 'Added') + '<th></th></tr></thead><tbody>';
   for (const [p, i] of rows) {
     html += '<tr><td><div class="cell-row"><span class="avatar">' + initials(p.first_name, p.last_name) + '</span>' +
         '<div class="cell-stack"><span class="cell-main">' + escHtml(p.first_name) + ' ' + escHtml(p.last_name) + '</span>' +
@@ -2239,8 +2658,11 @@ function renderContacts() {
         'title="Leave feedback on this contact">Feedback</button></div></td></tr>';
     if (_optOut.id === p.id) html += '<tr class="detail-row"><td colspan="8">' + optOutPanel(p) + '</td></tr>';
   }
+  const first = page.offset + 1, last = page.offset + rows.length;
+  const pager = pagerHtml(page, CONTACT_PAGE_SIZE, 'contactPage');
   rowsEl.innerHTML = html + '</tbody></table></div>' +
-    '<div class="table-foot">' + rows.length + ' of ' + _prospects.length + ' contacts</div>';
+    '<div class="table-foot">' + first + '–' + last + ' of ' + page.total +
+      (page.total !== page.everyone ? ' (' + page.everyone + ' contacts in all)' : ' contacts') + pager + '</div>';
 }
 
 // Why someone is opted out, and undoing it. Harvey never moves anyone off
@@ -2326,7 +2748,11 @@ async function undoOptOut() {
 // From a conversation: the contact, with the opt-out record open.
 async function showOptOut(prospectId, email) {
   goTab('prospects');
+  // The search finds them; no filter or page may hide them.
   _contactQuery = email || '';
+  _contactFilter = 'all';
+  _contactEmail = 'all';
+  _contactOffset = 0;
   const search = document.getElementById('contact-search');
   if (search) search.value = _contactQuery;
   await loadProspects();
@@ -2431,121 +2857,273 @@ function campaignProgress(c) {
       '<span><i class="' + p[2] + '"></i>' + p[0] + ' <b>' + p[1] + '</b></span>').join('') + '</div></div>';
 }
 
+// One row per campaign; a click opens its emails. Sort, page, the open rows and
+// whether empty campaigns show live outside the table, so the 15-second
+// refresh re-fetches the same page and redraws only when something changed.
+// The server sorts and pages (/api/campaigns).
+const CAMPAIGNS_PER_PAGE = 20;
+let _campaignSort = {key: 'created', dir: 'desc'};
+let _campaignOffset = 0, _campaignPage = null, _campaignSeq = 0, _campaignSig = '', _campaignShowEmpty = false;
+const _campaignOpen = new Set();
+const CAMPAIGN_SORT_FIRST = {people: 'desc', first_emails: 'desc', created: 'desc'};   // the rest start A→Z
+// "dental clinic-inbox-outreach": the segment, and what the suffix says.
+function campaignLabel(name) {
+  const n = String(name || 'Untitled campaign');
+  const tags = [];
+  if (/-inbox-outreach$/.test(n)) tags.push('Company inbox');
+  return {label: n.replace(/-(inbox-)?outreach$/, ''), tags};
+}
+
+const CAMPAIGN_STATES = {
+  draft: ['Not scheduled yet', 'waiting'],
+  active: ['Scheduled', 'active'],
+  paused: ['Paused', 'idle'],
+  completed: ['Done', 'good'],
+  failed: ['Failed', 'bad'],
+};
+
+function campaignState(c) {
+  if (c.status === 'draft' && c.held) {
+    return '<span class="badge t-waiting" title="' + escHtml('Sending is paused (' + c.held +
+      '). Harvey schedules this campaign once it resumes.') + '">Waiting: sending paused</span>';
+  }
+  const s = CAMPAIGN_STATES[c.status];
+  return s ? '<span class="badge t-' + s[1] + '">' + s[0] + '</span>' : badge(c.status);
+}
+
+// Where each person's first email stands in the Outbox.
+function firstEmailsCell(c) {
+  const f = c.first_emails || {};
+  const named = {pending_review: 'to review', approved: 'approved', sent: 'sent', rejected: 'rejected'};
+  const order = Object.keys(named).concat(Object.keys(f).filter(k => !own(named, k)));
+  const parts = order.filter(k => f[k]).map(k => f[k] + ' ' + (named[k] || k.replace(/_/g, ' ')));
+  return parts.length ? escHtml(parts.join(' · ')) : '<span class="muted">None yet</span>';
+}
+
 async function loadCampaigns() {
   const el = document.getElementById('campaigns-list');
-  const data = await api('/api/campaigns');
-  if (!data) { el.innerHTML = offlineState(); return; }
-  _campaigns = data;
-  if (!data.length) {
+  const seq = ++_campaignSeq;
+  const params = new URLSearchParams({
+    sort: _campaignSort.key, dir: _campaignSort.dir, offset: _campaignOffset, limit: CAMPAIGNS_PER_PAGE,
+  });
+  if (_campaignShowEmpty) params.set('empty', '1');
+  const data = await api('/api/campaigns?' + params);
+  if (seq !== _campaignSeq) return;   // a newer request won
+  if (!data || data.error) { el.innerHTML = offlineState(); return; }
+  // A page past the end (campaigns emptied or removed meanwhile): go to the last one.
+  if (!data.items.length && _campaignOffset && data.total) {
+    _campaignOffset = Math.max(0, Math.floor((data.total - 1) / CAMPAIGNS_PER_PAGE) * CAMPAIGNS_PER_PAGE);
+    return loadCampaigns();
+  }
+  const sig = JSON.stringify(data);
+  if (sig === _campaignSig && el.querySelector('table')) return;
+  _campaignSig = sig;
+  _campaignPage = data;
+  _campaigns = data.items;
+  renderCampaigns();
+}
+
+function renderCampaigns() {
+  const el = document.getElementById('campaigns-list');
+  const data = _campaignPage;
+  if (!data.total && !data.empty) {
     el.innerHTML = emptyState(icon('campaigns'), 'No campaigns yet',
       'The Writer agent hasn\'t drafted any sequences. It kicks in automatically once Harvey has scored prospects to write for.');
     return;
   }
-  let html = '';
-  data.forEach((c, i) => {
-    let stepsHtml = '';
-    (c.sequence || []).forEach((step, s) => {
-      const sendBtns = (c.recipients || []).map((r, ri) => {
-        // Only offered when Harvey can't send itself and this person can
-        // still be emailed (the server decides: can_send_by_hand).
-        if (r.sent_by_hand) {
-          const tick = '<label style="display:inline-flex;align-items:center;gap:4px;font-size:13px;cursor:pointer">' +
-            '<input type="checkbox" checked onchange="markSent(' + i + ',' + ri + ',this.checked)"> ' +
-            '&#10003; Sent by you</label>';
-          if (s === 0) return '<span class="rcpt-who">' + escHtml(r.email) + '</span>' + tick;
-          // Follow-ups are the user's too: Harvey never emails someone they emailed.
-          return '<span class="rcpt-who">' + escHtml(r.email) + '</span>' +
-            '<button class="btn btn-secondary btn-sm" onclick="openInGmail(' + i + ',' + s + ',' + ri + ')">' +
-            'Open in Gmail</button>' +
-            '<span class="muted" style="font-size:12px">Harvey won\'t send follow-ups to people you emailed yourself.</span>';
-        }
-        if (s !== 0) return '';
-        if (!r.can_send_by_hand) {
-          // Harvey sends here; this only records an email the user already sent.
-          return r.can_mark_sent
-            ? '<label class="muted" style="display:inline-flex;align-items:center;gap:4px;font-size:12px;cursor:pointer">' +
-              '<input type="checkbox" onchange="markSent(' + i + ',' + ri + ',this.checked)"> ' +
-              'I already emailed ' + escHtml(r.email) + ' myself</label>'
-            : '';
-        }
-        const risky = r.email_status === 'risky'
-          ? ' <span class="mini t-waiting">Catch-all, may bounce</span>' : '';
-        return '<span class="rcpt-who">' + escHtml(r.email) + risky + '</span>' +
+  const sort = (key, label, cls) => sortHeader(key, label, _campaignSort, 'sortCampaignsBy', cls);
+  let html = '<div class="table-card"><table class="campaign-table"><thead><tr>' +
+    sort('name', 'Campaign') + sort('people', 'People', 'num') +
+    sort('first_emails', 'First emails') + sort('status', 'Status') + sort('created', 'Created') +
+    '</tr></thead><tbody>';
+  _campaigns.forEach((c, i) => {
+    const open = _campaignOpen.has(c.id);
+    const {label, tags} = campaignLabel(c.name);
+    html += '<tr class="clickable' + (open ? ' open' : '') + '" aria-expanded="' + open + '" onclick="toggleCampaign(' + i + ')">' +
+      '<td><div class="cell-stack"><span class="cell-main"><span class="caret" aria-hidden="true">' +
+        (open ? '▾' : '▸') + '</span> ' + escHtml(label) + '</span>' +
+        (tags.length ? '<span class="cell-sub">' + escHtml(tags.join(' · ')) + '</span>' : '') + '</div></td>' +
+      '<td class="num">' + (c.prospect_ids || []).length + '</td>' +
+      '<td>' + firstEmailsCell(c) + '</td>' +
+      '<td>' + campaignState(c) + '</td>' +
+      '<td class="muted">' + relTime(c.created_at) + '</td></tr>';
+    if (open) html += '<tr class="campaign-detail"><td colspan="5">' + campaignDetail(c, i) + '</td></tr>';
+  });
+  if (!_campaigns.length) {
+    html += '<tr><td colspan="5" class="muted">Every campaign here is empty: its people were moved out or rejected.</td></tr>';
+  }
+  const first = _campaigns.length ? data.offset + 1 : 0;
+  el.innerHTML = html + '</tbody></table></div>' +
+    '<div class="table-foot">' + first + '–' + (data.offset + _campaigns.length) + ' of ' + data.total +
+      ' campaign' + (data.total === 1 ? '' : 's') +
+      (data.empty ? ' · ' + data.empty + ' empty ' + (_campaignShowEmpty
+        ? '<button class="btn btn-ghost btn-sm" onclick="showEmptyCampaigns(false)">Hide</button>'
+        : 'hidden <button class="btn btn-ghost btn-sm" onclick="showEmptyCampaigns(true)">Show</button>') : '') +
+      pagerHtml(data, CAMPAIGNS_PER_PAGE, 'campaignPage') + '</div>';
+}
+
+function toggleCampaign(i) {
+  const c = _campaigns[i];
+  if (!c) return;
+  if (_campaignOpen.has(c.id)) _campaignOpen.delete(c.id); else _campaignOpen.add(c.id);
+  renderCampaigns();
+}
+
+function sortCampaignsBy(key) {
+  _campaignSort = _campaignSort.key === key
+    ? {key, dir: _campaignSort.dir === 'asc' ? 'desc' : 'asc'}
+    : {key, dir: CAMPAIGN_SORT_FIRST[key] || 'asc'};
+  _campaignOffset = 0;
+  loadCampaigns();
+}
+
+function campaignPage(n) {
+  _campaignOffset = pageOffset(n, CAMPAIGNS_PER_PAGE, _campaignPage && _campaignPage.total);
+  loadCampaigns();
+}
+
+function showEmptyCampaigns(show) {
+  _campaignShowEmpty = show;
+  _campaignOffset = 0;
+  loadCampaigns();
+}
+
+// An open campaign: where its people stand, then its emails. When the first
+// emails are in the Outbox (written per person), the shared template for
+// email 1 is never sent, so it isn't shown.
+function campaignDetail(c, i) {
+  const personal = Object.keys(c.first_emails || {}).length > 0;
+  let stepsHtml = '';
+  (c.sequence || []).forEach((step, s) => {
+    const sendBtns = (c.recipients || []).map((r, ri) => {
+      // Only offered when Harvey can't send itself and this person can
+      // still be emailed (the server decides: can_send_by_hand).
+      if (r.sent_by_hand) {
+        const tick = '<label style="display:inline-flex;align-items:center;gap:4px;font-size:13px;cursor:pointer">' +
+          '<input type="checkbox" checked onchange="markSent(' + i + ',' + ri + ',this.checked)"> ' +
+          '&#10003; Sent by you</label>';
+        if (s === 0) return '<span class="rcpt-who">' + escHtml(r.email) + '</span>' + tick;
+        // Follow-ups are the user's too: Harvey never emails someone they emailed.
+        return '<span class="rcpt-who">' + escHtml(r.email) + '</span>' +
           '<button class="btn btn-secondary btn-sm" onclick="openInGmail(' + i + ',' + s + ',' + ri + ')">' +
           'Open in Gmail</button>' +
-          '<label><input type="checkbox" onchange="markSent(' + i + ',' + ri + ',this.checked)"> Mark as sent</label>'
-      }).filter(Boolean).map(x => '<div class="rcpt">' + x + '</div>').join('');
-      stepsHtml += '<div class="email-step"><span class="step-dot">' + escHtml(String(step.step || '?')) + '</span>' +
-        '<div><div class="step-num">' + (s === 0 ? 'First email' : 'Follow-up') +
-        (step.delay_days ? ' &middot; ' + escHtml(String(step.delay_days)) + ' days after the last' : '') + '</div>' +
-        '<div class="subject">' + escHtml(step.subject) + '</div>' +
-        '<div class="body">' + escHtml(step.body) + '</div>' +
-        (sendBtns ? '<div class="step-actions">' + sendBtns + '</div>' : '') +
-        '</div></div>';
-    });
-    const pc = (c.prospect_ids || []).length;
-    html += '<div class="campaign-card"><div class="campaign-top">' +
-      '<div class="campaign-title"><h3>' + escHtml(c.name || 'Untitled Campaign') + '</h3>' +
-        '<button class="btn btn-ghost btn-sm" onclick="fbCampaign(' + i + ')">Feedback</button></div>' +
-      '<div class="meta">' + badge(c.status) + '<span>' + pc + ' prospect' + (pc !== 1 ? 's' : '') + '</span>' +
-        '<span>' + (c.sequence || []).length + ' emails</span><span>Created ' + relTime(c.created_at) + '</span></div>' +
-      campaignProgress(c) + '</div>' +
-      '<div class="sequence">' +
-      (stepsHtml || '<p class="muted" style="font-size:13px;padding-top:16px">No email steps in this campaign.</p>') + '</div></div>';
+          '<span class="muted" style="font-size:12px">Harvey won\'t send follow-ups to people you emailed yourself.</span>';
+      }
+      if (s !== 0) return '';
+      if (!r.can_send_by_hand) {
+        // Harvey sends here; this only records an email the user already sent.
+        return r.can_mark_sent
+          ? '<label class="muted" style="display:inline-flex;align-items:center;gap:4px;font-size:12px;cursor:pointer">' +
+            '<input type="checkbox" onchange="markSent(' + i + ',' + ri + ',this.checked)"> ' +
+            'I already emailed ' + escHtml(r.email) + ' myself</label>'
+          : '';
+      }
+      const risky = r.email_status === 'risky'
+        ? ' <span class="mini t-waiting">Catch-all, may bounce</span>' : '';
+      return '<span class="rcpt-who">' + escHtml(r.email) + risky + '</span>' +
+        '<button class="btn btn-secondary btn-sm" onclick="openInGmail(' + i + ',' + s + ',' + ri + ')">' +
+        'Open in Gmail</button>' +
+        '<label><input type="checkbox" onchange="markSent(' + i + ',' + ri + ',this.checked)"> Mark as sent</label>'
+    }).filter(Boolean).map(x => '<div class="rcpt">' + x + '</div>').join('');
+    const text = s === 0 && personal
+      ? '<p class="step-note">Written for each person from what Harvey found on their company, so there ' +
+        'is no shared text. You read and approve each one in the Outbox.</p>' +
+        '<button class="btn btn-secondary btn-sm" style="margin-top:8px" onclick="goTab(\'outbox\')">' +
+        'Open the Outbox' + icon('arrow') + '</button>'
+      : '<div class="subject">' + escHtml(step.subject) + '</div><div class="body">' + escHtml(step.body) + '</div>';
+    stepsHtml += '<div class="email-step"><span class="step-dot">' + escHtml(String(step.step || '?')) + '</span>' +
+      '<div><div class="step-num">' + (s === 0 ? 'First email' : 'Follow-up') +
+      (step.delay_days ? ' &middot; ' + escHtml(String(step.delay_days)) + ' days after the last' : '') + '</div>' +
+      text + (sendBtns ? '<div class="step-actions">' + sendBtns + '</div>' : '') +
+      '</div></div>';
   });
-  el.innerHTML = html;
+  const people = (c.recipients || []).map(r =>
+    '<span>' + escHtml([r.first_name, r.last_name].filter(Boolean).join(' ') || r.email) +
+    (r.company ? ' <span class="muted">· ' + escHtml(r.company) + '</span>' : '') + '</span>').join('');
+  return '<div class="campaign-open">' +
+    '<div class="campaign-title"><div class="campaign-people">' + (people || '<span class="muted">No one left in this campaign.</span>') + '</div>' +
+      '<button class="btn btn-ghost btn-sm" onclick="fbCampaign(' + i + ')">Feedback</button></div>' +
+    campaignProgress(c) +
+    '<div class="sequence">' +
+    (stepsHtml || '<p class="muted" style="font-size:13px;padding-top:16px">No email steps in this campaign.</p>') +
+    '</div></div>';
 }
 
 // The whole exchange in order: Harvey's cold emails (from the Outbox), the
 // replies, Harvey's answers, and any answer still waiting for approval.
-let _convos = [], _convoFilter = 'needs';
+let _convos = [], _convoFilter = '';
 const STAGE_LABELS = {
   initial_outreach: 'Outreach', engaged: 'Engaged', qualifying: 'Qualifying', presenting: 'Presenting',
   negotiating: 'Negotiating', closing: 'Closing', closed_won: 'Won', closed_lost: 'Lost',
 };
+// The server filters, sorts (handed to you first, then answers waiting for
+// approval, then newest) and pages (/api/conversations), and counts what each
+// filter holds. The filter and page live outside the list, so the 15-second
+// refresh re-fetches the same page.
 const CONVO_FILTERS = [
-  ['needs', 'Needs you', c => !!c.draft || c.status === 'needs_human'],
-  ['open', 'Open', c => c.status !== 'closed' && c.status !== 'awaiting_reply'],
-  ['awaiting', 'Awaiting reply', c => c.status === 'awaiting_reply'],
-  ['closed', 'Closed', c => c.status === 'closed'],
-  ['all', 'All', () => true],
+  ['needs', 'Needs you'], ['open', 'Open'], ['awaiting', 'Awaiting reply'], ['closed', 'Closed'], ['all', 'All'],
 ];
+const CONVO_PAGE_SIZE = 20;
+let _convoOffset = 0, _convoPage = null, _convoSeq = 0, _convoSig = '';
 
 async function loadConversations() {
   const el = document.getElementById('conversations-list');
-  const data = await api('/api/conversations?awaiting=1');
-  if (!data) { el.innerHTML = offlineState(); return; }
-  _convos = data;
-  if (!data.length) {
+  const seq = ++_convoSeq;
+  // No filter yet: the server opens on "Needs you" only when something needs you.
+  const params = new URLSearchParams({awaiting: 1, offset: _convoOffset, limit: CONVO_PAGE_SIZE});
+  if (_convoFilter) params.set('filter', _convoFilter);
+  const data = await api('/api/conversations?' + params);
+  if (seq !== _convoSeq) return;   // a newer request (a filter, a page) won
+  if (!data || data.error) { el.innerHTML = offlineState(); return; }
+  // "Needs you" with nothing left in it: let the server pick again.
+  if (data.filter === 'needs' && !data.counts.needs && data.counts.all) {
+    _convoFilter = '';
+    return loadConversations();
+  }
+  _convoFilter = data.filter;
+  if (!data.counts.all) {
+    _convos = [];
     el.innerHTML = emptyState(icon('conversations'), 'No conversations yet',
       'No prospects have replied so far. When they do, the Handler agent classifies each reply and responds — every thread shows up here.');
     return;
   }
-  // Open on "Needs you" only when something needs you.
-  if (_convoFilter === 'needs' && !data.some(CONVO_FILTERS[0][2]))
-    _convoFilter = data.some(CONVO_FILTERS[1][2]) ? 'open' : 'all';
+  if (!data.items.length && data.total && _convoOffset) {
+    _convoOffset = pageOffset(Infinity, CONVO_PAGE_SIZE, data.total);
+    return loadConversations();
+  }
+  // Redraw only when something changed, so a card being read doesn't jump.
+  const sig = JSON.stringify(data);
+  if (sig === _convoSig && el.querySelector('.toolbar')) return;
+  _convoSig = sig;
+  _convoPage = data;
+  _convos = data.items;
   renderConversations();
 }
 
-function setConvoFilter(f) { _convoFilter = f; renderConversations(); }
+function setConvoFilter(f) { _convoFilter = f; _convoOffset = 0; loadConversations(); }
+
+function convoPage(n) {
+  _convoOffset = pageOffset(n, CONVO_PAGE_SIZE, _convoPage && _convoPage.total);
+  loadConversations();
+  document.getElementById('conversations-list').scrollIntoView({block: 'start'});
+}
 
 function renderConversations() {
   const el = document.getElementById('conversations-list');
-  const filter = CONVO_FILTERS.find(f => f[0] === _convoFilter) || CONVO_FILTERS[CONVO_FILTERS.length - 1];
+  const data = _convoPage;
   const bar = '<div class="toolbar"><div class="segmented" role="group" aria-label="Filter conversations">' +
-    CONVO_FILTERS.map(f => '<button class="' + (f[0] === filter[0] ? 'on' : '') + '" aria-pressed="' + (f[0] === filter[0]) +
-      '" onclick="setConvoFilter(\'' + f[0] + '\')">' + f[1] + ' <span class="n">' +
-      _convos.filter(f[2]).length + '</span></button>').join('') + '</div></div>';
-  // Handed-to-you first, then drafts waiting; otherwise newest first (as served).
-  const rank = c => c.status === 'needs_human' ? 0 : c.draft ? 1 : 2;
-  const shown = _convos.filter(filter[2]).map((c, i) => [c, i])
-    .sort((a, b) => rank(a[0]) - rank(b[0]) || a[1] - b[1]).map(x => x[0]);
-  if (!shown.length) {
+    CONVO_FILTERS.map(([key, label]) => '<button class="' + (key === data.filter ? 'on' : '') +
+      '" aria-pressed="' + (key === data.filter) + '" onclick="setConvoFilter(\'' + key + '\')">' + label +
+      ' <span class="n">' + (data.counts[key] || 0) + '</span></button>').join('') + '</div></div>';
+  if (!_convos.length) {
     el.innerHTML = bar + '<div class="card">' + emptyState(icon('check'), 'Nothing here',
       'No conversation matches this filter.') + '</div>';
     return;
   }
-  el.innerHTML = bar + shown.map(convoCard).join('');
+  const first = data.offset + 1, last = data.offset + _convos.length;
+  el.innerHTML = bar + _convos.map(convoCard).join('') +
+    '<div class="table-foot">' + first + '–' + last + ' of ' + data.total + ' conversation' +
+      (data.total === 1 ? '' : 's') + pagerHtml(data, CONVO_PAGE_SIZE, 'convoPage') + '</div>';
 }
 
 function convoCard(c) {
@@ -2631,18 +3209,33 @@ async function setConvoStatus(id, status) {
   loadToday();
 }
 
+// The page lives outside the list, so the 15-second refresh re-fetches the
+// same page; the server pages (/api/activity).
+const ACTIVITY_PAGE_SIZE = 50;
+let _activityOffset = 0, _activityPage = null, _activitySig = '';
+
 async function loadActivity() {
   const el = document.getElementById('activity-list');
-  const data = await api('/api/activity');
-  if (!data) { el.innerHTML = offlineState(); return; }
-  if (!data.length) {
+  const data = await api('/api/activity?offset=' + _activityOffset + '&limit=' + ACTIVITY_PAGE_SIZE);
+  if (!data || data.error) { el.innerHTML = offlineState(); return; }
+  if (!data.total) {
     el.innerHTML = emptyState(icon('activity'), 'No activity yet',
       'Harvey hasn\'t taken any actions. Every prospect found, email written, and reply handled will appear here the moment it happens.');
     return;
   }
+  // New actions push everything down: page 2 now starts elsewhere, which is
+  // fine; only a page past the end needs fixing.
+  if (!data.items.length && _activityOffset) {
+    _activityOffset = pageOffset(Infinity, ACTIVITY_PAGE_SIZE, data.total);
+    return loadActivity();
+  }
+  const sig = JSON.stringify(data);
+  if (sig === _activitySig && el.querySelector('.timeline')) return;
+  _activitySig = sig;
+  _activityPage = data;
   let html = '<div class="card"><div class="timeline">';
   let day = '';
-  for (const a of data) {
+  for (const a of data.items) {
     const label = dayLabel(a.created_at);
     if (label !== day) { day = label; html += '<div class="tl-day">' + escHtml(label) + '</div>'; }
     html += '<div class="tl-item' + (a.agent === 'main' ? ' quiet' : '') + '"><span class="tl-time">' + timeOfDay(a.created_at) + '</span>' +
@@ -2650,7 +3243,16 @@ async function loadActivity() {
       '<span class="tl-text">' + actionText(a) + '</span>' +
       '<span class="tl-agent">' + escHtml(a.agent) + '</span></div>';
   }
-  el.innerHTML = html + '</div></div>';
+  const first = data.offset + 1, last = data.offset + data.items.length;
+  el.innerHTML = html + '</div></div>' +
+    '<div class="table-foot">' + first + '–' + last + ' of ' + data.total + ' action' +
+      (data.total === 1 ? '' : 's') + pagerHtml(data, ACTIVITY_PAGE_SIZE, 'activityPage') + '</div>';
+}
+
+function activityPage(n) {
+  _activityOffset = pageOffset(n, ACTIVITY_PAGE_SIZE, _activityPage && _activityPage.total);
+  loadActivity();
+  document.getElementById('activity-list').scrollIntoView({block: 'start'});
 }
 
 // ── Init & live refresh ──

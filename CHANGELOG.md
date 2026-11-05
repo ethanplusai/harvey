@@ -9,6 +9,58 @@ minor versions can still change behaviour.
 
 ### Added
 
+- **Dashboard lists you can sort, filter and page.** Every list that grows
+  is now sorted, filtered and paged by the database, under one numbered
+  pager (Previous, 1 … 4 5 6 … 12, Next) with how many it holds. Lists that
+  used to stop at a fixed number without saying so now show everything, a
+  page at a time.
+  - **Contacts.** Click a column (name, company, email, score, status,
+    added) to sort it. Filter by email (verified, catch-all, unverified,
+    invalid) on top of the status filter. Search ignores case and accents.
+    The counts on each filter honour the search and the other filter.
+  - **Companies.** Sort by any column, Fit included. Filter by name or
+    domain, location, source, status (each menu shows its counts) and a fit
+    range: a two-thumb slider over a histogram of where every company's fit
+    falls, and a click on a bar keeps that tenth of the scale.
+    - A company's card has *Edit*: name, website, sector, area, size,
+      description and **notes**, plain text kept with the company for the
+      record. A pencil marks the rows that have notes.
+    - Every edit is logged with what it replaced and shows on Activity.
+    - A name set by hand survives the profile stage's automatic renaming
+      (`companies.hand_edited`).
+    - The domain isn't editable, as discovery dedups on it.
+  - **Campaigns.** One row per campaign instead of every email in full,
+    which made a page with no end. Each row shows the segment, people,
+    where each first email stands in the Outbox, and a status that says
+    why a draft isn't moving ("Waiting: sending paused"). Sort by any
+    column. A click opens the campaign's people, progress and follow-ups.
+    When the first emails were written per person, the unused email 1
+    template gives way to a link to the Outbox. Empty campaigns sit behind
+    a *Show* button. Sending by hand and campaign feedback work as before.
+  - **Outbox.**
+    - Each draft shows its company's website, and *Approved & scheduled*
+      has a Website column.
+    - An approved email that hasn't started sending can be taken back:
+      *Unapprove* returns it to the review desk, and *Edit* opens it there
+      to fix the subject or body.
+    - The drafts to review (50 a page) and the Approved, Sent and Didn't
+      send lists (25 each) page. The nav count and *Approve all* use the
+      real totals.
+  - **Conversations** (20 a page) and **Activity** (50 a page). The
+    server applies the Conversations filters, counts and order, so nothing
+    past the latest 100 is lost.
+
+  API changes:
+  - `/api/contacts` is new.
+  - `/api/companies`, `/api/campaigns`, `/api/activity` and
+    `/api/conversations` take `sort`/`dir` where they sort and
+    `offset`/`limit`, and return a page (`items`, `total`, …) instead of a
+    list. `/api/companies` also takes `q`, `location`, `source`, `status`,
+    `fit_min` and `fit_max`, and returns `facets`.
+  - `/api/outbox` takes an offset per list and returns `pages` and `held`.
+  - New: `POST /api/companies/{id}` and `POST /api/outbox/{id}/unapprove`.
+  - Migrations v15 to v17 add indexes and `companies.hand_edited`.
+
 - **Company fit and the company register.** The Companies tab now sorts by a
   0-100 fit score worked out from what Harvey already holds: the ICP sector
   match, a contact with a target title, the best email found, and an open

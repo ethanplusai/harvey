@@ -418,7 +418,7 @@ def test_campaigns_carry_the_footer_for_sending_by_hand(client, monkeypatch, env
     from tests.test_dashboard_manual_send import _campaign, _prospect
     _prospect(env, "p1", "a@acme.test", status="queued")
     _campaign(env, "c1", ["p1"])
-    assert client.get("/api/campaigns").json()[0]["footer"] == ADDRESS + "\n" + LINE
+    assert client.get("/api/campaigns").json()["items"][0]["footer"] == ADDRESS + "\n" + LINE
 
 
 # ── Review round 2 ──

@@ -78,6 +78,44 @@ def test_pending_drafts_carry_the_facts_behind_them(client):
     assert ctx["signals"] == {"Website platform / tools": "Lovable, Stripe", "Running Google Ads": "yes"}
 
 
+def test_an_approval_can_be_taken_back_then_edited_and_approved_again(client):
+    _, item_id = asyncio.run(_seed(client.db_path, status="approved"))
+    assert client.post(f"/api/outbox/{item_id}/unapprove").json()["success"] is True
+    item = client.get("/api/outbox").json()["pending"][0]
+    assert item["id"] == item_id and item["approved_by"] == ""
+    assert client.post(f"/api/outbox/{item_id}/edit",
+                       json={"subject": "a better subject", "body": "Hello,\n\nSam"}).json()["success"]
+    assert client.post(f"/api/outbox/{item_id}/approve").json()["success"] is True
+    approved = client.get("/api/outbox").json()["approved"][0]
+    assert (approved["subject"], approved["approved_by"]) == ("a better subject", "you")
+
+
+@pytest.mark.parametrize("status", ["sending", "sent", "pending_review", "rejected"])
+def test_only_approved_mail_can_be_taken_back(client, status):
+    _, item_id = asyncio.run(_seed(client.db_path, status=status))
+    resp = client.post(f"/api/outbox/{item_id}/unapprove")
+    assert resp.status_code == 409 and resp.json()["success"] is False
+    assert client.post("/api/outbox/nope/unapprove").status_code == 409
+
+
+def test_approved_mail_carries_the_company_website(client):
+    state, _ = asyncio.run(_seed(client.db_path, status="approved"))
+    assert client.get("/api/outbox").json()["approved"][0]["website"] == "https://brightline.example"
+
+    async def _no_site():
+        # A company with only a domain gets https://domain; a prospect with
+        # no company gets nothing.
+        async with aiosqlite.connect(client.db_path) as db:
+            await db.execute("UPDATE companies SET website = ''")
+            await db.commit()
+        await state.add_outbox_item(
+            prospect_id="nobody", to_email="a@b.example", subject="hi", body="Hi",
+            send_at="2026-01-02T00:00:00", status="approved")
+    asyncio.run(_no_site())
+    sites = {r["to_email"]: r["website"] for r in client.get("/api/outbox").json()["approved"]}
+    assert sites == {"team@brightline.example": "https://brightline.example", "a@b.example": ""}
+
+
 def test_editing_a_draft_changes_it_but_does_not_approve_it(client):
     state, item_id = asyncio.run(_seed(client.db_path))
     r = client.post(f"/api/outbox/{item_id}/edit", json={

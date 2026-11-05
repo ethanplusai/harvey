@@ -66,14 +66,15 @@ def test_campaigns_list_their_recipients(client, env):
     _prospect(env, "p1", "a@acme.test")
     _prospect(env, "p2", "")  # no address: nothing to open in Gmail
     _campaign(env, "c1", ["p1", "p2"])
-    rows = client.get("/api/campaigns").json()
+    rows = client.get("/api/campaigns").json()["items"]
     assert [r["email"] for r in rows[0]["recipients"]] == ["a@acme.test"]
     assert rows[0]["recipients"][0]["status"] == "new"
 
 
 def test_campaign_with_no_prospects_has_no_recipients(client, env):
     _campaign(env, "c1", [])
-    assert client.get("/api/campaigns").json()[0]["recipients"] == []
+    page = client.get("/api/campaigns", params={"empty": 1}).json()
+    assert page["items"][0]["recipients"] == []
 
 
 # ── Mark as sent ──
@@ -82,7 +83,7 @@ def test_campaign_with_no_prospects_has_no_recipients(client, env):
 def test_mark_sent_and_undo(client, env):
     _prospect(env, "p1", "a@acme.test")
     assert client.post("/api/prospects/p1/sent", json={"sent": True}).json()["sent"] is True
-    assert client.get("/api/campaigns").json() == []  # no campaign needed to toggle
+    assert client.get("/api/campaigns").json()["items"] == []  # no campaign needed to toggle
     with sqlite3.connect(env["db"]) as db:
         assert db.execute("SELECT status FROM prospects").fetchone()[0] == "contacted"
         assert db.execute("SELECT action_type FROM actions").fetchone()[0] == "manual_send"
@@ -174,7 +175,7 @@ def test_recipients_say_who_can_be_sent_by_hand(client, env):
     _prospect(env, "p6", "f@acme.test", email_status="risky")         # catch-all: allowed
     _campaign(env, "c1", ["p1", "p2", "p3", "p4", "p5", "p6"])
     _outbox(env, "o1", "p2", "approved")
-    recips = {r["id"]: r for r in client.get("/api/campaigns").json()[0]["recipients"]}
+    recips = {r["id"]: r for r in client.get("/api/campaigns").json()["items"][0]["recipients"]}
     assert {k for k, r in recips.items() if r["can_send_by_hand"]} == {"p1", "p6"}
 
 
@@ -186,7 +187,7 @@ def test_no_gmail_button_while_harvey_can_send_but_a_hand_send_can_still_be_reco
     _prospect(env, "p1", "a@acme.test", status="queued")
     _campaign(env, "c1", ["p1"])
     _outbox(env, "o1", "p1", "pending_review")
-    r = client.get("/api/campaigns").json()[0]["recipients"][0]
+    r = client.get("/api/campaigns").json()["items"][0]["recipients"][0]
     assert r["can_send_by_hand"] is False and r["can_mark_sent"] is True
     assert client.post("/api/prospects/p1/sent", json={"sent": True}).json()["sent"] is True
     assert _status(env, "prospects", "p1") == "contacted"
@@ -198,7 +199,7 @@ def test_someone_with_approved_mail_cant_be_marked_sent(client, env):
     _prospect(env, "p1", "a@acme.test", status="queued")
     _campaign(env, "c1", ["p1"])
     _outbox(env, "o1", "p1", "approved")
-    assert client.get("/api/campaigns").json()[0]["recipients"][0]["can_mark_sent"] is False
+    assert client.get("/api/campaigns").json()["items"][0]["recipients"][0]["can_mark_sent"] is False
     assert client.post("/api/prospects/p1/sent", json={"sent": True}).status_code == 409
     assert _status(env, "outbox", "o1") == "approved"
 
@@ -207,7 +208,7 @@ def test_someone_whose_mail_is_being_sent_cant_be_marked_sent(client, env):
     _prospect(env, "p1", "a@acme.test", status="queued")
     _campaign(env, "c1", ["p1"])
     _outbox(env, "o1", "p1", "sending")
-    assert client.get("/api/campaigns").json()[0]["recipients"][0]["can_mark_sent"] is False
+    assert client.get("/api/campaigns").json()["items"][0]["recipients"][0]["can_mark_sent"] is False
     assert client.post("/api/prospects/p1/sent", json={"sent": True}).status_code == 409
     assert _status(env, "outbox", "o1") == "sending"
 
@@ -219,7 +220,7 @@ def test_mail_that_may_have_gone_out_counts_as_sent_by_harvey(client, env):
     _campaign(env, "c1", ["p1"])
     _outbox(env, "o1", "p1", "failed")
     _sql(env, "UPDATE outbox SET error = ? WHERE id = 'o1'", (MAYBE_SENT_PREFIX + "timeout",))
-    recipient = client.get("/api/campaigns").json()[0]["recipients"][0]
+    recipient = client.get("/api/campaigns").json()["items"][0]["recipients"][0]
     assert recipient["can_mark_sent"] is False and recipient["can_send_by_hand"] is False
     assert client.post("/api/prospects/p1/sent", json={"sent": True}).status_code == 409
 
@@ -229,7 +230,7 @@ def test_mail_that_plainly_failed_doesnt_block_a_hand_send(client, env):
     _campaign(env, "c1", ["p1"])
     _outbox(env, "o1", "p1", "failed")
     _sql(env, "UPDATE outbox SET error = 'gate: unrendered merge tag' WHERE id = 'o1'")
-    assert client.get("/api/campaigns").json()[0]["recipients"][0]["can_send_by_hand"] is True
+    assert client.get("/api/campaigns").json()["items"][0]["recipients"][0]["can_send_by_hand"] is True
 
 
 def test_the_outbox_tab_shows_mail_being_sent_and_surfaces_stuck_mail(client, env):
@@ -258,14 +259,14 @@ def test_drafts_awaiting_review_dont_hide_the_gmail_button_when_harvey_cant_send
     _prospect(env, "p1", "a@acme.test", status="queued")
     _campaign(env, "c1", ["p1"])
     _outbox(env, "o1", "p1", "pending_review")   # staged, but no mailbox to send it
-    assert client.get("/api/campaigns").json()[0]["recipients"][0]["can_send_by_hand"] is True
+    assert client.get("/api/campaigns").json()["items"][0]["recipients"][0]["can_send_by_hand"] is True
 
 
 def test_a_hand_sent_prospect_is_marked_for_the_sender(client, env):
     _prospect(env, "p1", "a@acme.test", status="queued")
     _campaign(env, "c1", ["p1"])
     client.post("/api/prospects/p1/sent", json={"sent": True})
-    r = client.get("/api/campaigns").json()[0]["recipients"][0]
+    r = client.get("/api/campaigns").json()["items"][0]["recipients"][0]
     assert r["sent_by_hand"] is True and r["can_send_by_hand"] is False
     with sqlite3.connect(env["db"]) as db:
         assert db.execute("SELECT value FROM settings WHERE key = 'manual_send:p1'").fetchone()[0] == "queued"
