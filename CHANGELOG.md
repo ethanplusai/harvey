@@ -257,6 +257,13 @@ minor versions can still change behaviour.
   turns the Didn't send count red, so it isn't hidden behind a tab you have no
   reason to open. Clipped subjects and failure reasons show in full on hover.
 
+- **The Campaigns tab is a list you can scan.** Every campaign used to show all
+  of its emails, so 50 campaigns ran to about 50,000 pixels. Each one is now a
+  row in a table with its progress, and a click opens its emails in a side
+  panel. Search covers campaign names, people and subjects, filters show who's
+  Waiting, Contacted or Replied, and the list shows 20 at a time. The 15-second
+  refresh keeps the panel open and what you typed.
+
 - **Precleared is told the company's and person's names Harvey already has.**
   For a UK address, cold email may go to a limited company's staff without
   consent but not to a sole trader, so Precleared has to find the company
