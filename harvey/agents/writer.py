@@ -159,6 +159,22 @@ class Writer:
             )
             return
 
+        # channels.email.min_write_score: a prospect scored below it stays
+        # 'new' and is never written for. 0 (the default) keeps everyone.
+        min_score = self._min_write_score()
+        if min_score > 0:
+            kept = [p for p in prospects_with_email if (p.score or 0) >= min_score]
+            skipped = len(prospects_with_email) - len(kept)
+            if skipped:
+                logger.info(
+                    f"Writer: Skipping {skipped} prospect(s) scored below "
+                    f"channels.email.min_write_score ({min_score})."
+                )
+            prospects_with_email = kept
+            if not prospects_with_email:
+                logger.info("Writer: No prospects at or above the minimum score.")
+                return
+
         # Batch prospects into campaign groups (by industry/title for relevance)
         batches = self._group_prospects(prospects_with_email)
 
@@ -222,6 +238,14 @@ class Writer:
                 f"Writer: Campaign '{batch_name}' created with "
                 f"{len(sequence)} emails for {len(prospects)} prospects."
             )
+
+    def _min_write_score(self) -> int:
+        """channels.email.min_write_score, or 0 when the config has none."""
+        email = getattr(getattr(self.config, "channels", None), "email", None)
+        try:
+            return max(0, int(getattr(email, "min_write_score", 0) or 0))
+        except (TypeError, ValueError):
+            return 0
 
     async def _count_failed_attempt(self, batch_name: str, prospects: list):
         """Count one unusable sequence against each prospect in the batch.
