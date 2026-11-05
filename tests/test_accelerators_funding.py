@@ -338,6 +338,26 @@ def test_cli_and_dashboard_take_the_presets():
     assert 'value="accelerator"' in page and 'value="funding"' in page
 
 
+@pytest.mark.asyncio
+async def test_a_preset_hit_is_filed_under_its_icp_industry_not_the_search(state):
+    """A preset's term is a whole search. Stored as the industry, it filled
+    the Industry column with search operators, cost every company the fit
+    score's sector points, and reached the writer as the company's sector."""
+    from harvey.collectors.discover import Business, _upsert
+    config = _config(industries=["fintech"])
+    config.icp.hiring_signals, config.icp.titles = ["Flutter"], ["CTO"]
+    for preset in ("yc", "accelerator", "funding", "hiring"):
+        queries = build_queries(config, preset=preset)
+        assert queries and {q.industry for q in queries} == {"fintech"}, preset
+    [funding] = build_queries(config, preset="funding")
+    await _upsert(state, Business(name="Acme", domain="acme.example", provider="serper"), funding)
+    assert (await state.get_company_by_domain("acme.example")).industry == "fintech"
+    # A plain search still files the company under the phrase it searched.
+    [plain] = build_queries(_config(industries=["roofer"]))
+    await _upsert(state, Business(name="Kettleman", domain="kettleman.example", provider="serper"), plain)
+    assert (await state.get_company_by_domain("kettleman.example")).industry == "roofer"
+
+
 def test_every_preset_checks_and_builds_whether_it_has_one_term_or_several():
     from harvey.collectors.discover import PRESETS, preset_problem
     config = _config()
