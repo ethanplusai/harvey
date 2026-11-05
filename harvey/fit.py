@@ -5,7 +5,8 @@ its contacts and their email status, and its observations), weighed against
 the ICP in the config. Nothing is stored, so the score follows the config
 the moment it changes.
 
-    sector match      20  the company's industry is one of icp.industries
+    sector match      20  the company's industry is one of icp.industries,
+                          or its own site names an icp.site_mentions phrase
     decision maker    30  a contact whose title matches icp.titles
                           (15 for another named person, 5 for a general inbox)
     reachable         25  best email: verified 25, risky 12, guess 5;
@@ -45,6 +46,16 @@ def _role_matches(text: str, terms: list[str]) -> str:
     return ""
 
 
+def site_said(observations: list[dict]) -> str:
+    """The icp.site_mentions phrases the latest SITE_MENTIONS reading found
+    ("Splunk; SIEM"), or "" when it found none or there is no reading."""
+    readings = [o for o in observations if o.get("signal_code") == "SITE_MENTIONS"]
+    if not readings:
+        return ""
+    latest = max(readings, key=lambda o: o.get("observed_at") or "")
+    return (latest.get("value_text") or "").strip() if (latest.get("value_num") or 0) > 0 else ""
+
+
 def current_roles(observations: list[dict]) -> list[dict]:
     """HIRING_ROLE rows still current: those after the latest "board lists
     nothing relevant" row (num 0, no text), which closes earlier roles."""
@@ -70,9 +81,14 @@ def company_fit(company: dict, prospects: list[dict], observations: list[dict],
     score, reasons = 0, []
 
     industries = {i.strip().lower() for i in (icp.industries or [])}
+    said = site_said(observations)
     if (company.get("industry") or "").strip().lower() in industries:
         score += SECTOR
         reasons.append(f"sector: {company['industry']}")
+    elif said:
+        score += SECTOR
+    if said:
+        reasons.append(f"site mentions: {said}")
 
     # Someone who opted out or is on the list won't be written to: they
     # don't make the company reachable.

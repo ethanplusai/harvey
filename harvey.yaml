@@ -46,6 +46,10 @@ icp:
   # "Head of Growth" is shopping for growth tooling). Used for careers-page
   # scanning and job-board discovery. Empty = fall back to titles above.
   hiring_signals: []
+  # Phrases that make a company a fit when its own site says them: a product
+  # it runs, a partnership, a service it sells ("Splunk", "HubSpot partner").
+  # Read by the SITE_MENTIONS signal; a match counts as a sector match.
+  site_mentions: []
 
 channels:
   email:

@@ -285,6 +285,32 @@ def _text(html: str) -> str:
     return re.sub(r"\s+", " ", re.sub(r"(?s)<[^>]+>", " ", _strip_code(html)))
 
 
+# ── SITE_MENTIONS: the user's phrases, on the company's own pages ──
+
+def mention_phrases(icp) -> list[str]:
+    """``icp.site_mentions``, trimmed, in the user's order, without repeats."""
+    seen: dict[str, str] = {}
+    for p in getattr(icp, "site_mentions", None) or []:
+        if isinstance(p, str) and p.strip():
+            seen.setdefault(p.strip().lower(), re.sub(r"\s+", " ", p.strip()))
+    return list(seen.values())
+
+
+def site_mentions(html: str, phrases: list[str]) -> list[str]:
+    """The ``phrases`` a page names in its visible text or image alt text
+    (a partner logo wall), as whole words, in ``phrases`` order."""
+    if not html or not phrases:
+        return []
+    alts = " ".join(re.findall(r"""(?is)<img\b[^>]*\balt\s*=\s*["']([^"']*)["']""", html))
+    text = html_unescape(f"{_text(html)} {alts}")
+    found = []
+    for phrase in phrases:
+        words = r"\s+".join(re.escape(w) for w in phrase.split())
+        if re.search(rf"(?<![A-Za-z0-9]){words}(?![A-Za-z0-9])", text, re.I):
+            found.append(phrase)
+    return found
+
+
 # ── YC_BACKED: what a company says about itself on its own site ──
 # Never read from ycombinator.com or YC's other sites, whose terms forbid
 # scraping and collecting founders' contacts. What counts is the company's
@@ -298,6 +324,9 @@ _YC = r"(?:YC|Y[\s-]?Combinator)"
 _YC_LINK_RE = re.compile(r"ycombinator\.com\\?/companies\\?/([a-z0-9][\w-]*)", re.I)
 YC_ABOUT_PATHS = ("/about", "/about-us", "/company", "/our-story")
 FUNDING_PATHS = ("/press", "/news", "/newsroom", "/blog")
+# Where a company names what it runs, sells or partners with, after the
+# homepage and About page.
+MENTION_PATHS = ("/services", "/solutions", "/partners", "/what-we-do")
 _YC_SEASONS = {"w": "W", "winter": "W", "s": "S", "summer": "S",
                "f": "F", "fall": "F", "x": "X", "spring": "X"}
 _SEASON_WORD = r"(Winter|Summer|Fall|Spring)"
@@ -805,12 +834,14 @@ class ProfileCollector:
     """
 
     def __init__(self, state, confirmed: set[str] | None = None, timeout: float = 12.0,
-                 role_keywords: list[str] | None = None):
+                 role_keywords: list[str] | None = None, mentions: list[str] | None = None):
         self.state = state
         self.confirmed = confirmed if confirmed is not None else set()
         self.timeout = timeout
         # icp.hiring_signals (or icp.titles): which open roles are worth a row.
         self.role_keywords = list(role_keywords or [])
+        # icp.site_mentions: phrases worth finding on a company's own pages.
+        self.mentions = list(mentions or [])
         self._client: httpx.AsyncClient | None = None
         self.site_names: dict[str, str] = {}
         # Hosts that answered with a bot challenge (SiteGround's 202,
@@ -1190,6 +1221,33 @@ class ProfileCollector:
             else:
                 add("FUNDING_ROUND", num=0, url=site)
 
+        # The user's phrases on the company's own pages: the homepage, the
+        # page a search found, About, then a services or partners page.
+        # Fetching stops once every phrase is found. Silence is recorded too
+        # (0), so a phrase the site dropped stops counting.
+        phrases = getattr(self, "mentions", None) or []
+        if self.wants("SITE_MENTIONS") and phrases:
+            found: dict[str, str] = {}
+
+            def read(url: str, html: str) -> bool:
+                for p in site_mentions(html, phrases):
+                    found.setdefault(p, url)
+                return len(found) == len(phrases)
+
+            done = read(site, home)
+            if not done:
+                hit = await self._own_hit_page(company_id, domain, site)
+                if hit:
+                    done = read(hit, await self._get(hit))
+            if not done:
+                about_url, about_html = await about()
+                done = bool(about_html) and read(about_url, about_html)
+            if not done:
+                done = read(*await self._first_present(site, MENTION_PATHS))
+            said = [p for p in phrases if p in found]
+            add("SITE_MENTIONS", num=len(said), text="; ".join(said),
+                url=found[said[0]] if said else site)
+
         # Incumbent agency — the compounding signal
         agency = self.detect_agency(home, domain)
         if agency:
@@ -1330,8 +1388,9 @@ async def profile_companies(state, companies: list[dict], config=None) -> tuple[
         return 0, ""
     run_id = await state.start_run("profile", provider="http")
     try:
-        keywords = role_keywords(getattr(config, "icp", None))
-        async with ProfileCollector(state, confirmed, role_keywords=keywords) as collector:
+        icp = getattr(config, "icp", None)
+        async with ProfileCollector(state, confirmed, role_keywords=role_keywords(icp),
+                                    mentions=mention_phrases(icp)) as collector:
             n = await collector.run(companies, run_id=run_id)
         await state.finish_run(run_id, records=n, cost_usd=0.0)
         return n, run_id

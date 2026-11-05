@@ -68,6 +68,10 @@ class ICPConfig(BaseModel):
     # hiring a "Head of Growth" is buying growth tooling). Empty → falls back
     # to `titles`. Used for careers-page scanning and job-board discovery.
     hiring_signals: list[str] = []
+    # Phrases that make a company a fit when its own site names them: a
+    # product it runs, a partnership, a service it sells ("Splunk",
+    # "HubSpot partner"). Collected as SITE_MENTIONS; counts as a sector match.
+    site_mentions: list[str] = []
     # Discovery needs a radius, not a place name. Maps each entry in
     # `geography` to "lat,lng,radius_km" — e.g.
     #   "Denver, CO": "39.7392,-104.9903,50"

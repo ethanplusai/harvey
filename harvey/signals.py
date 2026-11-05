@@ -270,6 +270,23 @@ SIGNAL_CATALOG: list[dict] = [
         "confidence_floor": 0.0,
     },
     {
+        "code": "SITE_MENTIONS",
+        "label": "Says it on their own site",
+        "description": (
+            "Which of your icp.site_mentions phrases the company's own pages name: "
+            "a product it runs, a partnership or a service it sells (\"Splunk\", "
+            "\"Salesforce partner\", \"managed SOC\"). Reads the homepage, About and "
+            "a services or partners page, including partner-logo alt text. Counts "
+            "as a sector match in the fit score. Nothing is read until you set the "
+            "phrases."
+        ),
+        "category": "profile",
+        "value_type": "text",
+        "collector": "profile",
+        "cost_note": "free (homepage, About, services page)",
+        "confidence_floor": 0.0,
+    },
+    {
         "code": "HIRING_ROLE",
         "label": "Hiring for a relevant role",
         "description": (
