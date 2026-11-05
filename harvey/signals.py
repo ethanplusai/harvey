@@ -276,7 +276,7 @@ SIGNAL_CATALOG: list[dict] = [
             "An open role that implies they're buying in your category right now: one "
             "of your hiring_signals roles (or ICP titles) on the Greenhouse, Lever, "
             "Ashby or Workable board their site links to, with department, location "
-            "and posting date, or a role listed on their careers page."
+            "and posting date, or one of those roles listed on their careers page."
         ),
         "category": "profile",
         "value_type": "text",

@@ -13,6 +13,9 @@ the moment it changes.
     buying signal     25  an open role matching icp.hiring_signals
                           (5 for a careers page with no matching role)
 
+Location adds a reason but no points: icp.geography orders who is written
+to first (harvey.geography), it doesn't make a company less of a fit.
+
 A company on the do-not-contact list scores 0.
 """
 
@@ -22,6 +25,7 @@ import re
 
 from harvey.collectors.people import title_matches
 from harvey.gate import do_not_contact_match
+from harvey.geography import tier as geo_tier
 
 SECTOR, DECISION_MAKER, REACHABLE, BUYING = 20, 30, 25, 25
 EMAIL_POINTS = {"verified": 25, "risky": 12, "guess": 5}
@@ -114,6 +118,13 @@ def company_fit(company: dict, prospects: list[dict], observations: list[dict],
     elif roles:
         score += 5
         reasons.append("careers page, no matching role")
+
+    # Location orders the queue (see harvey.geography) rather than the
+    # score: a company outside every entry is still a fit, just later.
+    if getattr(icp, "geography", None) and (company.get("location") or "").strip():
+        index, entry = geo_tier(company["location"], config)
+        reasons.append(f"location: {entry} (priority {index + 1})" if index is not None
+                       else "location: outside your geography (contacted last)")
 
     return min(score, 100), reasons
 

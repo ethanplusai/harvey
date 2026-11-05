@@ -37,6 +37,9 @@ icp:
     - "Head of Growth"
     - "CMO"
     - "Director of Marketing"
+  # In priority order: the first entry is written to first, then the next.
+  # A company outside every entry is still contacted, only after the rest.
+  # A city with icp.geo_coordinates matches anywhere inside its radius.
   geography:
     - "United States"
   # Roles that signal a company is in-market RIGHT NOW (a company hiring a
