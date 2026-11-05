@@ -242,12 +242,36 @@ def site_name_from_html(html: str, domain: str) -> str:
                default="")
 
 
+# A press-release headline names the company, then says what it did. Present
+# tense only: headlines say "raises", and "Acme Raised Beds" is a business.
+_HEADLINE_VERB = re.compile(r"\s+(?:raises|announces|secures|closes)\s", re.I)
+
+
+def _headline_subject(segment: str, stem: str) -> str:
+    """The company a headline-shaped title segment is about, or the segment.
+
+    "Acme Raises $9M Series A to Expand ..." is the title of Acme's
+    announcement page, and the name is "Acme". So is it in "Acme, Billing for
+    Teams" when "Acme" alone spells the domain. Anything else is unchanged.
+    """
+    verb = _HEADLINE_VERB.search(segment)
+    if verb and verb.start() > 0:
+        subject = segment[:verb.start()].strip(" ,.-")
+        if subject and _segment_matches_domain(subject, stem):
+            return subject
+    head, comma, _ = segment.partition(",")
+    if comma and "".join(_words(head)) == stem:
+        return head.strip()
+    return segment
+
+
 def business_name(title: str, domain: str) -> str:
     """The business's name from a SERP title, or one derived from its domain."""
     stem = _domain_stem(domain)
     title = re.sub(r"\s*(\.\.\.|…)\s*$", "", (title or "").strip())
     if stem and title:
-        segments = [segment.strip(" ,.-") for segment in _TITLE_SEPARATORS.split(title)]
+        segments = [_headline_subject(segment.strip(" ,.-"), stem)
+                    for segment in _TITLE_SEPARATORS.split(title)]
         matches = [seg for seg in segments
                    if seg and len(seg) <= 60 and _segment_matches_domain(seg, stem)]
         # Prefer the segment with the most distinctive domain evidence rather
@@ -384,6 +408,10 @@ class DiscoveryQuery:
     depth: int = 30                  # SERP depth; ignored by listings providers
     limit: int = 100                 # max records to take from one query
     preset: str = ""                 # PRESETS key that built it, if any
+    # The ICP industry a preset search was built from. A preset's term is a
+    # whole search ('fintech ("we raised" OR ...) -site:...'), so it can't
+    # stand in for the industry the way a plain term like "roofer" does.
+    industry: str = ""
 
     def keyword(self) -> str:
         return f"{self.term} {self.location}".strip()
@@ -1665,23 +1693,24 @@ def build_queries(config, cities: list[str] | None = None,
         since = (date.today() - timedelta(days=FUNDING_LOOKBACK_DAYS)).isoformat()
         from harvey.collectors.ats import role_keywords
         roles = role_keywords(icp) if any("{role}" in tpl for tpl in templates) else [""]
-        terms = [tpl.format(industry=t, role=r, since=since)
-                 for r in roles for t in terms for tpl in templates]
+        searches = [(tpl.format(industry=t, role=r, since=since), t)
+                    for r in roles for t in terms for tpl in templates]
         places = cities if cities is not None else ([""] if not spec["local"] else list(icp.geography) or [""])
     else:
         # "roofing contractor" is one way to search for a roofer. Each
         # configured variant is another search in every city — ranks differ
         # by phrasing, and the email should quote the phrase that was used.
         variants = getattr(icp, "keyword_variants", {}) or {}
-        terms = list(dict.fromkeys(
-            v.strip() for t in terms for v in [t, *variants.get(t, [])] if v.strip()))
+        searches = [(term, "") for term in dict.fromkeys(
+            v.strip() for t in terms for v in [t, *variants.get(t, [])] if v.strip())]
         places = cities if cities is not None else list(icp.geography) or [""]
     coords = getattr(icp, "geo_coordinates", {}) or {}
 
     return [
         DiscoveryQuery(term=term, location=place, depth=depth, limit=limit,
-                       coordinate=coords.get(place, ""), preset=preset if spec else "")
-        for term in terms
+                       coordinate=coords.get(place, ""), preset=preset if spec else "",
+                       industry=industry)
+        for term, industry in searches
         for place in places
     ]
 
@@ -1917,7 +1946,7 @@ async def _upsert(state, biz: Business, query: DiscoveryQuery) -> tuple[str, boo
         domain=biz.domain,
         website=biz.website,
         phone=biz.phone,
-        industry=biz.category or query.term,
+        industry=biz.category or query.industry or query.term,
         location=biz.location or query.location,
         source=f"discover:{biz.provider}",
         source_url=biz.source_url,

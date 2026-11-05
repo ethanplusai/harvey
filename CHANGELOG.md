@@ -312,6 +312,20 @@ minor versions can still change behaviour.
 
 ### Fixed
 
+- **Startup and hiring searches file companies under your ICP industry, and
+  a headline is no longer a company's name.** A company found by the YC,
+  accelerator, funding or hiring preset was stored with the whole search as
+  its industry (`fintech ("we raised" OR ...) -site:...`). The Companies
+  tab showed the search operators, every such company lost the fit score's
+  sector points, and the Writer was told that was the company's sector. It
+  is now the ICP industry the search was built from. A plain search still
+  files companies under the phrase it searched. A funding search mostly
+  lands on the company's own announcement, whose title is the headline:
+  "Acme Raises $9M Series A to Expand ..." became the name, and with it
+  `{{company}}` in every email. Site reading couldn't correct it, because
+  the headline contains the brand. The name is now the headline's subject
+  ("Acme"), and "Acme, Billing for Teams" is "Acme" when "Acme" alone spells
+  the domain. Companies already stored keep their old industry and name.
 - **Spanish opt-outs are caught without the model** (from #154). "No,
   gracias", a bare "BAJA", "denme de baja", "no me escriba más", "dejen de
   enviarme correos", "sáquenme de su lista", "no quiero recibir más correos"

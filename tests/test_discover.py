@@ -1234,6 +1234,28 @@ def test_business_name_from_serp_title(title, domain, expected):
     assert D.business_name(title, domain) == expected
 
 
+@pytest.mark.parametrize("title,domain,expected", [
+    # A funding search lands on the company's own announcement, whose title
+    # is the headline. The name goes into every email as {{company}}.
+    ("Northwind Raises $9M Series A to Expand Its Payments Platform", "northwind.example",
+     "Northwind"),
+    ("Brightpath Robotics raises $6 million seed round for warehouse automation",
+     "brightpathrobotics.example", "Brightpath Robotics"),
+    ("The Lantern Company Raises $15M to Grow Its Field Team | Blog",
+     "thelanterncompany.example", "The Lantern Company"),
+    ("Acme Announces $27M Series B", "acmegtm.example", "Acme"),
+    # "Brand, tagline" when the brand alone spells the domain.
+    ("Kettleworks, Billing APIs for Growing Teams", "kettleworks.example", "Kettleworks"),
+    # A headline about another company still leaves the site's own name.
+    ("Northwind raises $5M seed | Daily Ledger", "dailyledger.example", "Daily Ledger"),
+    # Not headlines: past tense is a business name, and a comma inside one stays.
+    ("Acme Raised Beds | Garden Supply", "acmeraisedbeds.example", "Acme Raised Beds"),
+    ("Smith, Jones & Webb | Attorneys", "smithjoneswebb.example", "Smith, Jones & Webb"),
+])
+def test_a_headline_title_gives_the_company_not_the_headline(title, domain, expected):
+    assert D.business_name(title, domain) == expected
+
+
 def test_generic_words_alone_never_match_the_domain():
     """'Management' is in managementharbor.com but says nothing about it."""
     assert not D.name_matches_domain("HOA Management Firm", "managementharbor.com")
