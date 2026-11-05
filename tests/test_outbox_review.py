@@ -234,3 +234,61 @@ def test_a_closed_role_shows_as_not_hiring_to_the_reviewer(client):
     signals = client.get("/api/outbox").json()["pending"][0]["context"]["signals"]
     hiring = [v for k, v in signals.items() if "hiring" in k.lower() or k == "HIRING_ROLE"]
     assert hiring == ["no"]
+
+
+def _render_lists(lists, chosen=None):
+    """Run app.js's outboxListsHtml under node with the real escaping helpers."""
+    import re
+    import shutil
+    import subprocess
+
+    node = shutil.which("node")
+    if not node:
+        pytest.skip("node is not installed")
+    source = (Path(__file__).resolve().parent.parent / "harvey" / "web" / "app.js").read_text(encoding="utf-8")
+    parts = []
+    for pattern in (r"^function escHtml\(.*?^}\n", r"^function badge\(.*?^}\n",
+                    r"^function formatDate\(.*?^}\n", r"^function emptyState\(.*?^}\n",
+                    r"^const OUTBOX_LISTS = \[.*?^\];\n", r"^function outboxListsHtml\(.*?^}\n"):
+        match = re.search(pattern, source, re.S | re.M)
+        assert match, pattern
+        parts.append(match.group(0))
+    stubs = "const icon = () => ''; const statusMeta = s => ({tone: 'idle', label: s});"
+    script = stubs + "\n".join(parts) + (
+        f"\nprocess.stdout.write(outboxListsHtml({json.dumps(lists)}, {json.dumps(chosen)}));")
+    return subprocess.run([node, "-e", script], capture_output=True, text=True, encoding="utf-8",
+                          check=True, timeout=30).stdout
+
+
+SENT = {"to_email": "a@x.test", "step": 1, "subject": "hello", "status": "sent",
+        "sent_at": "2026-10-20T10:00:00"}
+FAILED = {"to_email": "b@x.test", "status": "failed", "error": "refused",
+          "updated_at": "2026-10-20T10:00:00"}
+REJECTED = {"to_email": "c@x.test", "status": "rejected", "updated_at": "2026-10-20T10:00:00"}
+
+
+def test_no_lists_at_all_on_a_fresh_install():
+    assert _render_lists({"approved": [], "sent": [], "failed": []}) == ""
+
+
+def test_the_lists_open_on_the_first_with_mail_and_show_one_at_a_time():
+    html = _render_lists({"approved": [], "sent": [SENT], "failed": [FAILED]})
+    assert 'aria-labelledby="outbox-tab-sent"' in html
+    assert "a@x.test" in html and "b@x.test" not in html
+
+
+def test_the_lists_stay_on_the_tab_picked_even_when_it_empties():
+    html = _render_lists({"approved": [], "sent": [SENT], "failed": []}, "scheduled")
+    assert 'aria-labelledby="outbox-tab-scheduled"' in html
+    assert "Nothing scheduled" in html and "a@x.test" not in html
+
+
+def test_only_real_failures_flag_the_tab():
+    assert 'class="n bad"' in _render_lists({"failed": [FAILED, REJECTED]})
+    assert 'class="n bad"' not in _render_lists({"failed": [REJECTED]})
+
+
+def test_list_cells_are_escaped_in_the_text_and_the_hover():
+    html = _render_lists({"sent": [{**SENT, "subject": '"><img src=x onerror=alert(1)>'}]})
+    assert "<img" not in html
+    assert 'title="&quot;&gt;&lt;img' in html

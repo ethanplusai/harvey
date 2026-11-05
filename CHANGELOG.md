@@ -249,6 +249,14 @@ minor versions can still change behaviour.
 
 ### Changed
 
+- **The Outbox lists are tabs.** Approved & scheduled, Recently sent and
+  Didn't send used to stack under the review desk, so a busy Outbox ran to
+  several screens. They now share one panel below the desk, one list at a
+  time with its count on the tab, and the panel scrolls by itself. It opens on
+  the first list with mail in it and stays on the tab you pick. Failed mail
+  turns the Didn't send count red, so it isn't hidden behind a tab you have no
+  reason to open. Clipped subjects and failure reasons show in full on hover.
+
 - **Precleared is told the company's and person's names Harvey already has.**
   For a UK address, cold email may go to a limited company's staff without
   consent but not to a sole trader, so Precleared has to find the company

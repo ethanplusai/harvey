@@ -1655,31 +1655,81 @@ async function loadOutbox() {
         : 'Every draft Harvey writes lands here first. Approve one and it sends on schedule.') +
     '</div>';
 
-  const table = (title, rows, cols) => {
-    if (!rows || !rows.length) return '';
-    let h = '<div class="subhead">' + title + ' <span class="hint">' + rows.length + '</span></div>' +
-      '<div class="table-card"><table class="nowrap clip"><thead><tr>' +
-      cols.map(c => '<th>' + c[0] + '</th>').join('') + '</tr></thead><tbody>';
-    for (const r of rows) {
-      h += '<tr>' + cols.map(c => '<td' + (c[2] ? ' class="muted"' : '') + '>' +
-        (c[3] ? c[1](r) : escHtml(String(c[1](r) ?? ''))) + '</td>').join('') + '</tr>';
-    }
-    return h + '</tbody></table></div>';
-  };
+  _outboxLists = data;
+  renderOutboxLists();
+}
 
-  list.innerHTML =
-    table('Approved &amp; scheduled', data.approved, [
-      ['To', r => r.to_email], ['Step', r => r.step], ['Subject', r => r.subject],
-      ['Sends', r => r.status === 'sending' ? badge(r.status) : escHtml(formatDate(r.send_at)), true, true],
-    ]) +
-    table('Recently sent', data.sent, [
-      ['To', r => r.to_email], ['Step', r => r.step], ['Subject', r => r.subject],
-      ['Sent', r => formatDate(r.sent_at), true],
-    ]) +
-    table('Didn\'t send', data.failed, [
-      ['To', r => r.to_email], ['Status', r => badge(r.status), false, true],
-      ['Reason', r => r.error, true], ['Updated', r => formatDate(r.updated_at), true],
-    ]);
+// Below the desk: the same mail at later stages. These are never read side by
+// side and each has its own columns, so they're tabs, one list at a time in a
+// panel that scrolls on its own, rather than a page that runs on for screens.
+// Cells are escaped here unless the column says it returns HTML (c[3]).
+const OUTBOX_LISTS = [
+  {id: 'scheduled', key: 'approved', label: 'Approved &amp; scheduled', empty: 'Nothing scheduled',
+   copy: 'Emails you approve wait here until their send time.', cols: [
+    ['To', r => r.to_email], ['Step', r => r.step], ['Subject', r => r.subject],
+    ['Sends', r => r.status === 'sending' ? badge(r.status) : formatDate(r.send_at), true, true],
+  ]},
+  {id: 'sent', key: 'sent', label: 'Recently sent', empty: 'Nothing sent yet',
+   copy: 'Your latest sent emails show up here.', cols: [
+    ['To', r => r.to_email], ['Step', r => r.step], ['Subject', r => r.subject],
+    ['Sent', r => formatDate(r.sent_at), true, true],
+  ]},
+  {id: 'failed', key: 'failed', label: 'Didn\'t send', empty: 'Nothing here',
+   copy: 'Emails that failed, or that you rejected, show up here.', cols: [
+    ['To', r => r.to_email], ['Status', r => badge(r.status), false, true],
+    ['Reason', r => r.error, true], ['Updated', r => formatDate(r.updated_at), true, true],
+  ]},
+];
+let _outboxLists = {}, _outboxList = null;
+
+function outboxListsHtml(lists, chosen) {
+  const rows = l => lists[l.key] || [];
+  if (!OUTBOX_LISTS.some(l => rows(l).length)) return '';
+  // Keep the tab the user picked. Until then, open on the first with mail in it.
+  const cur = OUTBOX_LISTS.find(l => l.id === chosen) || OUTBOX_LISTS.find(l => rows(l).length);
+  const tabs = OUTBOX_LISTS.map(l => {
+    const on = l === cur;
+    // A failure is the one thing here that needs you, and it's behind a tab.
+    const failed = rows(l).filter(r => r.status === 'failed').length;
+    return '<button id="outbox-tab-' + l.id + '" role="tab" class="' + (on ? 'on' : '') +
+      '" aria-selected="' + on + '" aria-controls="outbox-panel" tabindex="' + (on ? 0 : -1) +
+      '" onclick="setOutboxList(\'' + l.id + '\')" onkeydown="outboxTabKey(event,\'' + l.id + '\')"' +
+      (failed ? ' title="' + failed + ' failed"' : '') + '>' + l.label +
+      ' <span class="n' + (failed ? ' bad' : '') + '">' + rows(l).length + '</span></button>';
+  }).join('');
+  const body = rows(cur).length
+    ? '<table class="nowrap clip"><thead><tr>' +
+      cur.cols.map(c => '<th>' + c[0] + '</th>').join('') + '</tr></thead><tbody>' +
+      rows(cur).map(r => '<tr>' + cur.cols.map(c => {
+        const text = c[3] ? c[1](r) : escHtml(String(c[1](r) ?? ''));
+        // Long subjects and reasons are clipped; the full text stays a hover away.
+        return '<td' + (c[2] ? ' class="muted"' : '') + (c[3] ? '' : ' title="' + text + '"') + '>' + text + '</td>';
+      }).join('') + '</tr>').join('') + '</tbody></table>'
+    : emptyState(icon('check'), cur.empty, cur.copy);
+  return '<div class="toolbar outbox-tabs"><div class="segmented" role="tablist" aria-label="Outbox lists">' +
+    tabs + '</div></div>' +
+    '<div id="outbox-panel" class="table-card outbox-panel" role="tabpanel" tabindex="0" ' +
+    'aria-labelledby="outbox-tab-' + cur.id + '">' + body + '</div>';
+}
+
+function renderOutboxLists() {
+  document.getElementById('outbox-list').innerHTML = outboxListsHtml(_outboxLists, _outboxList);
+}
+
+function setOutboxList(id) {
+  _outboxList = id;
+  renderOutboxLists();
+  // The render replaced the button, so keyboard users would lose their place.
+  document.getElementById('outbox-tab-' + id).focus();
+}
+
+// Arrow keys move between tabs, as they do in any tablist.
+function outboxTabKey(e, id) {
+  const ids = OUTBOX_LISTS.map(l => l.id), i = ids.indexOf(id);
+  const next = {ArrowRight: i + 1, ArrowLeft: i - 1 + ids.length, Home: 0, End: ids.length - 1}[e.key];
+  if (next === undefined) return;
+  e.preventDefault();
+  setOutboxList(ids[next % ids.length]);
 }
 
 const CONTACT_SOURCES = {

@@ -720,6 +720,11 @@ details[open] > summary::before { rotate: 45deg; }
   .desk-pane { padding: var(--sp-4); }
 }
 
+/* The lists under the desk: one at a time, in a panel that scrolls by itself. */
+.outbox-tabs { margin-top: var(--sp-6); }
+.outbox-panel { max-height: min(420px, 70vh); overscroll-behavior: contain; }
+.segmented button .n.bad { color: var(--bad); }
+
 .banner {
   display: flex; gap: var(--sp-3); align-items: flex-start; padding: var(--sp-4); margin-bottom: var(--sp-4);
   border-radius: var(--r-lg); border: 1px solid transparent; font-size: var(--fs-ui);
