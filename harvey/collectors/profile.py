@@ -18,11 +18,13 @@ from datetime import date, datetime, timedelta, timezone
 from urllib.parse import urljoin, urlparse
 
 import httpx
+from bs4 import BeautifulSoup
 
 from harvey.public_http import public_http_client
 from harvey.startups import funding_text
 
-from harvey.collectors.ats import detect_board, matching_roles, read_board, role_keywords
+from harvey.collectors.ats import (detect_board, matching_roles, read_board, role_keywords,
+                                   title_matcher)
 
 from harvey.collectors.discover import (
     name_from_domain, name_matches_domain, site_name_from_html,
@@ -279,6 +281,22 @@ def looks_like_challenge(text: str, status: int = 200) -> bool:
         visible = re.sub(r"(?s)<[^>]+>", " ", _strip_code(text)).lower()
         return any(marker in visible for marker in _WEAK_BLOCK_MARKERS)
     return False
+
+
+def _short_texts(html: str, tags: tuple[str, ...], longest: int = 80) -> list[str]:
+    """The visible text of each ``tags`` element short enough to be a title,
+    nested ones included (a role's heading inside its job-card link)."""
+    try:
+        soup = BeautifulSoup(_strip_code(html), "html.parser")
+    except Exception as e:
+        logger.debug(f"HTML parse failed: {e}")
+        return []
+    out = []
+    for el in soup.find_all(tags, limit=2000):
+        t = re.sub(r"\s+", " ", el.get_text(" ")).strip()
+        if 6 <= len(t) <= longest:
+            out.append(t)
+    return out
 
 
 def _text(html: str) -> str:
@@ -919,20 +937,27 @@ class ProfileCollector:
         if board and not chtml:
             curl, chtml = await self._careers_page(site, home, domain)
         if chtml and self.wants("HIRING_ROLE"):
-            roles = []
-            for m in re.finditer(
-                r"(?is)<(h[2-5]|a|li)[^>]*>\s*([^<]{6,70})\s*</\1>", _strip_code(chtml)
-            ):
-                t = re.sub(r"\s+", " ", m.group(2)).strip()
-                if re.search(r"\b(hiring|apply|position|opening|wanted|"
-                             r"technician|installer|sales|manager|foreman|"
-                             r"estimator|crew|representative)\b", t, re.I):
-                    if t.lower() not in [r.lower() for r in roles]:
-                        roles.append(t)
-                if len(roles) >= 3:
-                    break
+            # No feed: the page's own headings, links and list items, kept
+            # only when one reads as a hiring_signals role. Without roles to
+            # look for nothing is recorded: "Apply now" and "Contact sales"
+            # are on every careers page and say nothing about intent.
+            keywords = getattr(self, "role_keywords", None) or []
+            if not keywords:
+                return
+            matches = title_matcher(keywords)
+            hits = list(dict.fromkeys(
+                t for t in _short_texts(chtml, ("h1", "h2", "h3", "h4", "h5", "h6", "a", "li"))
+                if matches(t)))
+            # A job card nests its title (li > a > h3): keep the innermost.
+            roles = [t for t in hits
+                     if not any(o != t and o.lower() in t.lower() for o in hits)][:MAX_BOARD_ROLES]
             for r in roles:
                 add("HIRING_ROLE", text=r, url=curl)
+            if not roles:
+                # Read and nothing relevant: closes any earlier role, the
+                # same as a board that lists none.
+                add("HIRING_ROLE", num=0, url=curl)
+
     async def _search_hit(self, company_id: str, code: str) -> bool:
         """Is the latest reading a preset search's hit? (see state.search_hit)"""
         if getattr(self, "state", None) is None:

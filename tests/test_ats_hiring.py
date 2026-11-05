@@ -339,11 +339,47 @@ async def test_matched_roles_are_capped():
 @pytest.mark.asyncio
 async def test_a_dead_board_falls_back_to_reading_the_careers_page():
     careers = ("<html>" + "y" * 600 + '<a href="https://jobs.lever.co/acme">Roles</a>'
-               "<h3>Sales Manager</h3></html>")
+               "<h3>Head of Growth</h3></html>")
     c = _collector({"HIRING_ROLE", "OPEN_ROLES"},
                    {"https://acme.com": HOME, "https://acme.com/careers": careers}, {})
     obs = await c.profile_company("c1", "acme.com")
-    assert [(o["signal_code"], o["value_text"]) for o in obs] == [("HIRING_ROLE", "Sales Manager")]
+    assert [(o["signal_code"], o["value_text"]) for o in obs] == [("HIRING_ROLE", "Head of Growth")]
+
+
+CAREERS_PAGE = ("<html><body>" + "y" * 600 +
+                "<nav><a href='/contact'>Contact Sales</a><a href='/apply'>Apply Now</a></nav>"
+                "<h2>We're hiring!</h2><ul>"
+                "<li><a href='/jobs/1'><h3>Senior Splunk Engineer</h3><span>Remote · Full-time</span></a></li>"
+                "<li><a href='/jobs/2'><h3>Office Manager</h3></a></li>"
+                "</ul><a href='/jobs'>See all open positions</a></body></html>")
+
+
+@pytest.mark.asyncio
+async def test_the_careers_page_records_only_roles_you_look_for():
+    c = _collector({"HIRING_ROLE"}, {"https://acme.com": HOME, "https://acme.com/careers": CAREERS_PAGE},
+                   {}, keywords=("splunk engineer", "siem engineer"))
+    obs = await c.profile_company("c1", "acme.com")
+    texts = [o["value_text"] for o in obs if o["signal_code"] == "HIRING_ROLE"]
+    # The role's heading inside its job-card link is found; navigation,
+    # calls to action and roles you didn't ask for are not.
+    assert texts == ["Senior Splunk Engineer"]
+    assert obs[0]["evidence_url"] == "https://acme.com/careers"
+
+
+@pytest.mark.asyncio
+async def test_a_careers_page_without_your_roles_closes_earlier_ones():
+    c = _collector({"HIRING_ROLE"}, {"https://acme.com": HOME, "https://acme.com/careers": CAREERS_PAGE},
+                   {}, keywords=("head of growth",))
+    obs = await c.profile_company("c1", "acme.com")
+    assert [(o["signal_code"], o["value_num"], o["value_text"]) for o in obs] == [
+        ("HIRING_ROLE", 0, "")]
+
+
+@pytest.mark.asyncio
+async def test_a_careers_page_records_nothing_without_roles_to_look_for():
+    c = _collector({"HIRING_ROLE"}, {"https://acme.com": HOME, "https://acme.com/careers": CAREERS_PAGE},
+                   {}, keywords=())
+    assert await c.profile_company("c1", "acme.com") == []
 
 
 @pytest.mark.asyncio

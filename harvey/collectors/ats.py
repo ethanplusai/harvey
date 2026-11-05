@@ -333,6 +333,12 @@ def role_keywords(icp) -> list[str]:
 def matching_roles(postings: list[Posting], keywords: list[str]) -> list[Posting]:
     """Postings whose title holds every word of some keyword, in any order:
     "VP Marketing" matches "VP of Marketing", "cto" doesn't match "Director"."""
+    matches = title_matcher(keywords)
+    return [p for p in postings if matches(p.title)]
+
+
+def title_matcher(keywords: list[str]):
+    """A test for one job title against ``keywords``, by the same rule as
+    matching_roles (used for careers pages, which have no feed)."""
     wanted = [w for w in ((_words(k) - _FILLER_WORDS) for k in keywords) if w]
-    return [p for p in postings
-            if any(w <= _words(_REPORTS_TO.sub("", p.title)) for w in wanted)]
+    return lambda title: any(w <= _words(_REPORTS_TO.sub("", title or "")) for w in wanted)
