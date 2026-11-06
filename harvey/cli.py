@@ -863,17 +863,20 @@ def cmd_warmup(args):
 
 
 def _warmup_service_check(address: str, warmup):
-    """The 'Warmup service' line: TrulyInbox's view of the mailbox, or the recommendation."""
+    """The 'Warmup service' line: TrulyInbox's (or InboxWarm's) view of the mailbox,
+    or the recommendation."""
     from harvey import deliverability as d
     from harvey.integrations import trulyinbox as ti
+    from harvey.integrations import warmup_service as ws
     from harvey.state import StateManager
 
     async def _run():
         state = StateManager()
         await state.init_db()
-        health, error = await ti.current_health(address)
+        health, error, service = await ws.current_health(address)
         other = health is None and not error and await ti.get_choice(state) == "other"
-        return d.check_warmup_service(health, warmup, error=error, other_service=other)
+        return d.check_warmup_service(health, warmup, error=error, other_service=other,
+                                      service=service)
     return asyncio.run(_run())
 
 
@@ -943,6 +946,68 @@ def cmd_trulyinbox(args):
         print(f"\n  TrulyInbox: {ti.describe_status(health, error, choice)}")
         check = d.check_warmup_service(health, warmup, error=error,
                                        other_service=choice == "other")
+        print(f"  {check.detail}\n")
+        return 0
+
+    raise SystemExit(asyncio.run(_run()))
+
+
+def cmd_inboxwarm(args):
+    """Connect InboxWarm (instead of TrulyInbox) or show its status."""
+    import getpass
+
+    from dotenv import load_dotenv
+
+    from harvey import deliverability as d
+    from harvey.config import ConfigError, load_config
+    from harvey.integrations import inboxwarm as iw
+    from harvey.integrations import trulyinbox as ti
+    from harvey.paths import PROJECT_ROOT
+    from harvey.state import StateManager
+
+    load_dotenv(PROJECT_ROOT / ".env")
+    try:
+        config = load_config()
+    except ConfigError as e:
+        print(f"\n  {e}\n")
+        raise SystemExit(1)
+    address = ti.sending_address(config)
+    warmup = config.channels.email.warmup
+
+    async def _run():
+        state = StateManager()
+        await state.init_db()
+        if args.inboxwarm_action == "connect":
+            print(f"\n  Connect InboxWarm. Don't have it yet? {iw.SIGNUP_URL} ({iw.OFFER})")
+            print(f"  Copy your API key from the Developer Kit: {iw.KEY_URL}\n")
+            if not address:
+                print(f"\n  {iw.NO_ADDRESS}\n")
+                return 1
+            key = getpass.getpass("  InboxWarm API key (hidden): ").strip()
+            if not key:
+                print("\n  No key entered.\n")
+                return 1
+            try:
+                health = await iw.InboxWarm(key).mailbox_health(address)
+            except iw.InboxWarmError as e:
+                print(f"\n  {e}\n")
+                return 1
+            from harvey.dashboard import _write_env_file
+            try:
+                _write_env_file({"INBOXWARM_API_KEY": key})
+            except OSError as e:
+                print(f"\n  The key works, but Harvey couldn't save it to .env: {e}\n")
+                return 1
+            await ti.set_choice(state, "connected")
+            print("\n  Connected. "
+                  + d.check_warmup_service(health, warmup, service=iw.NAME).detail + "\n")
+            return 0
+        health, error = await iw.current_health(address)
+        status = (f"connected, but: {error}" if error
+                  else "connected" if health is not None else "not set up")
+        print(f"\n  InboxWarm: {status}")
+        check = d.check_warmup_service(health, warmup, error=error, service=iw.NAME,
+                                       other_service=await ti.get_choice(state) == "other")
         print(f"  {check.detail}\n")
         return 0
 
@@ -1134,6 +1199,13 @@ def main():
     sub.add_argument("domain", nargs="?", default="",
                      help="Domain to check (default: your sending mailbox's domain)")
     sub.set_defaults(func=cmd_warmup)
+
+    sub = subparsers.add_parser(
+        "inboxwarm", help="Warmup service: connect InboxWarm instead of TrulyInbox")
+    sub.add_argument("inboxwarm_action", nargs="?", default="status",
+                     choices=["status", "connect"],
+                     help="connect a key, or show the status (default)")
+    sub.set_defaults(func=cmd_inboxwarm)
 
     sub = subparsers.add_parser(
         "trulyinbox", help="Warmup service: connect TrulyInbox so Harvey can read the inbox rate")

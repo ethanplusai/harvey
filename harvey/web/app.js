@@ -707,8 +707,42 @@ function warmupServiceActions(c) {
         'placeholder="Paste your TrulyInbox API key" aria-label="TrulyInbox API key" ' +
         'onkeydown="if (event.key === \'Enter\') connectTrulyInbox()">' +
       '<button class="btn btn-secondary btn-sm" id="trulyinbox-go" onclick="connectTrulyInbox()">Connect</button>' +
+      '<button class="btn btn-ghost btn-sm" onclick="showInboxWarmConnect(this)">I use InboxWarm</button>' +
       '<button class="btn btn-ghost btn-sm" onclick="useOtherWarmup()">I use another service</button>' +
     '</div>';
+}
+
+// InboxWarm instead of TrulyInbox: swap the step's actions for an InboxWarm key field.
+function showInboxWarmConnect(btn) {
+  const group = btn.closest('.warmup-actions');
+  if (!group) return;
+  group.innerHTML =
+    '<a class="btn btn-secondary btn-sm" href="https://inboxwarm.ai/" target="_blank" rel="noopener" ' +
+      'title="Harvey users get 25% off with code HARVEY25">Get InboxWarm (code HARVEY25: 25% off)</a>' +
+    '<input class="form-input" id="inboxwarm-key" type="password" autocomplete="off" ' +
+      'placeholder="Paste your InboxWarm API key" aria-label="InboxWarm API key" ' +
+      'onkeydown="if (event.key === \'Enter\') connectInboxWarm()">' +
+    '<button class="btn btn-primary btn-sm" id="inboxwarm-go" onclick="connectInboxWarm()">Connect</button>' +
+    '<button class="btn btn-ghost btn-sm" onclick="loadSetupStatus()">Back</button>';
+}
+
+async function connectInboxWarm() {
+  const input = document.getElementById('inboxwarm-key');
+  const go = document.getElementById('inboxwarm-go');
+  if (!input || !input.value.trim()) return;
+  if (go) go.disabled = true;
+  const data = await api('/api/inboxwarm/connect', {
+    method: 'POST', headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({key: input.value.trim()}),
+  });
+  if (go) go.disabled = false;
+  if (data && data.success) {
+    input.value = '';
+    showToast(data.message || 'InboxWarm connected', 'success');
+    loadSetupStatus();
+  } else {
+    showToast((data && data.message) || 'Could not connect InboxWarm', 'error');
+  }
 }
 
 async function connectTrulyInbox() {

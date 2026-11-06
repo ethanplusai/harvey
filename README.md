@@ -733,6 +733,13 @@ when it's enrolled, signed in, has warmed for `min_days` (14 by default), and
 less than 5% of its warmup mail landed in spam. Harvey only reads: it never
 enrolls, pauses or changes anything in your TrulyInbox account.
 
+**On InboxWarm instead?** Run `harvey inboxwarm connect` (or choose "I use
+InboxWarm" on the warmup step) with the key from its
+[Developer Kit](https://app.inboxwarm.ai/developer-kit). Harvey reads the same
+things from it and only reads. [InboxWarm](https://inboxwarm.ai/) is made by
+Clustox, who contributed this integration; Harvey users get 25% off with code
+`HARVEY25`. When both keys are set, TrulyInbox is read.
+
 Already warming with another service? `harvey trulyinbox other` (or *I use
 another service* on the dashboard) and Harvey stops suggesting it.
 

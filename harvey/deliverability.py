@@ -252,11 +252,12 @@ MIN_WARMUP_SAMPLE = 20
 
 
 def check_warmup_service(health, warmup=None, *, error: str = "", other_service: bool = False,
-                         today: date | None = None) -> Check:
-    """Is the sending mailbox actually warmed? Read from TrulyInbox when it's connected."""
+                         today: date | None = None, service: str = "TrulyInbox") -> Check:
+    """Is the sending mailbox actually warmed? Read from the connected warmup
+    service (``service`` names it: TrulyInbox, or InboxWarm)."""
     from harvey.integrations.trulyinbox import AFFILIATE_TAG, AFFILIATE_URL
     if error:
-        return Check("Warmup service", WARN, f"Couldn't read TrulyInbox: {error}")
+        return Check("Warmup service", WARN, f"Couldn't read {service}: {error}")
     if health is None:
         if other_service:
             return Check("Warmup service", INFO, "Using another warmup service: check its "
@@ -264,16 +265,17 @@ def check_warmup_service(health, warmup=None, *, error: str = "", other_service:
         return Check("Warmup service", INFO, "Not connected, so Harvey can't see whether this "
                      "mailbox is warmed. We recommend TrulyInbox: it warms the mailbox, keeps "
                      f"it healthy, and Harvey reads its inbox rate here. {AFFILIATE_URL} "
-                     f"{AFFILIATE_TAG} Then run: harvey trulyinbox connect")
+                     f"{AFFILIATE_TAG} Then run: harvey trulyinbox connect "
+                     "(on InboxWarm instead? harvey inboxwarm connect)")
     if not health.found:
-        return Check("Warmup service", FAIL, f"{health.address} isn't in your TrulyInbox "
-                     "account yet. Add it in TrulyInbox to start its warmup.")
+        return Check("Warmup service", FAIL, f"{health.address} isn't in your {service} "
+                     f"account yet. Add it in {service} to start its warmup.")
     if not health.login_ok:
-        return Check("Warmup service", FAIL, f"TrulyInbox can't sign in to {health.address}. "
-                     "Reconnect the mailbox in TrulyInbox.")
+        return Check("Warmup service", FAIL, f"{service} can't sign in to {health.address}. "
+                     f"Reconnect the mailbox in {service}.")
     if not health.warming:
         return Check("Warmup service", FAIL, f"Warmup isn't on for {health.address}. "
-                     "Turn it on in TrulyInbox.")
+                     f"Turn it on in {service}.")
     min_days = warmup.min_days if warmup is not None else 14
     days = (today or date.today()) - health.started_on if health.started_on else None
     days = days.days if days is not None else None
@@ -288,14 +290,14 @@ def check_warmup_service(health, warmup=None, *, error: str = "", other_service:
                      f"{round(MAX_WARMUP_SPAM * 100)}%." + hint)
     inbox = f", {round((1 - rate) * 100)}% inbox over the last 14 days" if rate is not None else ""
     if health.sent < MIN_WARMUP_SAMPLE:
-        return Check("Warmup service", WARN, f"TrulyInbox sent {health.sent} warmup emails in "
+        return Check("Warmup service", WARN, f"{service} sent {health.sent} warmup emails in "
                      "the last 14 days: not enough to judge yet. Check that warmup is running "
                      "and keep warming before cold email." + hint)
     if days is None or days < min_days:
         shown = "warming" if days is None else f"day {max(days, 0)} of {min_days}"
-        return Check("Warmup service", FAIL, f"TrulyInbox: {shown}{inbox}. Keep warming "
+        return Check("Warmup service", FAIL, f"{service}: {shown}{inbox}. Keep warming "
                      "before cold email." + hint)
-    return Check("Warmup service", OK, f"TrulyInbox: warmed, day {days}{inbox}. "
+    return Check("Warmup service", OK, f"{service}: warmed, day {days}{inbox}. "
                  "Keep it running alongside Harvey." + hint)
 
 

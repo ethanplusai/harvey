@@ -9,6 +9,14 @@ minor versions can still change behaviour.
 
 ### Added
 
+- **InboxWarm as a warmup service.** Harvey can read a mailbox's warmup from
+  InboxWarm as well as TrulyInbox: `harvey inboxwarm connect`, or "I use
+  InboxWarm" on the dashboard's warmup step. `harvey warmup` reads its account
+  status and 14-day inbox/spam report, and only reads. TrulyInbox stays the
+  recommendation and is read when both keys are set. httpx no longer logs
+  request URLs to `data/harvey.log`, since several APIs take their key in the
+  query string.
+
 - **Company fit and the company register.** The Companies tab now sorts by a
   0-100 fit score worked out from what Harvey already holds: the ICP sector
   match, a contact with a target title, the best email found, and an open

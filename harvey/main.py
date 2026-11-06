@@ -27,6 +27,10 @@ logging.basicConfig(
     datefmt="%Y-%m-%d %H:%M:%S",
 )
 logger = logging.getLogger("harvey")
+# httpx logs every request URL at INFO, and several APIs take their key in the
+# query string: keep those keys out of data/harvey.log.
+for _noisy in ("httpx", "httpcore"):
+    logging.getLogger(_noisy).setLevel(logging.WARNING)
 
 # Backoff for consecutive failed cycles: 60s, 120s, 240s, ... capped at 15 min
 ERROR_BACKOFF_BASE = 60
