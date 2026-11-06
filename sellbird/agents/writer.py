@@ -22,6 +22,7 @@ from sellbird.models.campaign import Campaign, EmailStep
 from sellbird.state import WRITABLE_EMAIL_STATUSES, StateManager
 from sellbird.sending_mode import sync_sending_mode
 from sellbird.startups import startup_facts
+from sellbird.website_facts import website_facts
 from sellbird.untrusted import UNTRUSTED_RULE, fence
 
 logger = logging.getLogger("sellbird.writer")
@@ -310,6 +311,11 @@ class Writer:
                 f"({'awaiting approval' if require_approval else 'approved'})."
             )
 
+    async def _website(self, company_id) -> list[str]:
+        """What profiling and discovery found on the company's site and Google
+        listing (see sellbird.website_facts). [] when nothing is known."""
+        return await website_facts(getattr(self, "state", None), company_id)
+
     async def _startup(self, company_id) -> list[str] | None:
         """Fact lines when the company is a startup (YC, another accelerator,
         a raise it announced; see sellbird.startups), else None."""
@@ -376,6 +382,7 @@ class Writer:
                 facts.append(
                     f"- Signal ({signal.get('type', 'signal')}): {signal.get('detail', '')}"
                 )
+        facts.extend(await self._website(prospect.company_id))
         if prospect.personalization_notes:
             facts.append(f"- Research notes: {prospect.personalization_notes}")
         startup = await self._startup(prospect.company_id)
