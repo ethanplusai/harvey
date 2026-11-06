@@ -103,7 +103,7 @@ DATAFORSEO_SANDBOX=                       # any value routes to the free sandbox
 LINKEDIN_EMAIL=  LINKEDIN_PASSWORD=   # LinkedIn prospecting
 CLOUDFLARE_ACCOUNT_ID=  CLOUDFLARE_API_TOKEN=   # deep JS crawling for training
 SERPER_API_KEY=            # web search + discovery (2,500 free, then a $50 prepaid pack)
-PRECLEARED_API_KEY=        # cold-email check before first sends (see Step 7)
+PRECLEARED_API_KEY=        # cold-email check: set by 'sellbird precleared-key' (see Step 7)
 TRULYINBOX_API_KEY=        # warmup: set by 'sellbird trulyinbox connect' (see Step 2b)
 ```
 
@@ -269,7 +269,7 @@ Offer this once, briefly, and take no for an answer. With `compliance.precleared
 If they want it, ask one thing at a time:
 - Where is the business based? `sender_country` must be `GB` or `US`. If it's neither, leave the check off.
 - Are all their prospects in one country? If so, set `prospect_country` to its two-letter code, quoted (for example `"US"`). Otherwise leave it empty.
-- Would they like a free key? Without one Precleared allows 10 checks a day; a free key from https://precleared.dev/get-key allows 25. It goes in `.env` as `PRECLEARED_API_KEY`.
+- Would they like a free key? Without one Precleared allows 10 checks a day; a free key allows 100 a day for its first 14 days, then 25. If they would, ask which email address to use and run `sellbird precleared-key --email <their address>`, which saves the key in `.env` as `PRECLEARED_API_KEY` without showing it. Precleared receives that address to make the key. Or they can get one at https://precleared.dev/get-key and put it in `.env` themselves.
 
 Leave `address_source` as `"unknown"`, since Sellbird builds most addresses from a learned pattern. Save the settings under `compliance.precleared` in `sellbird.local.yaml` if it exists (that file wins), otherwise in `sellbird.yaml`. `sellbird setup` asks the same questions.
 
@@ -336,6 +336,7 @@ sellbird train <url>           # Train on a product website
 sellbird status                # Pipeline summary
 sellbird usage                 # Claude quota gauges + per-agent token usage (no dollar costs — subscription plans aren't billed per token)
 sellbird export                # Deliverable prospects → sequencer-ready CSV (prospects.csv)
+sellbird precleared-key [--email ADDRESS]  # Free Precleared key for the cold-email check, saved to .env
 sellbird export --all          # Full raw list, no filters
 sellbird companies             # Company register CSV: every company, its fit score, and why it wasn't contacted
 sellbird gmail auth            # One-time Gmail OAuth (when provider: gmail)
