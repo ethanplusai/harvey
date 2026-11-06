@@ -1,10 +1,10 @@
 """Brain — Harvey's thinking engine.
 
 Runs on the operator's Claude subscription (Claude Code headless, the
-default) or, when ``brain.provider: codex`` is configured, their ChatGPT
-subscription through an isolated Codex runtime (see harvey/codex.py). The
-provider is fixed per Brain; a failing provider never falls back to the
-other one.
+default), or — on explicit choice — their ChatGPT subscription through an
+isolated Codex runtime (harvey/codex.py), or their OpenCode subscription
+through an isolated OpenCode runtime (harvey/opencode_runtime.py). The
+provider is fixed per Brain; a failing provider never falls back to another.
 """
 
 import asyncio
@@ -39,7 +39,7 @@ _NON_RETRYABLE_PATTERNS = (
 )
 
 
-PROVIDER_LABELS = {"claude": "Claude", "codex": "Codex"}
+PROVIDER_LABELS = {"claude": "Claude", "codex": "Codex", "opencode": "OpenCode"}
 
 # Settings key holding the brain's last health transition, for `harvey
 # status` and the dashboard: {"provider", "status": "ok"|"paused", "reason",
@@ -50,6 +50,10 @@ BRAIN_STATUS_KEY = "brain_status"
 # CLI version, model choice, an unsafe Codex config layer). After one, the
 # Brain stops starting runtimes until something changes.
 _PERSISTENT_CODEX_KINDS = {"setup", "auth", "isolation"}
+# OpenCode's persistent kinds also include "model": a wrong or region-blocked
+# model ref, or a missing login for the model's provider, repeats on every
+# call until the operator fixes the config or signs in.
+_PERSISTENT_OPENCODE_KINDS = {"setup", "auth", "isolation", "model"}
 # Re-check a paused provider at least this often even if nothing changed
 # on disk (e.g. a managed config layer was fixed).
 PROVIDER_RECHECK_SECONDS = 1800
@@ -88,6 +92,7 @@ class Brain:
         self.provider = self.config.provider
         self.model = self.config.model
         self.codex = None
+        self.opencode = None
         # Whether the last think_json got no reply at all (an outage, logout,
         # rate limit or timeout), as opposed to a reply that wasn't valid
         # JSON. Callers that count model failures must not count outages.
@@ -105,6 +110,13 @@ class Brain:
                 model=self.model, reasoning_effort=self.config.reasoning_effort
             )
             self.quota = CodexQuotaClient(self.codex)
+        elif self.provider == "opencode":
+            from harvey.opencode_runtime import OpenCodeRuntime
+            self.opencode = OpenCodeRuntime(model=self.model)
+            # OpenCode exposes no subscription gauge Harvey could read, so
+            # there's no quota client: the budget gate falls back to Harvey's
+            # own call counter for this provider (is_within_budget).
+            self.quota = None
         else:
             # Lazy import avoids a cycle (quota -> usage -> state).
             from harvey.integrations.quota import QuotaClient
@@ -126,22 +138,48 @@ class Brain:
     async def preflight(self) -> str:
         """Can this Brain be used right now? Returns "" or the reason not.
 
-        Codex only (Claude keeps its existing behaviour): runs the adapter's
-        full pre-prompt check (CodexClient.preflight): CLI version, route and
-        lockdown attested with no login in the runtime, the native login read
-        only (expiry, renewal), then with the access-only copy the configured
-        model against the catalog, the ChatGPT account, and a started
-        tool-less thread. No turn, so no inference; nothing is written to the
-        native login. While paused, the check is repeated only when the login
-        file or the Codex executable changes, or every
+        Claude keeps its existing behaviour (isolation-flag check only).
+        Codex and OpenCode run their adapter's full pre-prompt check first —
+        CLI version and flags, isolation attested, the login read and
+        borrowed into the throwaway runtime, the model usable — without
+        sending a prompt, so nothing is spent. While paused, the check is
+        repeated only when the login or the executable changes, or every
         PROVIDER_RECHECK_SECONDS, so a persistent problem doesn't start
         runtimes every heartbeat.
         """
+        await self._expire_usage_pause()
+        if self.provider == "opencode":
+            from harvey.opencode_runtime import OpenCodeError
+
+            if self.unavailable:
+                unchanged = (self.opencode.fingerprint()
+                             == self._unavailable_fingerprint)
+                recent = (time.monotonic() - self._unavailable_at
+                          < PROVIDER_RECHECK_SECONDS)
+                if unchanged and recent:
+                    return self.unavailable
+            try:
+                await self.opencode.preflight()
+            except OpenCodeError as e:
+                if e.kind in _PERSISTENT_OPENCODE_KINDS:
+                    await self._mark_unavailable(e)
+                    return self.unavailable
+                return str(e)  # transient: skip this cycle, check again next time
+            except Exception as e:
+                return f"OpenCode preflight failed unexpectedly ({type(e).__name__})."
+            if self.unavailable:
+                await self._mark_available()
+            elif not self._status_synced:
+                logger.info(
+                    "OpenCode ready: supported CLI, tool-less agent attested, "
+                    f"login borrowed into an isolated runtime, model "
+                    f"{self.model} usable (nothing sent).")
+                await self._sync_restored_status()
+            return ""
         if self.provider != "codex":
             return await self._claude_preflight()
         from harvey.codex import CodexError
 
-        await self._expire_usage_pause()
         if self.unavailable:
             unchanged = self.codex.fingerprint() == self._unavailable_fingerprint
             recent = time.monotonic() - self._unavailable_at < PROVIDER_RECHECK_SECONDS
@@ -162,21 +200,27 @@ class Brain:
             logger.info(
                 f"Codex ready: supported CLI, isolation verified, login and account "
                 f"valid, model {self.model or 'auto'} usable with no tools (no prompt sent).")
-            # A pause recorded before a restart must not outlive the problem.
-            self._status_synced = True
-            try:
-                stored = parse_brain_status(await self.state.get_setting(BRAIN_STATUS_KEY))
-            except Exception:
-                stored = {}
-            until = stored.get("until")
-            if (stored.get("status") == "paused" and stored.get("kind") == "usage_limit"
-                    and isinstance(until, (int, float)) and until > time.time()):
-                # Still inside a usage-limit pause recorded before a restart.
-                self._usage_limited_until = time.monotonic() + (until - time.time())
-                self._usage_pause_recorded = True
-            elif stored.get("status") == "paused":
-                await self._mark_available()
+            await self._sync_restored_status()
         return ""
+
+    async def _sync_restored_status(self) -> None:
+        """A pause recorded before a restart is honoured inside its window
+        (a usage limit would be re-learned only by a real call, which the
+        gate exists to prevent) and cleared otherwise."""
+        # A pause recorded before a restart must not outlive the problem.
+        self._status_synced = True
+        try:
+            stored = parse_brain_status(await self.state.get_setting(BRAIN_STATUS_KEY))
+        except Exception:
+            stored = {}
+        until = stored.get("until")
+        if (stored.get("status") == "paused" and stored.get("kind") == "usage_limit"
+                and isinstance(until, (int, float)) and until > time.time()):
+            # Still inside a usage-limit pause recorded before a restart.
+            self._usage_limited_until = time.monotonic() + (until - time.time())
+            self._usage_pause_recorded = True
+        elif stored.get("status") == "paused":
+            await self._mark_available()
 
     async def _claude_preflight(self) -> str:
         """Claude: the installed CLI must support every isolation flag
@@ -196,6 +240,8 @@ class Brain:
     def _fingerprint(self):
         if self.provider == "codex":
             return self.codex.fingerprint()
+        if self.provider == "opencode":
+            return self.opencode.fingerprint()
         from harvey.claude_runtime import fingerprint
         return fingerprint()
 
@@ -264,6 +310,11 @@ class Brain:
         """
         if self.provider == "codex":
             return await self._think_codex(
+                prompt, session_id=session_id, timeout=timeout,
+                max_retries=max_retries, agent=agent, task=task,
+            )
+        if self.provider == "opencode":
+            return await self._think_opencode(
                 prompt, session_id=session_id, timeout=timeout,
                 max_retries=max_retries, agent=agent, task=task,
             )
@@ -482,6 +533,100 @@ class Brain:
         )
         return ""
 
+    async def _think_opencode(
+        self,
+        prompt: str,
+        session_id: str | None,
+        timeout: float,
+        max_retries: int,
+        agent: str,
+        task: str,
+    ) -> str:
+        """One isolated OpenCode turn per attempt (see harvey/opencode_runtime.py)."""
+        from harvey.opencode_runtime import OpenCodeError
+
+        paused = self.paused_reason
+        if paused:
+            # Known not to work until the operator acts (or the limit
+            # resets): don't start a runtime per call.
+            logger.debug(f"OpenCode call skipped: {paused}")
+            return ""
+        logger.debug(f"Brain call via OpenCode (label={session_id})")
+        last_error = ""
+        for attempt in range(max_retries + 1):
+            if attempt > 0:
+                delay = RETRY_BASE_DELAY * (2 ** (attempt - 1))
+                logger.info(
+                    f"Retrying OpenCode call in {delay:.0f}s "
+                    f"(attempt {attempt + 1}/{max_retries + 1})..."
+                )
+                await asyncio.sleep(delay)
+            try:
+                result = await self.opencode.run(
+                    prompt, timeout=timeout, skip_if=lambda: self.paused_reason)
+            except OpenCodeError as e:
+                if e.kind == "paused":
+                    logger.debug(f"OpenCode call skipped: {e}")
+                    return ""
+                last_error = str(e)
+                if e.retryable:
+                    logger.warning(f"OpenCode call failed: {e}")
+                    continue
+                logger.error(f"OpenCode call failed: {e}")
+                if e.kind in _PERSISTENT_OPENCODE_KINDS:
+                    await self._mark_unavailable(e)
+                elif e.kind == "usage_limit":
+                    await self._start_usage_pause()
+                    invalidate = getattr(self.quota, "invalidate", None)
+                    if invalidate:
+                        invalidate()
+                return ""
+            except Exception as e:
+                # Not expected (the adapter reports failures as OpenCodeError);
+                # log only the type, since messages could carry call details.
+                # CancelledError is not an Exception, so shutdown propagates.
+                logger.error(
+                    f"OpenCode call failed unexpectedly ({type(e).__name__}).")
+                return ""
+
+            try:
+                await self.state.increment_usage(provider="opencode")
+            except Exception as e:
+                logger.warning(f"Failed to record usage counter: {e}")
+            try:
+                await self._record_opencode_usage(result, agent=agent, task=task,
+                                                  label=session_id or "")
+            except Exception as e:
+                logger.warning(f"Failed to record usage event: {e}")
+            return result.text
+
+        logger.error(
+            f"OpenCode call failed after {max_retries + 1} attempts. "
+            f"Last error: {last_error[:200]}"
+        )
+        return ""
+
+    async def _record_opencode_usage(self, result, agent: str, task: str, label: str):
+        """One usage row per OpenCode call. OpenCode meters the plan per
+        token, so its real cost is recorded."""
+        if not agent and label.startswith("harvey-"):
+            agent = label[len("harvey-"):].split("-")[0]
+        await self.state.record_usage_event(
+            agent=agent,
+            task=task or label,
+            session_id=result.session_id,
+            model=result.model,
+            duration_ms=result.duration_ms,
+            num_turns=result.num_turns,
+            input_tokens=result.input_tokens,
+            output_tokens=result.output_tokens,
+            cache_read_tokens=result.cache_read_tokens,
+            cache_creation_tokens=result.cache_creation_tokens,
+            cost_usd=result.cost_usd,
+            source="opencode_run",
+            provider="opencode",
+        )
+
     async def _record_codex_usage(self, result, agent: str, task: str, label: str):
         """One usage row per Codex call. ChatGPT plans aren't billed per
         token, so cost is recorded as 0 rather than estimated."""
@@ -637,8 +782,10 @@ class Brain:
         Preferred signal: the account's REAL utilization windows (Claude's
         `/usage` numbers, or Codex's ChatGPT-plan rate limits), compared
         against max_percent so Harvey always leaves the remainder for the
-        user's own interactive work. Fallback when those are unavailable:
-        Harvey's own call counter for this provider against max_daily_calls.
+        user's own interactive work. OpenCode exposes no subscription gauge,
+        so its budget is always Harvey's own call counter for it. Fallback
+        when those are unavailable: Harvey's own call counter for this
+        provider against max_daily_calls.
         """
         await self._expire_usage_pause()
         if time.monotonic() < self._usage_limited_until:
@@ -646,7 +793,7 @@ class Brain:
             # not be mistaken for room to spend.
             logger.info(f"{self.paused_reason}; waiting for it to reset.")
             return False
-        if max_percent is not None:
+        if max_percent is not None and self.quota is not None:
             try:
                 windows = await self.quota.get_utilization()
             except Exception as e:

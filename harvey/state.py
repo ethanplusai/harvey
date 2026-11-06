@@ -519,10 +519,22 @@ MIGRATIONS: list[str] = [
     -- knows about the recipient. Empty until then.
     ALTER TABLE prospects ADD COLUMN timezone TEXT DEFAULT '';
     """,
+    # ── v15: OpenCode calls counted separately, like Codex's ──
+    """
+    -- claude_calls keeps meaning Claude calls and codex_calls Codex calls;
+    -- OpenCode calls count separately so one subscription's spend never
+    -- consumes another's. usage_events already carries its provider
+    -- column (v11).
+    ALTER TABLE usage_log ADD COLUMN opencode_calls INTEGER DEFAULT 0;
+    """,
 ]
 
-BRAIN_PROVIDERS = ("claude", "codex")
-_USAGE_LOG_COLUMN = {"claude": "claude_calls", "codex": "codex_calls"}
+BRAIN_PROVIDERS = ("claude", "codex", "opencode")
+_USAGE_LOG_COLUMN = {
+    "claude": "claude_calls",
+    "codex": "codex_calls",
+    "opencode": "opencode_calls",
+}
 
 # When a company was last profiled: the newer of the explicit check stamp
 # (set on every attempt, reachable or not) and its latest profile observation
@@ -2618,11 +2630,13 @@ class StateManager:
             ) as cursor:
                 auto_reply_handoffs = (await cursor.fetchone())[0]
             async with db.execute(
-                "SELECT claude_calls, codex_calls FROM usage_log WHERE date = ?", (today,)
+                "SELECT claude_calls, codex_calls, opencode_calls FROM usage_log "
+                "WHERE date = ?", (today,)
             ) as cursor:
                 usage_row = await cursor.fetchone()
                 usage_today = (usage_row[0] or 0) if usage_row else 0
                 codex_today = (usage_row[1] or 0) if usage_row else 0
+                opencode_today = (usage_row[2] or 0) if usage_row else 0
 
         return {
             "prospects": prospect_counts,
@@ -2640,7 +2654,10 @@ class StateManager:
             "open_conversations": open_conversations,
             "auto_reply_handoffs": auto_reply_handoffs,
             "usage_today": usage_today,  # Claude calls (kept for compatibility)
-            "usage_today_by_provider": {"claude": usage_today, "codex": codex_today},
+            "usage_today_by_provider": {
+                "claude": usage_today, "codex": codex_today,
+                "opencode": opencode_today,
+            },
             # Companies discovered but not yet read. The heartbeat profiles
             # these every cycle — it is free, so it never competes with the
             # Claude budget the rest of the loop is rationing.

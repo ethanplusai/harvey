@@ -9,6 +9,26 @@ minor versions can still change behaviour.
 
 ### Added
 
+- **OpenCode as a brain provider.** On macOS and Linux, Harvey can think with
+  your OpenCode plan through the OpenCode CLI
+  (`brain: { provider: opencode, model: opencode/gpt-5.3-codex }` in
+  harvey.yaml, or pick **opencode** in `harvey setup`). Like Codex, it never
+  falls back to another provider and never touches an API key: every call
+  runs one throwaway `opencode` process with a private temporary HOME and
+  config/data/cache/state directories and an empty workspace; before any
+  prompt is sent the CLI must attest a tool-less `harvey` agent (permissions
+  resolving to deny, last match wins), configuration read only from inside
+  the throwaway runtime with sharing disabled, and the CLI-created session
+  database gets exactly one provider's login copied in, read-only from your
+  own OpenCode data. Any attempted tool call during the turn kills the
+  runtime and fails the call. OpenCode models are `provider/model` refs
+  (optionally `#variant`; `reasoning_effort` is Codex-only and rejected
+  here). OpenCode exposes no subscription gauge, so its budget uses Harvey's
+  own call counter and the dashboard's Usage tab says so; calls still record
+  real tokens and metered cost. `harvey status --check`, the setup wizard and
+  the Usage tab cover the new provider, and the README has a
+  "Using an OpenCode plan instead" section.
+
 - **Company fit and the company register.** The Companies tab now sorts by a
   0-100 fit score worked out from what Harvey already holds: the ICP sector
   match, a contact with a target title, the best email found, and an open
