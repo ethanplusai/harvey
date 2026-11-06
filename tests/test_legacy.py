@@ -112,7 +112,7 @@ def test_harvey_setting_reaches_a_module_that_reads_it_at_import():
     env["HARVEY_HUMANIZER_SKILL"] = "/old/skill.md"
     out = subprocess.run([sys.executable, "-c", code], env=env, cwd=ROOT,
                          capture_output=True, text=True, check=True).stdout
-    assert out.strip() == "/old/skill.md"
+    assert Path(out.strip()) == Path("/old/skill.md")  # Windows prints \old\skill.md
 
 
 # ── the old command ──

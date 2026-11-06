@@ -72,7 +72,8 @@ def migrate_files(root: Path = PROJECT_ROOT) -> list[str]:
                 f"Sellbird again to move its files over."]
     notes = []
     for old, new in pending:
-        old_name, new_name = old.relative_to(root), new.relative_to(root)
+        # Forward slashes on every OS, so the notes read the same as the docs.
+        old_name, new_name = old.relative_to(root).as_posix(), new.relative_to(root).as_posix()
         if new.exists():
             notes.append(f"Left {old_name} alone: {new_name} already exists. "
                          f"Compare them and keep the one you want.")
