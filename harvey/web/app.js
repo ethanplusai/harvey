@@ -1258,6 +1258,7 @@ async function loadSettings() {
   savedPh('imap-pass', data.imap_password_set, 'Same as SMTP password');
   document.getElementById('imap-same-pass').checked = !data.imap_password_set;
   savedPh('instantly-key', data.instantly_api_key_set, 'Enter your Instantly API key');
+  savedPh('emailverify-key', data.emailverify_api_key_set, 'Code HARVEY25: 25% off — app.emailverify.io/api-setup');
   savedPh('reoon-key', data.reoon_api_key_set, '600 free/mo — reoon.com/email-verifier');
   savedPh('zerobounce-key', data.zerobounce_api_key_set, '100 free/mo — best for M365/Workspace catch-alls');
   savedPh('hunter-key', data.hunter_api_key_set, '50 free/mo + email-pattern lookup');
@@ -1277,6 +1278,7 @@ async function loadSettings() {
     else if (data.m365_client_id) { m.className = 'email-tag risky'; m.textContent = 'run: harvey microsoft auth'; }
     else { m.className = 'email-tag guess'; m.textContent = 'not set up'; }
   }
+  tag('emailverify-status', data.emailverify_api_key_set, 'set');
   tag('reoon-status', data.reoon_api_key_set, 'set');
   tag('zerobounce-status', data.zerobounce_api_key_set, 'set');
   tag('hunter-status', data.hunter_api_key_set, 'set');
@@ -1318,9 +1320,11 @@ function saveMicrosoft() {
 
 function saveVerifiers() {
   const payload = {};
+  const ev = document.getElementById('emailverify-key').value;
   const r = document.getElementById('reoon-key').value;
   const z = document.getElementById('zerobounce-key').value;
   const h = document.getElementById('hunter-key').value;
+  if (ev) payload.EMAILVERIFY_API_KEY = ev;
   if (r) payload.REOON_API_KEY = r;
   if (z) payload.ZEROBOUNCE_API_KEY = z;
   if (h) payload.HUNTER_API_KEY = h;

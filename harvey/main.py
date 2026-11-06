@@ -27,6 +27,10 @@ logging.basicConfig(
     datefmt="%Y-%m-%d %H:%M:%S",
 )
 logger = logging.getLogger("harvey")
+# httpx logs every request URL at INFO, and several APIs take their key in the
+# query string: keep those keys out of data/harvey.log.
+for _noisy in ("httpx", "httpcore"):
+    logging.getLogger(_noisy).setLevel(logging.WARNING)
 
 # Backoff for consecutive failed cycles: 60s, 120s, 240s, ... capped at 15 min
 ERROR_BACKOFF_BASE = 60
@@ -128,8 +132,9 @@ def unusable_backlog_notice(summary: dict) -> str:
     return (
         f"Harvey found {recent} prospects in the last day, but none has a verified "
         "or catch-all email, so it paused prospecting for about a day to save search "
-        "and verifier credits. Add an email verifier key (REOON_API_KEY, "
-        "ZEROBOUNCE_API_KEY or HUNTER_API_KEY in .env) or check it still has credits. "
+        "and verifier credits. Add an email verifier key (EMAILVERIFY_API_KEY, "
+        "REOON_API_KEY, ZEROBOUNCE_API_KEY or HUNTER_API_KEY in .env) or check it still "
+        "has credits. "
         "`harvey export --all` exports the list as it is."
     )
 

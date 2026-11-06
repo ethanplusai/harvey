@@ -740,6 +740,7 @@ class EnvConfig(BaseModel):
     serper_api_key: str = ""
     scavio_api_key: str = ""
     tinyfish_api_key: str = ""
+    emailverify_api_key: str = ""
     reoon_api_key: str = ""
     zerobounce_api_key: str = ""
     # Native mail providers (channels.email.provider: gmail | smtp)
@@ -858,6 +859,7 @@ def load_env() -> EnvConfig:
         serper_api_key=os.getenv("SERPER_API_KEY", "").strip(),
         scavio_api_key=os.getenv("SCAVIO_API_KEY", "").strip(),
         tinyfish_api_key=os.getenv("TINYFISH_API_KEY", "").strip(),
+        emailverify_api_key=os.getenv("EMAILVERIFY_API_KEY", "").strip(),
         reoon_api_key=os.getenv("REOON_API_KEY", "").strip(),
         zerobounce_api_key=os.getenv("ZEROBOUNCE_API_KEY", "").strip(),
         gmail_client_id=os.getenv("GMAIL_CLIENT_ID", "").strip(),

@@ -9,6 +9,16 @@ minor versions can still change behaviour.
 
 ### Added
 
+- **EmailVerify.io as an email verifier.** Set `EMAILVERIFY_API_KEY` (or add
+  it in Settings → Verifiers) and Harvey uses it alongside ZeroBounce, Reoon
+  and Hunter. It runs after ZeroBounce and Reoon when those are set, so nothing
+  changes for existing setups, and on its own it's enough to make addresses
+  sendable. `do_not_mail` (disposable, full or blocked mailboxes) counts as
+  invalid, a role address counts as valid only when EmailVerify.io marks it
+  permitted, and a rejected key or empty balance is logged as a warning.
+  httpx no longer logs request URLs to `data/harvey.log`, since several
+  verifier APIs take their key in the query string.
+
 - **Company fit and the company register.** The Companies tab now sorts by a
   0-100 fit score worked out from what Harvey already holds: the ICP sector
   match, a contact with a target title, the best email found, and an open
