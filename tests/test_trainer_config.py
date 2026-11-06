@@ -1,20 +1,20 @@
 """Retraining replaces what training learns and keeps every other setting.
 
-`harvey train` used to rewrite the config from scratch, so retraining reset
+`sellbird train` used to rewrite the config from scratch, so retraining reset
 the email provider to instantly, quiet hours to New York and turned the
 Precleared check off. These tests pin down what training owns.
 """
 
 import yaml
 
-from harvey.config import HarveyConfig
-from harvey.paths import PROJECT_ROOT
-from harvey.trainer import write_trained_config
+from sellbird.config import SellbirdConfig
+from sellbird.paths import PROJECT_ROOT
+from sellbird.trainer import write_trained_config
 
 LEARNED = {
     "persona": {
-        "name": "Harvey", "company": "Acme Roofing", "role": "Business Development",
-        "email": "harvey@acme.com", "linkedin": "linkedin.com/in/harvey-acme-com",
+        "name": "Sellbird", "company": "Acme Roofing", "role": "Business Development",
+        "email": "sellbird@acme.com", "linkedin": "linkedin.com/in/sellbird-acme-com",
         "tone": "warm, direct",
     },
     "product": {
@@ -82,7 +82,7 @@ def read(path):
 
 
 def test_retraining_keeps_every_setting_training_does_not_learn(tmp_path):
-    path = tmp_path / "harvey.local.yaml"
+    path = tmp_path / "sellbird.local.yaml"
     write(path, TUNED)
     out = write_trained_config(LEARNED, path)
 
@@ -104,25 +104,25 @@ def test_retraining_keeps_every_setting_training_does_not_learn(tmp_path):
         assert out["product"][key] == LEARNED["product"][key]
     for key in ("industries", "company_size", "titles", "geography"):
         assert out["icp"][key] == LEARNED["icp"][key]
-    HarveyConfig(**out)  # still a valid config
+    SellbirdConfig(**out)  # still a valid config
 
 
 def test_brain_selection_comes_from_the_trainer(tmp_path):
-    # `harvey train --provider codex` must win over the file's old choice.
-    path = tmp_path / "harvey.local.yaml"
+    # `sellbird train --provider codex` must win over the file's old choice.
+    path = tmp_path / "sellbird.local.yaml"
     write(path, TUNED)
     learned = {**LEARNED, "brain": {"provider": "codex", "model": "gpt-5.5"}}
     assert write_trained_config(learned, path)["brain"] == {"provider": "codex", "model": "gpt-5.5"}
 
 
 def test_first_training_keeps_the_template_settings(tmp_path):
-    # No harvey.local.yaml yet: the settings in harvey.yaml (gmail, the
+    # No sellbird.local.yaml yet: the settings in sellbird.yaml (gmail, the
     # Precleared block) carry over, and the untrained placeholder persona
     # is replaced with what training learned.
-    template = tmp_path / "harvey.yaml"
-    shipped = (PROJECT_ROOT / "harvey.yaml").read_text()
+    template = tmp_path / "sellbird.yaml"
+    shipped = (PROJECT_ROOT / "sellbird.yaml").read_text()
     template.write_text(shipped)
-    path = tmp_path / "harvey.local.yaml"
+    path = tmp_path / "sellbird.local.yaml"
     out = write_trained_config(LEARNED, path)
 
     assert out["channels"]["email"]["provider"] == "gmail"
@@ -130,56 +130,56 @@ def test_first_training_keeps_the_template_settings(tmp_path):
     assert out["persona"] == LEARNED["persona"]
     assert out["product"]["offer"]["goal"] == "book_call"
     assert template.read_text() == shipped  # the template itself is untouched
-    HarveyConfig(**out)
+    SellbirdConfig(**out)
 
 
 def test_no_existing_config_writes_what_training_built(tmp_path):
-    path = tmp_path / "harvey.local.yaml"
+    path = tmp_path / "sellbird.local.yaml"
     assert write_trained_config(LEARNED, path) == LEARNED
     assert read(path) == LEARNED
 
 
 def test_unreadable_config_is_backed_up_not_lost(tmp_path):
-    path = tmp_path / "harvey.local.yaml"
+    path = tmp_path / "sellbird.local.yaml"
     path.write_text("channels: [unclosed\n")
     out = write_trained_config(LEARNED, path)
     assert out == LEARNED
-    backups = list(tmp_path.glob("harvey.local.yaml*.bak"))
+    backups = list(tmp_path.glob("sellbird.local.yaml*.bak"))
     assert [b.read_text() for b in backups] == ["channels: [unclosed\n"]
 
 
 def test_an_earlier_backup_is_never_overwritten(tmp_path):
-    path = tmp_path / "harvey.local.yaml"
-    (tmp_path / "harvey.local.yaml.bak").write_text("precious")
+    path = tmp_path / "sellbird.local.yaml"
+    (tmp_path / "sellbird.local.yaml.bak").write_text("precious")
     path.write_text("channels: [unclosed\n")
     write_trained_config(LEARNED, path)
-    assert (tmp_path / "harvey.local.yaml.bak").read_text() == "precious"
-    assert sorted(b.read_text() for b in tmp_path.glob("harvey.local.yaml*.bak")) == [
+    assert (tmp_path / "sellbird.local.yaml.bak").read_text() == "precious"
+    assert sorted(b.read_text() for b in tmp_path.glob("sellbird.local.yaml*.bak")) == [
         "channels: [unclosed\n", "precious",
     ]
 
 
 def test_an_empty_config_needs_no_backup(tmp_path):
-    path = tmp_path / "harvey.local.yaml"
+    path = tmp_path / "sellbird.local.yaml"
     path.write_text("\n")
     assert write_trained_config(LEARNED, path) == LEARNED
     assert list(tmp_path.glob("*.bak")) == []
 
 
-def test_first_training_ignores_configs_outside_harveys_folder(tmp_path, monkeypatch):
-    # Running `harvey train` from another project's folder must not copy that
-    # project's provider or sender identity into Harvey.
+def test_first_training_ignores_configs_outside_sellbirds_folder(tmp_path, monkeypatch):
+    # Running `sellbird train` from another project's folder must not copy that
+    # project's provider or sender identity into Sellbird.
     elsewhere = tmp_path / "other-project"
     elsewhere.mkdir()
-    write(elsewhere / "harvey.local.yaml", TUNED)
+    write(elsewhere / "sellbird.local.yaml", TUNED)
     monkeypatch.chdir(elsewhere)
-    home = tmp_path / "harvey"
+    home = tmp_path / "sellbird"
     home.mkdir()
-    assert write_trained_config(LEARNED, home / "harvey.local.yaml") == LEARNED
+    assert write_trained_config(LEARNED, home / "sellbird.local.yaml") == LEARNED
 
 
 def test_a_real_sender_with_a_blank_company_is_kept(tmp_path):
-    path = tmp_path / "harvey.local.yaml"
+    path = tmp_path / "sellbird.local.yaml"
     write(path, {**TUNED, "persona": {**TUNED["persona"], "company": ""}})
     out = write_trained_config(LEARNED, path)
     assert out["persona"]["email"] == "ethan@oldco.com"
@@ -187,7 +187,7 @@ def test_a_real_sender_with_a_blank_company_is_kept(tmp_path):
 
 
 def test_a_failed_write_leaves_the_config_and_no_temp_file(tmp_path):
-    path = tmp_path / "harvey.local.yaml"
+    path = tmp_path / "sellbird.local.yaml"
     write(path, TUNED)
     before = path.read_text()
     bad = {**LEARNED, "product": {**LEARNED["product"], "name": object()}}

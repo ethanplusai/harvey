@@ -6,9 +6,9 @@ import tempfile
 import pytest
 import pytest_asyncio
 
-from harvey.state import StateManager
-from harvey.integrations import email_finder as ef
-from harvey.integrations.email_finder import (
+from sellbird.state import StateManager
+from sellbird.integrations import email_finder as ef
+from sellbird.integrations.email_finder import (
     EmailResult,
     build_email,
     classify_mx,

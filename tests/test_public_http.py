@@ -6,7 +6,7 @@ import httpx
 import pytest
 import pytest_asyncio
 
-from harvey import public_http
+from sellbird import public_http
 
 
 @pytest_asyncio.fixture
@@ -274,14 +274,14 @@ async def test_public_ip_literal_is_checked_without_dns(wire):
 @pytest.mark.parametrize("caller", ["scout", "profile", "trainer"])
 async def test_real_website_callers_block_private_targets(caller, wire):
     if caller == "scout":
-        from harvey.agents.scout import Scout
+        from sellbird.agents.scout import Scout
         scout = Scout.__new__(Scout)
         assert await scout._fetch("http://127.0.0.1/", retries=1) is None
     elif caller == "profile":
-        from harvey.collectors.profile import ProfileCollector
+        from sellbird.collectors.profile import ProfileCollector
         async with ProfileCollector(None) as collector:
             assert await collector._get("http://127.0.0.1/") == ""
     else:
-        from harvey.trainer import FallbackCrawler
+        from sellbird.trainer import FallbackCrawler
         assert await FallbackCrawler().crawl("http://127.0.0.1/", max_pages=1) == {}
     assert wire[0] == []

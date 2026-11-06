@@ -1,7 +1,7 @@
 """Approval or autopilot: which one you're in, what it means, and switching.
 
 Approval (the default): every email waits in the Outbox for you. Autopilot
-(channels.email.require_approval: false): Harvey sends on its own, except
+(channels.email.require_approval: false): Sellbird sends on its own, except
 what gate.autopilot_review holds. The dashboard shows the mode and can
 switch it. Turning autopilot on takes a typed confirmation. Turning it off
 works at once: nothing autopilot approved goes out after that.
@@ -15,16 +15,16 @@ from pathlib import Path
 import pytest
 import pytest_asyncio
 
-from harvey.config import ConfigError, load_config, refresh_sending_mode, set_require_approval
-from harvey.paths import PROJECT_ROOT
-from harvey.state import MIGRATIONS, StateManager
+from sellbird.config import ConfigError, load_config, refresh_sending_mode, set_require_approval
+from sellbird.paths import PROJECT_ROOT
+from sellbird.state import MIGRATIONS, StateManager
 from tests.test_dashboard_signals import client  # noqa: F401  (fixture)
 
 
 @pytest.fixture
 def yaml_file(tmp_path):
-    path = tmp_path / "harvey.yaml"
-    shutil.copy(PROJECT_ROOT / "harvey.yaml", path)
+    path = tmp_path / "sellbird.yaml"
+    shutil.copy(PROJECT_ROOT / "sellbird.yaml", path)
     return path
 
 
@@ -147,7 +147,7 @@ async def test_with_approval_back_on_autopilot_rows_wait_and_yours_go(state):
 
 @pytest.fixture
 def dash_yaml(client, yaml_file, monkeypatch):
-    import harvey.dashboard as dash
+    import sellbird.dashboard as dash
     monkeypatch.setattr(dash, "_resolve_config_file", lambda: yaml_file)
     return yaml_file
 
@@ -155,7 +155,7 @@ def dash_yaml(client, yaml_file, monkeypatch):
 def test_the_dashboard_shows_the_mode(client, dash_yaml):
     asyncio.run(StateManager(str(client.db_path)).init_db())
     data = client.get("/api/sending-mode").json()
-    assert data["mode"] == "approval" and data["file"] == "harvey.yaml"
+    assert data["mode"] == "approval" and data["file"] == "sellbird.yaml"
     assert "provider" in data and "your_domains" in data and data["held"] == 0
 
 
@@ -221,7 +221,7 @@ def _render(func, mode, armed=False):
     node = shutil.which("node")
     if not node:
         pytest.skip("node is not installed")
-    source = (PROJECT_ROOT / "harvey" / "web" / "app.js").read_text(encoding="utf-8")
+    source = (PROJECT_ROOT / "sellbird" / "web" / "app.js").read_text(encoding="utf-8")
     parts = [re.search(rf"^function {name}\(.*?^}}\n", source, re.S | re.M).group(0)
              for name in ("escHtml", "sendingModeBanner", "sendingModeCard")]
     script = ("const icon = () => '';\n" + "\n".join(parts) +
@@ -231,7 +231,7 @@ def _render(func, mode, armed=False):
                           check=True, timeout=30).stdout
 
 
-MODE = {"mode": "approval", "provider": "gmail", "file": "harvey.local.yaml",
+MODE = {"mode": "approval", "provider": "gmail", "file": "sellbird.local.yaml",
         "your_domains": ["acme.com", "<b>x</b>"], "booking_page": "cal.com/sam/15", "held": 0}
 
 
@@ -246,8 +246,8 @@ def test_the_outbox_says_which_mode_and_offers_the_way_out():
 
 def test_settings_explains_both_and_asks_for_the_word():
     card = _render("sendingModeCard", MODE)
-    assert "Sending mode: Approval" in card and "<b>Autopilot</b>: Harvey sends on its own" in card
-    assert "acme.com, &lt;b&gt;x&lt;/b&gt;" in card and "harvey.local.yaml" in card
+    assert "Sending mode: Approval" in card and "<b>Autopilot</b>: Sellbird sends on its own" in card
+    assert "acme.com, &lt;b&gt;x&lt;/b&gt;" in card and "sellbird.local.yaml" in card
     assert "Turn on autopilot…" in card and 'id="autopilot-go"' not in card
     armed = _render("sendingModeCard", MODE, armed=True)
     assert 'id="autopilot-confirm"' in armed and 'id="autopilot-go" disabled' in armed
@@ -263,9 +263,9 @@ async def test_off_mid_cycle_stops_what_this_cycle_queues_and_sends(state, yaml_
     """The running loop loaded autopilot. The switch goes off mid-cycle:
     the drain and the next row queued both see it, without waiting a cycle."""
     from tests.test_outbox_native import FakeProvider
-    from harvey.agents.sender import Sender
+    from sellbird.agents.sender import Sender
     set_require_approval(False, yaml_file)
-    config = load_config(str(yaml_file))                 # what `harvey run` holds
+    config = load_config(str(yaml_file))                 # what `sellbird run` holds
     assert config.channels.email.require_approval is False
     row = await _row(state, "approved")                  # queued on autopilot
     set_require_approval(True, yaml_file)                # the click, mid-cycle
@@ -281,7 +281,7 @@ async def test_off_mid_cycle_stops_what_this_cycle_queues_and_sends(state, yaml_
 def test_a_config_not_loaded_from_a_file_is_never_refreshed(monkeypatch):
     from tests.test_outbox_native import Cfg
     monkeypatch.setattr(Cfg.channels.email, "require_approval", False)
-    cfg = Cfg()                     # the repo's harvey.yaml says true: must not be read
+    cfg = Cfg()                     # the repo's sellbird.yaml says true: must not be read
     assert refresh_sending_mode(cfg) is False
     assert cfg.channels.email.require_approval is False
 
@@ -296,7 +296,7 @@ async def test_off_also_brings_back_rows_from_before_the_upgrade(state):
 
 @pytest.mark.asyncio
 async def test_the_loop_noticing_off_brings_autopilot_rows_back(state, yaml_file):
-    from harvey.sending_mode import sync_sending_mode
+    from sellbird.sending_mode import sync_sending_mode
     set_require_approval(False, yaml_file)
     config = load_config(str(yaml_file))
     row = await _row(state, "approved")
@@ -308,7 +308,7 @@ async def test_the_loop_noticing_off_brings_autopilot_rows_back(state, yaml_file
 def test_the_writer_keeps_a_symlinked_config_a_symlink(tmp_path, yaml_file):
     real = tmp_path / "real.yaml"
     real.write_bytes(yaml_file.read_bytes())
-    link = tmp_path / "harvey.local.yaml"
+    link = tmp_path / "sellbird.local.yaml"
     link.symlink_to(real)
     set_require_approval(False, link)
     assert link.is_symlink()
@@ -336,7 +336,7 @@ async def test_a_hand_edit_back_to_approval_noticed_by_the_sender_still_holds_ev
     """Third review: the sender noticed the change first, so the loop never
     requeued and a pre-upgrade row went out."""
     from tests.test_outbox_native import Env, FakeProvider
-    from harvey.agents.sender import Sender
+    from sellbird.agents.sender import Sender
     set_require_approval(False, yaml_file)
     config = load_config(str(yaml_file))
     row = await _row(state, "approved")

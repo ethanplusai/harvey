@@ -1,0 +1,48 @@
+name: Bug report
+description: Something in Sellbird doesn't work as it should.
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for reporting. Please don't include real people's names, email addresses or anything from your Sellbird database. Use fictional examples and counts instead.
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened
+      description: What you did, what you expected, and what happened instead.
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      placeholder: |
+        1. Run `sellbird ...`
+        2. ...
+  - type: textarea
+    id: logs
+    attributes:
+      label: Error or log output
+      description: From the terminal or `data/sellbird.log`, with any real contact data removed.
+      render: text
+  - type: input
+    id: version
+    attributes:
+      label: Version
+      description: Output of `git log -1 --format=%h` in your Sellbird folder.
+  - type: dropdown
+    id: provider
+    attributes:
+      label: Model provider
+      options: [Claude Code, Codex]
+  - type: dropdown
+    id: mail
+    attributes:
+      label: Mail provider
+      options: [Gmail / Google Workspace, Microsoft 365, SMTP, Instantly]
+  - type: input
+    id: os
+    attributes:
+      label: Operating system and Python version
+      placeholder: macOS 15, Python 3.13

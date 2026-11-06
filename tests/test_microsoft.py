@@ -8,8 +8,8 @@ import os
 import httpx
 import pytest
 
-from harvey.integrations import microsoft
-from harvey.integrations.microsoft import GraphError, MicrosoftProvider
+from sellbird.integrations import microsoft
+from sellbird.integrations.microsoft import GraphError, MicrosoftProvider
 
 
 class Env:
@@ -18,7 +18,7 @@ class Env:
 
 
 class Graph:
-    """A tiny fake of the Graph + login endpoints Harvey uses."""
+    """A tiny fake of the Graph + login endpoints Sellbird uses."""
 
     def __init__(self):
         self.requests = []
@@ -186,7 +186,7 @@ async def test_failed_send_deletes_the_draft(graph):
 
 def signed_config(logo):
     from types import SimpleNamespace
-    from harvey.config import SignatureConfig
+    from sellbird.config import SignatureConfig
     return SimpleNamespace(
         persona=SimpleNamespace(email="owner@sender.example", company="Acme"),
         channels=SimpleNamespace(email=SimpleNamespace(
@@ -296,7 +296,7 @@ async def test_not_authorized_raises(graph):
     microsoft.TOKEN_FILE.unlink()
     p = provider(graph)
     assert not p.is_configured()
-    with pytest.raises(GraphError, match="harvey microsoft auth"):
+    with pytest.raises(GraphError, match="sellbird microsoft auth"):
         await p.get_replies()
 
 
@@ -304,8 +304,8 @@ async def test_not_authorized_raises(graph):
 async def test_handler_holds_sends_when_graph_is_down(graph, tmp_path):
     """End to end with the handler: a Graph outage is a failed read."""
     import os
-    from harvey.agents.handler import Handler
-    from harvey.state import StateManager
+    from sellbird.agents.handler import Handler
+    from sellbird.state import StateManager
     from tests.test_outbox_native import Cfg, StubBrain
 
     class E(Env):
@@ -321,7 +321,7 @@ async def test_handler_holds_sends_when_graph_is_down(graph, tmp_path):
 
 
 def test_registry_builds_the_microsoft_provider():
-    from harvey.integrations.mail_provider import NATIVE_PROVIDERS, get_mail_provider
+    from sellbird.integrations.mail_provider import NATIVE_PROVIDERS, get_mail_provider
     from tests.test_outbox_native import Cfg
 
     class MsCfg(Cfg):
@@ -600,7 +600,7 @@ async def test_malformed_identity_response_raises(graph):
 
 async def _handler_with_prospect(tmp_path, graph):
     import os
-    from harvey.state import StateManager
+    from sellbird.state import StateManager
     from tests.test_outbox_native import _now_iso, make_handler, seed_prospect
 
     state = StateManager(os.path.join(tmp_path, "t.db"))

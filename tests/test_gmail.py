@@ -4,7 +4,7 @@ import base64
 
 import pytest
 
-from harvey.integrations.gmail import GmailProvider
+from sellbird.integrations.gmail import GmailProvider
 
 
 def _part(body: bytes, content_type: str | None = None, mime_type="text/plain"):
@@ -123,7 +123,7 @@ def test_malformed_part_headers_never_lose_the_reply(headers):
     """An unsubscribe must survive odd headers: before #58 nothing here could
     fail, so a failure must not turn into an empty body."""
     import base64
-    from harvey.integrations.gmail import GmailProvider
+    from sellbird.integrations.gmail import GmailProvider
     raw = "Please unsubscribe me. Merci, très bien.".encode("iso-8859-1")
     part = {"mimeType": "text/plain", "headers": headers,
             "body": {"data": base64.urlsafe_b64encode(raw).decode()}}
@@ -144,7 +144,7 @@ def test_codecs_that_arent_mail_charsets_fall_back_to_utf8(charset):
     assert text.startswith("Please unsubscribe me.")
 
 
-def test_a_huge_part_is_only_decoded_as_far_as_harvey_reads():
+def test_a_huge_part_is_only_decoded_as_far_as_sellbird_reads():
     body = "Please unsubscribe me. ".encode("iso-8859-1") + b"x" * 5_000_000
     text = GmailProvider._extract_text(_part(body, "text/plain; charset=iso-8859-1"))
     assert text.startswith("Please unsubscribe me.") and len(text) <= 200_000

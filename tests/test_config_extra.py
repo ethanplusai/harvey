@@ -4,9 +4,9 @@ import pytest
 import yaml
 from pydantic import ValidationError
 
-from harvey.config import (
+from sellbird.config import (
     ConfigError,
-    HarveyConfig,
+    SellbirdConfig,
     EnvConfig,
     QuietHoursConfig,
     load_config,
@@ -31,7 +31,7 @@ MINIMAL = {
 
 
 def test_load_config_from_yaml_file(tmp_path):
-    path = tmp_path / "harvey.yaml"
+    path = tmp_path / "sellbird.yaml"
     path.write_text(yaml.safe_dump(MINIMAL))
     config = load_config(str(path))
     assert config.persona.name == "H"
@@ -44,7 +44,7 @@ def test_load_config_missing_file_raises(tmp_path):
 
 
 def test_load_config_malformed_yaml_raises(tmp_path):
-    path = tmp_path / "harvey.yaml"
+    path = tmp_path / "sellbird.yaml"
     path.write_text("persona: [unclosed\n  - :bad")
     with pytest.raises(ConfigError):
         load_config(str(path))
@@ -53,21 +53,21 @@ def test_load_config_malformed_yaml_raises(tmp_path):
 def test_load_config_yaml_missing_sections_raises(tmp_path):
     # Invalid config must be rejected; the exact exception type has churned
     # between ConfigError and pydantic ValidationError, both are acceptable.
-    path = tmp_path / "harvey.yaml"
+    path = tmp_path / "sellbird.yaml"
     path.write_text(yaml.safe_dump({"persona": MINIMAL["persona"]}))
     with pytest.raises((ConfigError, ValidationError)):
         load_config(str(path))
 
 
 def test_load_config_empty_file_raises(tmp_path):
-    path = tmp_path / "harvey.yaml"
+    path = tmp_path / "sellbird.yaml"
     path.write_text("")
     with pytest.raises(ConfigError):
         load_config(str(path))
 
 
 def test_load_config_non_mapping_yaml_raises(tmp_path):
-    path = tmp_path / "harvey.yaml"
+    path = tmp_path / "sellbird.yaml"
     path.write_text("- just\n- a\n- list\n")
     with pytest.raises(ConfigError):
         load_config(str(path))
@@ -78,7 +78,7 @@ def test_config_missing_required_persona_field():
     data["persona"] = dict(MINIMAL["persona"])
     del data["persona"]["email"]
     with pytest.raises(ValidationError):
-        HarveyConfig(**data)
+        SellbirdConfig(**data)
 
 
 def test_config_wrong_type_raises():
@@ -88,7 +88,7 @@ def test_config_wrong_type_raises():
         "titles": [], "geography": [],
     }
     with pytest.raises(ValidationError):
-        HarveyConfig(**data)
+        SellbirdConfig(**data)
 
 
 def test_usage_and_channel_overrides():
@@ -99,7 +99,7 @@ def test_usage_and_channel_overrides():
         "quiet_hours": {"start": "23:00", "end": "06:00", "timezone": "UTC"},
     }
     data["channels"] = {"email": {"enabled": False, "max_daily_sends": 10}}
-    config = HarveyConfig(**data)
+    config = SellbirdConfig(**data)
     assert config.usage.max_daily_claude_percent == 50.0
     assert config.usage.heartbeat_interval_minutes == 5
     assert config.usage.quiet_hours.timezone == "UTC"
@@ -129,31 +129,31 @@ def test_usage_rejects_out_of_range_percent():
     data = dict(MINIMAL)
     data["usage"] = {"max_daily_claude_percent": 150}
     with pytest.raises(ValidationError):
-        HarveyConfig(**data)
+        SellbirdConfig(**data)
     data["usage"] = {"max_daily_claude_percent": 0}
     with pytest.raises(ValidationError):
-        HarveyConfig(**data)
+        SellbirdConfig(**data)
 
 
 def test_usage_rejects_zero_heartbeat():
     data = dict(MINIMAL)
     data["usage"] = {"heartbeat_interval_minutes": 0}
     with pytest.raises(ValidationError):
-        HarveyConfig(**data)
+        SellbirdConfig(**data)
 
 
 def test_email_channel_rejects_negative_sends():
     data = dict(MINIMAL)
     data["channels"] = {"email": {"max_daily_sends": -5}}
     with pytest.raises(ValidationError):
-        HarveyConfig(**data)
+        SellbirdConfig(**data)
 
 
 def test_offer_override():
     data = dict(MINIMAL)
     data["product"] = dict(MINIMAL["product"])
     data["product"]["offer"] = {"goal": "start_trial", "booking_url": "https://cal.com/x"}
-    config = HarveyConfig(**data)
+    config = SellbirdConfig(**data)
     assert config.product.offer.goal == "start_trial"
     assert config.product.offer.booking_url == "https://cal.com/x"
     assert config.product.offer.meeting_duration == "15 minutes"
@@ -161,7 +161,7 @@ def test_offer_override():
 
 def test_load_env_reads_environment(monkeypatch):
     # Don't read a developer's real .env — its keys would leak into the test.
-    monkeypatch.setattr("harvey.config.load_dotenv", lambda *a, **k: False)
+    monkeypatch.setattr("sellbird.config.load_dotenv", lambda *a, **k: False)
     monkeypatch.setenv("INSTANTLY_API_KEY", "key-123")
     monkeypatch.setenv("SERPER_API_KEY", "  serp-456  ")
     monkeypatch.setenv("TINYFISH_API_KEY", "  tiny-789  ")

@@ -1,4 +1,4 @@
-"""writer.email_rules: the operator's own shape for the emails Harvey drafts.
+"""writer.email_rules: the operator's own shape for the emails Sellbird drafts.
 
 The Writer's prompts end with a built-in shape (email 1 under 75 words, an
 observation and a question, no pitch). An operator whose first email has to
@@ -15,18 +15,18 @@ import pytest
 import pytest_asyncio
 from pydantic import ValidationError
 
-import harvey.config as config_module
-from harvey.agents.writer import BUILT_IN_FOOTER, Writer
-from harvey.config import (
+import sellbird.config as config_module
+from sellbird.agents.writer import BUILT_IN_FOOTER, Writer
+from sellbird.config import (
     MAX_EMAIL_RULES_CHARS,
     ComplianceConfig,
     EmailRulesError,
     WriterConfig,
     load_email_rules,
 )
-from harvey.models.prospect import Prospect
-from harvey.state import StateManager
-from harvey.untrusted import UNTRUSTED_RULE
+from sellbird.models.prospect import Prospect
+from sellbird.state import StateManager
+from sellbird.untrusted import UNTRUSTED_RULE
 
 RULES = "Open with who you are. Say what the product costs. Link to example.com/join."
 SEQ = [{"step": n, "subject": f"s{n}", "body": f"b{n} {{{{company}}}}", "delay_days": 0 if n == 1 else 3}
@@ -102,7 +102,7 @@ def test_off_by_default_and_blank_means_off():
     assert load_email_rules(SimpleNamespace()) == ""
 
 
-def test_a_relative_path_is_read_from_the_harvey_folder(tmp_path, monkeypatch):
+def test_a_relative_path_is_read_from_the_sellbird_folder(tmp_path, monkeypatch):
     monkeypatch.setattr(config_module, "PROJECT_ROOT", tmp_path)
     (tmp_path / "skills").mkdir()
     (tmp_path / "skills" / "email_rules.md").write_text(f"\n{RULES}\n", encoding="utf-8")
@@ -188,7 +188,7 @@ async def test_with_an_opt_out_line_set_the_draft_gets_no_second_one(state):
     compliance = ComplianceConfig(opt_out_line='Reply "no thanks" and I won\'t write again.')
     for prompt in (await personal_prompt(state, RULES, compliance=compliance),
                    await sequence_prompt(state, RULES, compliance=compliance)):
-        assert 'Harvey adds this opt-out line under the email when it sends: "Reply "no thanks"' in prompt
+        assert 'Sellbird adds this opt-out line under the email when it sends: "Reply "no thanks"' in prompt
         assert "Don't write another way to opt out, even if the operator's rules give one." in prompt
         assert BUILT_IN_FOOTER not in prompt
 
@@ -197,18 +197,18 @@ async def test_with_an_opt_out_line_set_the_draft_gets_no_second_one(state):
 async def test_with_no_opt_out_line_the_operators_own_sentence_is_written(state):
     compliance = ComplianceConfig(opt_out_line="")
     prompt = await personal_prompt(state, RULES, compliance=compliance)
-    assert "Harvey adds no opt-out line." in prompt
+    assert "Sellbird adds no opt-out line." in prompt
     assert "write it into the body as they say" in prompt
     assert "opt-out line under the email" not in prompt
 
 
 @pytest.mark.asyncio
-async def test_the_postal_address_is_only_mentioned_when_harvey_adds_one(state):
+async def test_the_postal_address_is_only_mentioned_when_sellbird_adds_one(state):
     without = await personal_prompt(state, RULES, compliance=ComplianceConfig())
     with_address = await personal_prompt(
         state, RULES, compliance=ComplianceConfig(postal_address="1 Example St, Springfield"))
     assert "postal address" not in without.lower()
-    assert "No postal address: Harvey adds it under the email when it sends." in with_address
+    assert "No postal address: Sellbird adds it under the email when it sends." in with_address
 
 
 # ── A run ──
@@ -218,7 +218,7 @@ async def test_a_run_with_unusable_rules_writes_nothing(state, tmp_path, caplog)
     await prospect(state)
     brain = RecordingBrain(SEQ)
     w = Writer(brain, state, config(email_rules=str(tmp_path / "gone.md")))
-    with caplog.at_level(logging.WARNING, logger="harvey.writer"):
+    with caplog.at_level(logging.WARNING, logger="sellbird.writer"):
         await w.run()
     assert brain.prompts == []
     assert await state.get_campaigns_by_status("draft") == []
@@ -245,7 +245,7 @@ async def test_rules_never_lift_truthful_subject_lines(state):
 
 @pytest.mark.asyncio
 async def test_unusable_rules_are_noted_for_today_and_cleared_when_fixed(state, tmp_path):
-    from harvey.agents.writer import EMAIL_RULES_PROBLEM_KEY
+    from sellbird.agents.writer import EMAIL_RULES_PROBLEM_KEY
     path = tmp_path / "rules.md"
     await prospect(state)
     w = Writer(RecordingBrain(SEQ), state, config(email_rules=str(path)))
@@ -262,10 +262,10 @@ def test_today_says_the_writer_is_stopped(monkeypatch):
     import tempfile
     from pathlib import Path
     from fastapi.testclient import TestClient
-    import harvey.dashboard as dash
-    from harvey.agents.writer import EMAIL_RULES_PROBLEM_KEY
+    import sellbird.dashboard as dash
+    from sellbird.agents.writer import EMAIL_RULES_PROBLEM_KEY
     with tempfile.TemporaryDirectory() as tmp:
-        db = Path(tmp) / "harvey.db"
+        db = Path(tmp) / "sellbird.db"
         monkeypatch.setattr(dash, "DB_PATH", db)
         dash.token_store.configure(Path(tmp) / "data" / "dashboard-token")
         s = StateManager(str(db))

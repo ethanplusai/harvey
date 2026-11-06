@@ -3,9 +3,9 @@
 **
 !Dockerfile
 !requirements.txt
-!harvey.yaml
-!harvey/
-!harvey/**
+!sellbird.yaml
+!sellbird/
+!sellbird/**
 !prompts/
 !prompts/**
 !skills/

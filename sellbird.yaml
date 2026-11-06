@@ -1,0 +1,149 @@
+persona:
+  name: "Alex"
+  company: "Your Company"
+  role: "Business Development"
+  email: "alex@yourcompany.com"
+  linkedin: "linkedin.com/in/alex-yourcompany"
+  tone: "professional, consultative, confident"
+
+product:
+  name: "Your Product"
+  description: "Describe what your product does and who it's for"
+  pricing: "Starting at $X/mo"
+  key_benefits:
+    - "Benefit 1"
+    - "Benefit 2"
+    - "Benefit 3"
+  objection_responses:
+    "too expensive": "I understand budget is important. Most of our clients see ROI within 30 days..."
+    "already have a solution": "That makes sense. Curious — what's the one thing you wish it did better?"
+    "not interested": "No worries at all. Mind if I ask what your current approach looks like?"
+  offer:
+    primary: ""                    # Main offer (e.g., "Monthly subscription starting at $99/mo")
+    entry: ""                      # Low-commitment entry (e.g., "14-day free trial", "Free audit")
+    goal: "book_call"              # Goal of outreach: book_call, start_trial, get_reply
+    booking_method: "calendar_link" # calendar_link, suggest_times, ask_preference
+    booking_url: ""                # Calendar link URL (if using calendar_link method)
+    meeting_duration: "15 minutes" # How long the call is
+    meeting_owner: ""              # Who takes the meeting (name or role)
+
+icp:
+  industries:
+    - "SaaS"
+    - "Marketing Agency"
+  company_size: "10-200 employees"
+  titles:
+    - "VP Marketing"
+    - "Head of Growth"
+    - "CMO"
+    - "Director of Marketing"
+  geography:
+    - "United States"
+  # Roles that signal a company is in-market RIGHT NOW (a company hiring a
+  # "Head of Growth" is shopping for growth tooling). Used for careers-page
+  # scanning and job-board discovery. Empty = fall back to titles above.
+  hiring_signals: []
+
+channels:
+  email:
+    enabled: true
+    provider: "gmail"          # gmail (recommended) | microsoft | smtp | instantly
+    max_daily_sends: 50
+    require_approval: true      # native: review in Outbox; Instantly: sending held
+    # link_domains: ["mainsite.com"]   # your own sites besides the sending
+    #                                  # domain and booking link; on autopilot,
+    #                                  # an email linking elsewhere waits for you
+    send_to_risky: false        # also send to catch-all domains (off = safest)
+    max_bounce_rate: 0.05       # pause all sending if bounces exceed this
+    # New sending domain? Set start_date to the day your warmup service went
+    # on: no cold email for min_days, then the cold cap climbs from
+    # start_sends by daily_increase a day up to max_daily_sends. Replies are
+    # never held. Gmail/Microsoft/SMTP only (Instantly has its own warmup).
+    # Check readiness any time with `sellbird warmup`.
+    # We recommend TrulyInbox for warmup: https://trulyinbox.com/?via=sellbird
+    # Connect it (`sellbird trulyinbox connect`) and `sellbird warmup` reads
+    # whether this mailbox is actually warmed.
+    warmup:
+      start_date: ""            # YYYY-MM-DD; blank = no ramp
+      min_days: 14
+      start_sends: 5
+      daily_increase: 3
+      dkim_selector: ""         # only if your provider uses an unusual one
+    # Send cold email only in office hours in each recipient's own time zone,
+    # worked out from the company's location or the country Precleared finds.
+    # Anyone Sellbird can't place gets the window in usage.quiet_hours.timezone.
+    # Follow-ups move into the window; replies are never held. Quiet hours
+    # then stop prospecting and writing, not mail that's due.
+    # Gmail/Microsoft/SMTP only. Remove the # marks to switch it on.
+    # send_window:
+    #   start: "08:00"
+    #   end: "17:00"
+    #   weekdays_only: true      # Monday to Friday, in every country
+    #   recipient_timezone: true  # false: one zone for everyone (quiet_hours.timezone)
+    # A logo under every email, cold or reply: the email goes out as HTML
+    # with the image embedded. Blank logo = plain text, as before. If the
+    # file can't be used, approved email waits instead of going out without
+    # it. Gmail/Microsoft/SMTP only.
+    # Plain text usually lands better for cold email: images and HTML can push
+    # a new mailbox toward spam. Warm up first, and test placement after adding it.
+    signature:
+      logo: ""                  # PNG/JPEG/GIF up to 100 KB, e.g. "data/assets/logo.png"
+      width: 120                # display width in pixels
+      alt: ""                   # text when images are off; blank = persona.company
+      link: ""                  # optional web address the logo opens
+      direction: "auto"         # rtl for Hebrew or Arabic email
+  linkedin:
+    enabled: false             # explicit opt-in; credentials alone do not enable it
+    max_daily_connections: 20
+    max_daily_messages: 10
+
+usage:
+  max_daily_claude_percent: 80
+  heartbeat_interval_minutes: 15
+  quiet_hours:
+    start: "22:00"
+    end: "07:00"
+    timezone: "America/New_York"
+
+# Optional: check each new recipient with Precleared (precleared.dev) before
+# the first cold email: may cold marketing email go to this address under UK
+# PECR, US CAN-SPAM, Canada's CASL, Germany's UWG and France's rules? Any other
+# answer holds the email back, with the reason in the Outbox. One check per
+# address; 10 a day free without a key, 25 with a free key (PRECLEARED_API_KEY
+# in .env). Applies to the native providers (gmail, microsoft, smtp). If all
+# your prospects are in one country, set prospect_country: Precleared uses it
+# only when it can't tell the country from the address, company records or the
+# company's website.
+compliance:
+  # Added under every cold email (never replies). US law (CAN-SPAM) requires a
+  # postal address you receive mail at: a street address, PO box or virtual
+  # mailbox. Until it's set, cold email still sends, with a warning.
+  postal_address: ""
+  # Keep wording Sellbird recognises as an opt-out ("no thanks", "unsubscribe").
+  opt_out_line: 'Not interested? Reply "no thanks" and I won''t email again.'
+  # Never email these, cold or in reply: competitors, your existing customers,
+  # anyone under a legal hold. An entry is an address or a domain, and a domain
+  # covers its subdomains ("acme.example" also blocks "mail.acme.example", but
+  # not "notacme.example"). Checked by the gate at send time, so it holds even
+  # for an email you already approved in the Outbox, and picked up by a running
+  # Sellbird at once. If you trained Sellbird, set it in sellbird.local.yaml instead:
+  # that file wins.
+  do_not_contact: []
+  #   - "competitor.example"
+  #   - "jane@acme.example"
+  precleared:
+    enabled: false
+    sender_country: ""          # GB or US: where your business is based
+    address_source: "unknown"   # published | bought | scraped | given | unknown
+    prospect_country: ""        # optional, e.g. US if all your prospects are in one country
+    # Sellbird also tells Precleared the recipient's country when the company's
+    # location makes it certain, and the company's and person's names when
+    # it has them (see docs/precleared.md).
+
+# Optional: your own rules for the emails Sellbird drafts (length, structure,
+# what to say about the product, links, subject lines, sign-off), as a
+# markdown file. When set they replace the built-in shape (email 1 under 75
+# words, an observation and a question, no pitch). The send gate still holds
+# every email to 220 words and one link. skills/email_rules.md is gitignored.
+# writer:
+#   email_rules: "skills/email_rules.md"

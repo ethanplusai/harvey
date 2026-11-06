@@ -13,8 +13,8 @@ from unittest.mock import AsyncMock
 
 import pytest
 
-from harvey.integrations import gmail as gmail_mod
-from harvey.integrations.gmail import GmailError, GmailProvider
+from sellbird.integrations import gmail as gmail_mod
+from sellbird.integrations.gmail import GmailError, GmailProvider
 
 
 def message(mid, sender="person@example.test", body="Hello", labels=("INBOX",)):
@@ -147,7 +147,7 @@ async def test_what_counts_as_an_inbox_reply():
     await p.get_replies()
     p.confirm_read()
     fake.messages = {
-        "mine": message("mine", labels=("SENT",)),                    # Harvey's own email
+        "mine": message("mine", labels=("SENT",)),                    # Sellbird's own email
         "draft": message("draft", labels=("DRAFT",)),
         "skipped": message("skipped", labels=("CATEGORY_UPDATES",)),  # never reached the inbox
         "moved": message("moved", labels=("CATEGORY_UPDATES",)),     # later moved in
@@ -196,7 +196,7 @@ async def test_a_profile_that_cant_be_read_still_reads_the_week():
 
 @pytest.mark.asyncio
 async def test_the_handler_confirms_only_a_complete_read(tmp_path):
-    from harvey.state import StateManager
+    from sellbird.state import StateManager
     from tests.test_outbox_native import FakeProvider, make_handler
     state = StateManager(str(tmp_path / "c.db"))
     await state.init_db()
@@ -300,7 +300,7 @@ async def test_a_reply_moved_back_into_the_inbox_is_judged_on_its_labels_now():
     p.confirm_read()
     fake.messages = {"r": message("r", body="stop", labels=("TRASH",))}
     fake.history = {"100": [{"history": [added("r")], "historyId": "101"}]}
-    assert await p.get_replies() == []                        # trashed before Harvey looked
+    assert await p.get_replies() == []                        # trashed before Sellbird looked
     p.confirm_read()
     fake.messages["r"] = message("r", body="stop", labels=("INBOX",))   # moved back
     fake.history["101"] = [{"history": [added("r", key="labelsAdded", labels=["INBOX"])],
@@ -311,9 +311,9 @@ async def test_a_reply_moved_back_into_the_inbox_is_judged_on_its_labels_now():
 @pytest.mark.asyncio
 @pytest.mark.parametrize("failure", ["brain", "error"])
 async def test_the_handler_doesnt_confirm_when_a_reply_wasnt_handled(tmp_path, monkeypatch, failure):
-    from harvey.brain import BrainUnavailable
-    from harvey.integrations.mail_provider import InboundMessage
-    from harvey.state import StateManager
+    from sellbird.brain import BrainUnavailable
+    from sellbird.integrations.mail_provider import InboundMessage
+    from sellbird.state import StateManager
     from tests.test_outbox_native import FakeProvider, make_handler, seed_prospect
     state = StateManager(str(tmp_path / "u.db"))
     await state.init_db()

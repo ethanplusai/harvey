@@ -6,7 +6,7 @@ Two kinds of test, kept apart on purpose:
   over stdio, paths with spaces and non-ASCII characters, launching a real
   executable from such a path, private file modes (POSIX).
 * Windows: the Codex provider is unsupported there (macOS and Linux only).
-  These tests flip ``harvey.codex._PLATFORM`` to check that every public
+  These tests flip ``sellbird.codex._PLATFORM`` to check that every public
   Codex entry point refuses it before reading the login or starting any
   process, and that Claude is unaffected. They run on every OS.
 """
@@ -21,7 +21,7 @@ from pathlib import Path
 
 import pytest
 
-import harvey.codex as hc
+import sellbird.codex as hc
 from tests.test_codex import (  # noqa: F401  (pytest fixtures)
     FAKE, PROMPT, _client, _write_login, fake, native_home, private_tempdir,
 )
@@ -67,7 +67,7 @@ async def test_paths_with_spaces_and_non_ascii(fake, tmp_path, monkeypatch):
 @pytest.mark.asyncio
 @pytest.mark.skipif(not POSIX, reason="POSIX wrapper script; Windows uses a .cmd shim")
 async def test_real_executable_in_a_path_with_spaces(native_home, tmp_path, monkeypatch):
-    """No routing fixture: Harvey execs a real file whose path has spaces and
+    """No routing fixture: Sellbird execs a real file whose path has spaces and
     non-ASCII, found through PATH like the npm `codex` shim."""
     bindir = tmp_path / "Program Files ü" / "codex bin"
     bindir.mkdir(parents=True)
@@ -146,9 +146,9 @@ def test_windows_setup_checks_refuse_codex(native_home, on_windows):
 async def test_windows_quota_and_brain_pause_cleanly(on_windows, tmp_path):
     import json as _json
 
-    from harvey.brain import BRAIN_STATUS_KEY, Brain
-    from harvey.config import BrainConfig
-    from harvey.state import StateManager
+    from sellbird.brain import BRAIN_STATUS_KEY, Brain
+    from sellbird.config import BrainConfig
+    from sellbird.state import StateManager
 
     state = StateManager(str(tmp_path / "w.db"))
     await state.init_db()
@@ -162,8 +162,8 @@ async def test_windows_quota_and_brain_pause_cleanly(on_windows, tmp_path):
 
 
 def test_windows_setup_offers_claude_instead(monkeypatch, on_windows, capsys):
-    import harvey.setup as setup_mod
-    from harvey.config import BrainConfig
+    import sellbird.setup as setup_mod
+    from sellbird.config import BrainConfig
 
     answers = iter(["codex", "claude", ""])
     monkeypatch.setattr(setup_mod, "_ask", lambda *a, **k: next(answers))
@@ -173,9 +173,9 @@ def test_windows_setup_offers_claude_instead(monkeypatch, on_windows, capsys):
 
 @pytest.mark.asyncio
 async def test_claude_is_unaffected_on_windows(on_windows, monkeypatch, tmp_path):
-    import harvey.brain as brain_mod
-    from harvey.brain import Brain
-    from harvey.state import StateManager
+    import sellbird.brain as brain_mod
+    from sellbird.brain import Brain
+    from sellbird.state import StateManager
 
     class Proc:
         returncode = 0

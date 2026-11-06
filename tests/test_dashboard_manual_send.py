@@ -12,8 +12,8 @@ from datetime import datetime, timezone
 import pytest
 from fastapi.testclient import TestClient
 
-import harvey.dashboard as dash
-from harvey.state import StateManager
+import sellbird.dashboard as dash
+from sellbird.state import StateManager
 
 ORIGIN = "http://127.0.0.1:5555"
 
@@ -21,15 +21,15 @@ ORIGIN = "http://127.0.0.1:5555"
 @pytest.fixture
 def env(tmp_path, monkeypatch):
     (tmp_path / "data").mkdir()
-    db = tmp_path / "data" / "harvey.db"
+    db = tmp_path / "data" / "sellbird.db"
     monkeypatch.setattr(dash, "ENV_FILE", tmp_path / ".env")
     monkeypatch.setattr(dash, "DB_PATH", db)
-    monkeypatch.setattr(dash, "PID_FILE", tmp_path / "data" / "harvey.pid")
-    monkeypatch.setattr(dash, "LOG_FILE", tmp_path / "data" / "harvey.log")
+    monkeypatch.setattr(dash, "PID_FILE", tmp_path / "data" / "sellbird.pid")
+    monkeypatch.setattr(dash, "LOG_FILE", tmp_path / "data" / "sellbird.log")
     dash.token_store.configure(tmp_path / "data" / "dashboard-token")
-    # No mailbox connected: the user sends by hand. Tests that need Harvey
+    # No mailbox connected: the user sends by hand. Tests that need Sellbird
     # to be able to send set this back.
-    monkeypatch.setattr(dash, "_harvey_can_send", lambda: False)
+    monkeypatch.setattr(dash, "_sellbird_can_send", lambda: False)
     asyncio.run(StateManager(db_path=str(db)).init_db())
     return {"db": db, "token": dash.token_store.get()}
 
@@ -122,7 +122,7 @@ def _status(env, table, row_id):
         return db.execute(f"SELECT status FROM {table} WHERE id = ?", (row_id,)).fetchone()[0]
 
 
-def test_sending_by_hand_cancels_what_harvey_had_queued(client, env):
+def test_sending_by_hand_cancels_what_sellbird_had_queued(client, env):
     _prospect(env, "p1", "a@acme.test", status="queued")
     _outbox(env, "o1", "p1", "pending_review", step=1)
     _outbox(env, "o2", "p1", "pending_review", step=2)
@@ -149,7 +149,7 @@ def test_undo_never_cancels_an_unrelated_cancellation(client, env):
     assert _status(env, "outbox", "o1") == "cancelled"
 
 
-def test_unticking_someone_harvey_emailed_is_refused(client, env):
+def test_unticking_someone_sellbird_emailed_is_refused(client, env):
     _prospect(env, "p1", "a@acme.test", status="contacted")
     _outbox(env, "o1", "p1", "sent")
     r = client.post("/api/prospects/p1/sent", json={"sent": False})
@@ -167,7 +167,7 @@ def test_unticking_someone_sent_through_instantly_is_refused(client, env):
 
 def test_recipients_say_who_can_be_sent_by_hand(client, env):
     _prospect(env, "p1", "a@acme.test", status="queued")
-    _prospect(env, "p2", "b@acme.test", status="queued")              # Harvey approved mail
+    _prospect(env, "p2", "b@acme.test", status="queued")              # Sellbird approved mail
     _prospect(env, "p3", "c@acme.test", status="opted_out")           # asked to be removed
     _prospect(env, "p4", "d@acme.test", email_status="guess")         # undeliverable
     _prospect(env, "p5", "e@acme.test", email_status="invalid")
@@ -178,11 +178,11 @@ def test_recipients_say_who_can_be_sent_by_hand(client, env):
     assert {k for k, r in recips.items() if r["can_send_by_hand"]} == {"p1", "p6"}
 
 
-def test_no_gmail_button_while_harvey_can_send_but_a_hand_send_can_still_be_recorded(
+def test_no_gmail_button_while_sellbird_can_send_but_a_hand_send_can_still_be_recorded(
         client, env, monkeypatch):
-    # Recording "I already emailed them" can only stop Harvey sending, so it
+    # Recording "I already emailed them" can only stop Sellbird sending, so it
     # is never refused just because a mailbox is connected now.
-    monkeypatch.setattr(dash, "_harvey_can_send", lambda: True)
+    monkeypatch.setattr(dash, "_sellbird_can_send", lambda: True)
     _prospect(env, "p1", "a@acme.test", status="queued")
     _campaign(env, "c1", ["p1"])
     _outbox(env, "o1", "p1", "pending_review")
@@ -212,9 +212,9 @@ def test_someone_whose_mail_is_being_sent_cant_be_marked_sent(client, env):
     assert _status(env, "outbox", "o1") == "sending"
 
 
-def test_mail_that_may_have_gone_out_counts_as_sent_by_harvey(client, env):
+def test_mail_that_may_have_gone_out_counts_as_sent_by_sellbird(client, env):
     # A send cut off mid-way may have reached them: never offer a second one.
-    from harvey.state import MAYBE_SENT_PREFIX
+    from sellbird.state import MAYBE_SENT_PREFIX
     _prospect(env, "p1", "a@acme.test", status="queued")
     _campaign(env, "c1", ["p1"])
     _outbox(env, "o1", "p1", "failed")
@@ -254,7 +254,7 @@ def test_rejecting_mail_already_on_its_way_is_refused(client, env):
     assert _status(env, "outbox", "o2") == "sent"
 
 
-def test_drafts_awaiting_review_dont_hide_the_gmail_button_when_harvey_cant_send(client, env):
+def test_drafts_awaiting_review_dont_hide_the_gmail_button_when_sellbird_cant_send(client, env):
     _prospect(env, "p1", "a@acme.test", status="queued")
     _campaign(env, "c1", ["p1"])
     _outbox(env, "o1", "p1", "pending_review")   # staged, but no mailbox to send it
@@ -274,10 +274,10 @@ def test_a_hand_sent_prospect_is_marked_for_the_sender(client, env):
         assert db.execute("SELECT 1 FROM settings WHERE key = 'manual_send:p1'").fetchone() is None
 
 
-def test_ticking_someone_harvey_emailed_changes_nothing(client, env):
+def test_ticking_someone_sellbird_emailed_changes_nothing(client, env):
     _prospect(env, "p1", "a@acme.test", status="contacted")
     _outbox(env, "o1", "p1", "sent", step=1)
-    _outbox(env, "o2", "p1", "approved", step=2)   # Harvey's follow-up
+    _outbox(env, "o2", "p1", "approved", step=2)   # Sellbird's follow-up
     client.post("/api/prospects/p1/sent", json={"sent": True})
     assert _status(env, "outbox", "o2") == "approved"
 
@@ -326,28 +326,28 @@ class _Provider:
 @pytest.mark.parametrize("cfg, env, provider_ok, expected", [
     (_Cfg(enabled=False), _Env(), True, False),                 # email off: hand sends only
     (_Cfg(provider="smtp"), _Env(), False, False),              # mailbox not connected
-    (_Cfg(provider="gmail"), _Env(), True, True),               # connected: Harvey sends
+    (_Cfg(provider="gmail"), _Env(), True, True),               # connected: Sellbird sends
     (_Cfg(provider="instantly"), _Env(instantly="k"), True, True),
     (_Cfg(provider="instantly"), _Env(), True, False),
     (_Cfg(provider="instantly", approval=True), _Env(instantly="k"), True, False),  # held
 ])
-def test_harvey_can_send(monkeypatch, cfg, env, provider_ok, expected):
-    import harvey.config
-    import harvey.integrations.mail_provider as mp
-    monkeypatch.setattr(harvey.config, "load_config", lambda: cfg)
-    monkeypatch.setattr(harvey.config, "load_env", lambda: env)
+def test_sellbird_can_send(monkeypatch, cfg, env, provider_ok, expected):
+    import sellbird.config
+    import sellbird.integrations.mail_provider as mp
+    monkeypatch.setattr(sellbird.config, "load_config", lambda: cfg)
+    monkeypatch.setattr(sellbird.config, "load_env", lambda: env)
     monkeypatch.setattr(mp, "get_mail_provider", lambda c, e: _Provider(provider_ok))
     # These tests don't use the env fixture, so this is the real check.
-    assert dash._harvey_can_send() is expected
+    assert dash._sellbird_can_send() is expected
 
 
-def test_an_unreadable_config_means_harvey_might_send(monkeypatch):
-    import harvey.config
+def test_an_unreadable_config_means_sellbird_might_send(monkeypatch):
+    import sellbird.config
 
     def boom():
         raise ValueError("bad yaml")
-    monkeypatch.setattr(harvey.config, "load_config", boom)
-    assert dash._harvey_can_send() is True
+    monkeypatch.setattr(sellbird.config, "load_config", boom)
+    assert dash._sellbird_can_send() is True
 
 
 def test_marking_twice_says_it_was_already_marked(client, env):
@@ -362,14 +362,14 @@ def test_mail_approved_while_marking_is_refused_and_the_marker_removed(client, e
     # The marker goes down first; if mail got approved meanwhile, the drain
     # may already hold it, so the mark is refused and undone.
     _prospect(env, "p1", "a@acme.test", status="queued")
-    real = dash._harvey_committed_ids
+    real = dash._sellbird_committed_ids
 
     async def approved_meanwhile():
         _outbox(env, "o1", "p1", "approved")
         with sqlite3.connect(env["db"]) as db:
             assert db.execute("SELECT 1 FROM settings WHERE key = 'manual_send:p1'").fetchone()
         return await real()
-    monkeypatch.setattr(dash, "_harvey_committed_ids", approved_meanwhile)
+    monkeypatch.setattr(dash, "_sellbird_committed_ids", approved_meanwhile)
     assert client.post("/api/prospects/p1/sent", json={"sent": True}).status_code == 409
     with sqlite3.connect(env["db"]) as db:
         assert db.execute("SELECT 1 FROM settings WHERE key = 'manual_send:p1'").fetchone() is None

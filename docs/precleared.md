@@ -1,6 +1,6 @@
 # The cold-email check (Precleared)
 
-Before the first cold email to anyone new, Harvey can ask
+Before the first cold email to anyone new, Sellbird can ask
 [Precleared](https://precleared.dev) whether cold email may go to that
 address. The answer turns on facts the address does not show: a UK sole
 trader needs consent where a limited company does not. Precleared looks them
@@ -12,7 +12,7 @@ Microsoft 365 or SMTP. Instantly campaigns and replies are never checked.
 
 ## Turning it on
 
-In `harvey.yaml`, or `harvey.local.yaml` if you trained Harvey (that file
+In `sellbird.yaml`, or `sellbird.local.yaml` if you trained Sellbird (that file
 wins):
 
 ```yaml
@@ -25,7 +25,7 @@ compliance:
 ```
 
 Quote `prospect_country` (YAML reads an unquoted `NO` as false).
-`harvey setup` asks the same questions.
+`sellbird setup` asks the same questions.
 
 ## What is sent
 
@@ -33,12 +33,12 @@ One request per new address: the address, `sender_country`,
 `address_source`, `existing_customer: false`, the first 200 characters of
 `product.description`, and the recipient's country, in one of two ways:
 
-- **`recipient_country`**, when Harvey is sure of it. That is a country
+- **`recipient_country`**, when Sellbird is sure of it. That is a country
   named in the company's location ("Oslo, Norway", "London, UK"), a US
   state, Canadian province or Australian state named there ("Austin, TX",
   "Toronto, ON"), or a code that is a state and a country too ("Berlin, DE")
   once the coordinates discovery cached for that place settle it. Precleared
-  takes it as settled, so a reading Harvey is not sure of is never sent: that
+  takes it as settled, so a reading Sellbird is not sure of is never sent: that
   same code with no coordinates (Delaware by convention), a city on its own,
   or coordinates alone. A stored time zone alone never establishes the
   country, because it may come from approximate or stale location data.
@@ -52,7 +52,7 @@ One request per new address: the address, `sender_country`,
 
 Never both.
 
-Also, when Harvey has them, the company's and the person's names:
+Also, when Sellbird has them, the company's and the person's names:
 
 - **`company_name`**, the company record's name, else the prospect's own
   company field.
@@ -92,7 +92,7 @@ rejected, or it cannot be reached), new checks wait for a later cycle.
 Valid cached verdicts still apply, using the same recipient-country facts
 as a fresh check. Replies still go out. Address-specific failures postpone
 that email six hours; failures at two distinct domains without a fresh answer
-pause further checks. The Today page and `harvey status` say how many cold
+pause further checks. The Today page and `sellbird status` say how many cold
 emails are waiting and what fixes it. The next answered check clears the
 notice, and so does switching the check off.
 
@@ -104,7 +104,7 @@ notice, and so does switching the check off.
 | Free key | 25 |
 | Any new key, first 14 days | 100 |
 
-Beyond that a key draws on a prepaid pack, and Harvey shows the checkout
+Beyond that a key draws on a prepaid pack, and Sellbird shows the checkout
 link when one runs out. Get a free key at
 [precleared.dev/get-key](https://precleared.dev/get-key) and put it in `.env`
 as `PRECLEARED_API_KEY`.
@@ -113,9 +113,9 @@ as `PRECLEARED_API_KEY`.
 
 A definite verdict is kept for 30 days under `precleared:<address>`, with a
 fingerprint of the sender country, address source, product description, the
-country sent with it (the recipient's when Harvey was sure, else the default
+country sent with it (the recipient's when Sellbird was sure, else the default
 in use) and the names sent with it. Change any of those and the next email
-gets a fresh check. A three-step sequence costs one check. An address Harvey
+gets a fresh check. A three-step sequence costs one check. An address Sellbird
 later becomes sure of gets one fresh check, unless Precleared had already
 found that same country itself, in which case the cached verdict stands. When
 the names first come with an address whose verdict was cached without them,
@@ -126,15 +126,15 @@ Precleared found is kept with the verdict and feeds the send window.
 ## FAQ
 
 **Does it work with Instantly?** No. Instantly deploys whole campaigns, so
-Harvey cannot hold single emails there.
+Sellbird cannot hold single emails there.
 
 **Why do I get unknown?** Usually the recipient's country could not be worked
-out, and Harvey was not sure of it either (see "What is sent"). If your
+out, and Sellbird was not sure of it either (see "What is sent"). If your
 prospects are all in one country, set `prospect_country`.
 
 **Why do so many UK addresses come back consent_needed?** Often Precleared
 could not find the company behind the domain on the register, so it could not
-rule out a sole trader. Harvey sends the company's and person's names to help
+rule out a sole trader. Sellbird sends the company's and person's names to help
 it; a company record with the business's real name helps most.
 
 **Can I prove a check was made?** Each send logs the receipt id, and

@@ -20,11 +20,11 @@ import pytest_asyncio
 
 RECENT = date.fromordinal(date.today().toordinal() - 120).strftime("%Y-%m")   # about 4 months ago
 
-from harvey.collectors.discover import build_queries, is_junk, preset_problem
-from harvey.collectors.profile import ProfileCollector, accelerators, funding_round
-from harvey.models.company import Company
-from harvey.signals import SIGNAL_CATALOG, seed_signal_catalog
-from harvey.state import StateManager
+from sellbird.collectors.discover import build_queries, is_junk, preset_problem
+from sellbird.collectors.profile import ProfileCollector, accelerators, funding_round
+from sellbird.models.company import Company
+from sellbird.signals import SIGNAL_CATALOG, seed_signal_catalog
+from sellbird.state import StateManager
 
 
 @pytest_asyncio.fixture
@@ -138,7 +138,7 @@ def test_a_timeline_line():
 
 
 def test_the_yc_detector_is_unchanged():
-    from harvey.collectors.profile import yc_backed
+    from sellbird.collectors.profile import yc_backed
     assert yc_backed("<p>Acme is backed by Y Combinator (W22).</p>", domain="acme.com") == ("W22", 0.9)
     assert yc_backed("<p>We're backed by Techstars.</p>", domain="acme.com") is None
 
@@ -234,7 +234,7 @@ def test_the_newest_round_on_a_page_wins():
 
 
 def test_how_long_ago():
-    from harvey.startups import funding_recency
+    from sellbird.startups import funding_recency
     today = date(2026, 10, 24)
     assert funding_recency("2026-03", today) == "recent"
     assert funding_recency("2025-01-02", today) == "old"         # over 18 months
@@ -314,7 +314,7 @@ def test_lookalikes_are_still_prospects(domain):
 
 
 def test_an_accelerator_preset_hit_is_evidence():
-    from harvey.collectors.discover import Business, _observations
+    from sellbird.collectors.discover import Business, _observations
     biz = Business(name="Acme", domain="acme.com", source_url="https://acme.com/about", provider="serper")
     q = build_queries(_config(), preset="accelerator")[0]
     [hit] = [r for r in _observations(biz, "c1", {"ACCELERATOR"}, "r1", query=q)
@@ -327,19 +327,19 @@ def test_an_accelerator_preset_hit_is_evidence():
 
 
 def test_cli_and_dashboard_take_the_presets():
-    import harvey.dashboard as dash
-    from harvey.paths import PROJECT_ROOT
+    import sellbird.dashboard as dash
+    from sellbird.paths import PROJECT_ROOT
     for preset in ("accelerator", "funding"):
         assert dash._discovery_queries({"provider": "serper", "preset": preset}, _config())
-    cli = (PROJECT_ROOT / "harvey" / "cli.py").read_text(encoding="utf-8")
+    cli = (PROJECT_ROOT / "sellbird" / "cli.py").read_text(encoding="utf-8")
     choices = re.search(r'"--preset", default="", choices=\[([^\]]*)\]', cli).group(1)
     assert '"accelerator"' in choices and '"funding"' in choices
-    page = (PROJECT_ROOT / "harvey" / "web" / "index.html").read_text(encoding="utf-8")
+    page = (PROJECT_ROOT / "sellbird" / "web" / "index.html").read_text(encoding="utf-8")
     assert 'value="accelerator"' in page and 'value="funding"' in page
 
 
 def test_every_preset_checks_and_builds_whether_it_has_one_term_or_several():
-    from harvey.collectors.discover import PRESETS, preset_problem
+    from sellbird.collectors.discover import PRESETS, preset_problem
     config = _config()
     config.icp.hiring_signals, config.icp.titles = ["Head of Sales"], ["CEO"]
     for preset in PRESETS:
@@ -446,7 +446,7 @@ class RecordingBrain:
         return "PROMPT"
 
     def load_skill(self, name):
-        from harvey.brain import Brain
+        from sellbird.brain import Brain
         return Brain.load_skill(self, name)
 
     async def think_json(self, prompt, **kw):
@@ -459,7 +459,7 @@ class RecordingBrain:
 
 
 async def _prospect(state, code, num, text, n):
-    from harvey.models.prospect import Prospect
+    from sellbird.models.prospect import Prospect
     cid = await state.add_company(Company(name="Acme", domain=f"acme{n}.com"))
     if code:
         await state.add_observation(company_id=cid, signal_code=code, collector="profile",
@@ -470,7 +470,7 @@ async def _prospect(state, code, num, text, n):
 
 
 def _writer(state, brain):
-    from harvey.agents.writer import Writer
+    from sellbird.agents.writer import Writer
     cfg = SimpleNamespace(
         channels=SimpleNamespace(email=SimpleNamespace(provider="gmail", require_approval=True)),
         product=SimpleNamespace(name="P", description="D", key_benefits=[], pricing=""),
@@ -515,8 +515,8 @@ async def test_an_old_raise_is_marked_old(state):
 
 @pytest.mark.asyncio
 async def test_the_reply_handler_uses_it_for_an_accelerator_startup(state):
-    from harvey.agents.handler import Handler
-    from harvey.models.conversation import Conversation, Message
+    from sellbird.agents.handler import Handler
+    from sellbird.models.conversation import Conversation, Message
     from tests.test_outbox_native import Cfg, Env
     await seed_signal_catalog(state)
     prospect = await _prospect(state, "ACCELERATOR", 1, "Antler", 1)
@@ -542,7 +542,7 @@ async def test_a_mixed_sequence_batch_gets_no_founder_framing(state):
 
 
 def test_the_playbook_covers_accelerators_and_raises():
-    from harvey.paths import PROJECT_ROOT
+    from sellbird.paths import PROJECT_ROOT
     text = (PROJECT_ROOT / "skills" / "selling_to_startups.md").read_text(encoding="utf-8").lower()
     for topic in ("accelerator", "techstars", "recently funded", "18 months", "amount"):
         assert topic in text

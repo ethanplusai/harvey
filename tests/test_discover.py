@@ -16,10 +16,10 @@ import httpx
 import pytest
 import pytest_asyncio
 
-from harvey.collectors import discover as D
-from harvey.config import EnvConfig, load_config
-from harvey.signals import SIGNAL_CATALOG, seed_signal_catalog
-from harvey.state import StateManager
+from sellbird.collectors import discover as D
+from sellbird.config import EnvConfig, load_config
+from sellbird.signals import SIGNAL_CATALOG, seed_signal_catalog
+from sellbird.state import StateManager
 
 
 @pytest_asyncio.fixture
@@ -808,8 +808,8 @@ def test_the_default_provider_needs_no_account():
 
 @pytest.mark.asyncio
 async def test_unconfigured_provider_says_which_key_is_missing(state, config, monkeypatch):
-    from harvey.config import EnvConfig
-    monkeypatch.setattr("harvey.config.load_env", lambda: EnvConfig())
+    from sellbird.config import EnvConfig
+    monkeypatch.setattr("sellbird.config.load_env", lambda: EnvConfig())
     report = await D.run_discovery(state, config, "dataforseo_listings",
                                    [D.DiscoveryQuery(term="roofer")])
     assert report.stopped == "not configured"
@@ -826,7 +826,7 @@ async def test_empty_api_key_runs_nothing_and_says_so(state, config,
                                                       register, monkeypatch):
     """The 2026-10-24 bug: an empty SERPER_API_KEY placeholder "succeeded"
     with 0 observations and exit code 0. It must stop with a named error."""
-    monkeypatch.setattr("harvey.config.load_env",
+    monkeypatch.setattr("sellbird.config.load_env",
                         lambda: EnvConfig(serper_api_key=""))
     fake = register(D.Serper())   # fresh instance — don't mutate the singleton
 
@@ -845,7 +845,7 @@ async def test_empty_api_key_runs_nothing_and_says_so(state, config,
 async def test_template_placeholder_key_is_treated_as_missing(state, config,
                                                               register,
                                                               monkeypatch):
-    monkeypatch.setattr("harvey.config.load_env",
+    monkeypatch.setattr("sellbird.config.load_env",
                         lambda: EnvConfig(serper_api_key="your_api_key_here"))
     fake = register(D.Serper())   # fresh instance — don't mutate the singleton
 
@@ -1118,7 +1118,7 @@ async def test_geocode_is_cached_so_a_city_is_looked_up_once(state):
 
     def handler(request):
         calls["n"] += 1
-        assert "Harvey" in request.headers["user-agent"]
+        assert "Sellbird" in request.headers["user-agent"]
         return httpx.Response(200, json=[{"lat": "39.7392", "lon": "-104.9903"}])
 
     async with _geo_client(handler) as client:
@@ -1271,7 +1271,7 @@ async def test_directory_title_still_filtered_after_adapter(provider, tmp_path, 
     real_client = httpx.AsyncClient
     monkeypatch.setattr(D.httpx, 'AsyncClient', lambda **kw: real_client(
         transport=httpx.MockTransport(lambda request: httpx.Response(200, json=payload)), **kw))
-    monkeypatch.setattr('harvey.config.load_env', lambda: EnvConfig(
+    monkeypatch.setattr('sellbird.config.load_env', lambda: EnvConfig(
         serper_api_key='dummy', dataforseo_login='dummy', dataforseo_password='dummy',
         scavio_api_key='dummy'))
     state = StateManager(str(tmp_path / 'test.db'))
@@ -1322,14 +1322,14 @@ def test_homepage_prefers_stronger_brand_over_longer_partial_match():
 
 # --- CLI startup key guard -------------------------------------------
 #
-# `harvey discover --provider serper` with an empty or placeholder
+# `sellbird discover --provider serper` with an empty or placeholder
 # SERPER_API_KEY used to exit 0 and record zero observations. cmd_discover
 # must refuse at startup - before the estimate, before any call - in both
 # collect mode, and never block estimates or the keyless default provider.
 
 from types import SimpleNamespace
 
-from harvey.cli import cmd_discover
+from sellbird.cli import cmd_discover
 
 
 def _cli_args(**over):
@@ -1340,7 +1340,7 @@ def _cli_args(**over):
 
 
 def _fake_env(monkeypatch, **values):
-    from harvey import config as cfg
+    from sellbird import config as cfg
     monkeypatch.setattr(
         cfg, "load_env",
         lambda: SimpleNamespace(model_dump=lambda: dict(values)))
@@ -1379,7 +1379,7 @@ def test_keyless_default_provider_is_never_blocked(monkeypatch, capsys):
     # osm has no env_keys, so the startup guard must pass through. Reaching
     # load_config (patched to raise) proves the guard let the command by.
     _fake_env(monkeypatch)
-    from harvey import config as cfg
+    from sellbird import config as cfg
 
     def _boom():
         raise RuntimeError("reached-load-config")
@@ -1425,7 +1425,7 @@ async def test_tinyfish_rate_limit_names_the_real_limits(monkeypatch):
 
 
 def test_tinyfish_docs_state_the_published_limits():
-    from harvey.paths import PROJECT_ROOT
+    from sellbird.paths import PROJECT_ROOT
     for name in ("README.md", "CLAUDE.md", ".env.example", "CHANGELOG.md"):
         text = (PROJECT_ROOT / name).read_text(encoding="utf-8")
         for claim in ("12,000 free", "12,000 queries", "12,000 searches", "12k free"):
@@ -1569,7 +1569,7 @@ def test_new_junk_filters_keep_employer_sites(domain):
 
 @pytest.mark.parametrize("domain", ["naukri.com", "www.indiamart.com", "thingiverse.com"])
 def test_new_junk_filters_reject_aggregators(domain):
-    from harvey.agents.scout import Scout
+    from sellbird.agents.scout import Scout
     assert D.is_junk(domain)
     assert Scout._is_noise_domain(None, domain)
 
@@ -1591,7 +1591,7 @@ async def test_serper_caps_request_and_estimate():
 
 @pytest.mark.asyncio
 async def test_scout_serper_caps_request(monkeypatch):
-    from harvey.agents.scout import Scout
+    from sellbird.agents.scout import Scout
     from types import SimpleNamespace
     requests = []
     async def fetch(url, **kwargs):
@@ -1615,7 +1615,7 @@ async def test_failed_attempt_is_not_a_successful_query(state, config, register)
 
 @pytest.mark.parametrize("attempted,succeeded", [(0, 0), (2, 0), (2, 1), (1, 1)])
 def test_cli_exit_tracks_successful_queries(monkeypatch, config, attempted, succeeded):
-    from harvey import config as cfg, pipeline
+    from sellbird import config as cfg, pipeline
     _fake_env(monkeypatch, serper_api_key="fixture")
     monkeypatch.setattr(cfg, "load_config", lambda: config)
     async def init_db(self):
@@ -1647,7 +1647,7 @@ async def test_scavio_stops_run_on_account_errors(state, config, register, monke
     real_client = httpx.AsyncClient
     monkeypatch.setattr(D.httpx, "AsyncClient", lambda **kw: real_client(
         transport=httpx.MockTransport(handler), **kw))
-    monkeypatch.setattr("harvey.config.load_env", lambda: EnvConfig(scavio_api_key="fixture"))
+    monkeypatch.setattr("sellbird.config.load_env", lambda: EnvConfig(scavio_api_key="fixture"))
     report = await D.run_discovery(state, config, provider.key,
         [D.DiscoveryQuery(term="roofer"), D.DiscoveryQuery(term="plumber")])
     assert len(calls) == 1
@@ -1672,7 +1672,7 @@ async def test_scavio_partial_search_preserves_prior_ranks_and_cost(state, confi
     real_client = httpx.AsyncClient
     monkeypatch.setattr(D.httpx, "AsyncClient", lambda **kw: real_client(
         transport=httpx.MockTransport(handler), **kw))
-    monkeypatch.setattr("harvey.config.load_env", lambda: EnvConfig(scavio_api_key="fixture"))
+    monkeypatch.setattr("sellbird.config.load_env", lambda: EnvConfig(scavio_api_key="fixture"))
     query = D.DiscoveryQuery(term="roofer", depth=20)
     await D.run_discovery(state, config, provider.key, [query])
     previous = await state.get_company_by_domain("roofer10.example")

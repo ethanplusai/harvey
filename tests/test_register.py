@@ -4,7 +4,7 @@ from types import SimpleNamespace
 
 import pytest
 
-from harvey.register import build_register, company_status, to_csv
+from sellbird.register import build_register, company_status, to_csv
 
 CO = {"id": "c1", "name": "Acme Forge", "domain": "acme.example", "industry": "forging company",
       "location": "Springfield", "website": "https://acme.example", "created_at": "2026-01-02 10:00",
@@ -26,7 +26,7 @@ def p(email_status="verified", status="new", first="Nora", title="Managing Direc
     ([p("invalid")], [], "Not contacted"),
     ([p(status="lost")], [], "Not contacted"),
 ])
-def test_status_follows_what_harvey_did(prospects, outbox, expect):
+def test_status_follows_what_sellbird_did(prospects, outbox, expect):
     assert company_status(CO, prospects, outbox, [], [])[0] == expect
 
 
@@ -55,9 +55,9 @@ def test_do_not_contact_says_only_what_it_knows():
 
 @pytest.mark.asyncio
 async def test_register_reads_the_live_do_not_contact_list(monkeypatch):
-    import harvey.register as register
+    import sellbird.register as register
     monkeypatch.setattr(register, "live_do_not_contact", lambda config: ["acme.example"])
-    from harvey.config import ComplianceConfig
+    from sellbird.config import ComplianceConfig
     config = SimpleNamespace(
         icp=SimpleNamespace(industries=[], titles=[], hiring_signals=[]),
         compliance=ComplianceConfig())
@@ -116,18 +116,18 @@ def test_cli_writes_the_register(tmp_path, monkeypatch, capsys):
     import asyncio
     import sqlite3
 
-    import harvey.config as harvey_config
-    import harvey.state as harvey_state
-    from harvey.cli import cmd_companies
-    from harvey.state import StateManager
+    import sellbird.config as sellbird_config
+    import sellbird.state as sellbird_state
+    from sellbird.cli import cmd_companies
+    from sellbird.state import StateManager
 
-    db = tmp_path / "harvey.db"
+    db = tmp_path / "sellbird.db"
     asyncio.run(StateManager(db_path=str(db)).init_db())
     with sqlite3.connect(db) as c:
         c.execute("INSERT INTO companies (id, name, domain, industry, location) "
                   "VALUES ('c1', 'Acme Forge', 'acme.example', 'forging company', 'Springfield')")
-    monkeypatch.setattr(harvey_state, "DB_PATH", db)
-    monkeypatch.setattr(harvey_config, "load_config", lambda *a, **k: SimpleNamespace(
+    monkeypatch.setattr(sellbird_state, "DB_PATH", db)
+    monkeypatch.setattr(sellbird_config, "load_config", lambda *a, **k: SimpleNamespace(
         icp=SimpleNamespace(industries=["forging company"], titles=[], hiring_signals=[]),
         compliance=SimpleNamespace(do_not_contact=[])))
     out = tmp_path / "register.csv"
@@ -138,10 +138,10 @@ def test_cli_writes_the_register(tmp_path, monkeypatch, capsys):
 
 
 def test_cli_without_a_database_says_so(tmp_path, monkeypatch, capsys):
-    import harvey.state as harvey_state
-    from harvey.cli import cmd_companies
+    import sellbird.state as sellbird_state
+    from sellbird.cli import cmd_companies
 
-    monkeypatch.setattr(harvey_state, "DB_PATH", tmp_path / "missing.db")
+    monkeypatch.setattr(sellbird_state, "DB_PATH", tmp_path / "missing.db")
     cmd_companies(SimpleNamespace(out=str(tmp_path / "x.csv")))
     assert "No database yet" in capsys.readouterr().out
     assert not (tmp_path / "x.csv").exists()

@@ -1,7 +1,7 @@
-"""Harvey never emails someone the user already emailed by hand.
+"""Sellbird never emails someone the user already emailed by hand.
 
 Marking a prospect sent from the dashboard leaves a durable marker. Whatever
-Harvey staged before, during or after that (the Writer's personal draft, the
+Sellbird staged before, during or after that (the Writer's personal draft, the
 Sender's template staging, a mailbox connected later) must not go out.
 """
 
@@ -9,7 +9,7 @@ from datetime import datetime, timedelta, timezone
 
 import pytest
 
-from harvey.state import MANUAL_SEND_KEY
+from sellbird.state import MANUAL_SEND_KEY
 from tests.test_outbox_native import (  # noqa: F401  (state is a fixture)
     FakeProvider, make_sender, seed_campaign, seed_prospect, state,
 )
@@ -51,7 +51,7 @@ async def test_drain_never_sends_a_first_email_to_someone_already_contacted(stat
 
 
 @pytest.mark.asyncio
-async def test_follow_ups_to_someone_harvey_contacted_still_go(state):
+async def test_follow_ups_to_someone_sellbird_contacted_still_go(state):
     pid = await seed_prospect(state, status="contacted")
     await _approved(state, pid, step=2)
     provider = FakeProvider()

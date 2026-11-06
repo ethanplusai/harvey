@@ -1,7 +1,7 @@
 """The dashboard's Feedback buttons reach the Writer.
 
 Campaign feedback is guidance for every email written next; feedback on a
-contact is used when Harvey writes to that contact. Before this, the notes
+contact is used when Sellbird writes to that contact. Before this, the notes
 were stored and nothing read them.
 """
 
@@ -10,10 +10,10 @@ from types import SimpleNamespace
 import pytest
 import pytest_asyncio
 
-from harvey.agents.writer import Writer
-from harvey.models.campaign import Campaign
-from harvey.models.prospect import Prospect
-from harvey.state import StateManager
+from sellbird.agents.writer import Writer
+from sellbird.models.campaign import Campaign
+from sellbird.models.prospect import Prospect
+from sellbird.state import StateManager
 
 SEQ = [{"step": 1, "subject": "quick one", "body": "Hi {{first_name}}, who answers at {{company}}?",
         "delay_days": 0}]

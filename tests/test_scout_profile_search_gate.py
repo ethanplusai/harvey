@@ -3,7 +3,7 @@ from unittest.mock import AsyncMock
 
 import pytest
 
-from harvey.agents.scout import Scout
+from sellbird.agents.scout import Scout
 
 STRATEGIES = (
     "hunter", "known_companies", "linkedin",
@@ -27,7 +27,7 @@ def _scout(linkedin_enabled: bool, linkedin_email: str = "") -> Scout:
 @pytest.mark.asyncio
 async def test_profile_search_rides_the_linkedin_switch():
     """site:linkedin.com/in searches yield names with no company or email,
-    which Harvey can never verify or send to, so they are off by default."""
+    which Sellbird can never verify or send to, so they are off by default."""
     scout = _scout(linkedin_enabled=False)
     await scout.run()
     scout._prospect_via_profile_search.assert_not_awaited()

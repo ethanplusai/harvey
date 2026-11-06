@@ -35,12 +35,12 @@ jobs:
       - name: Installed wheel (scripted Codex CLI on PATH)
         if: runner.os != 'Windows'
         env:
-          HARVEY_PACKAGE_TESTS: "1"
+          SELLBIRD_PACKAGE_TESTS: "1"
         run: python -m pytest -q tests/test_packaging.py
       - name: Real Codex CLI 0.159.3 against localhost mocks (no credentials)
         if: runner.os != 'Windows'
         env:
-          HARVEY_CODEX_CLI_TESTS: "1"
+          SELLBIRD_CODEX_CLI_TESTS: "1"
         run: |
           npm install -g @openai/codex@0.159.3
           python -m pytest -q tests/test_codex_cli_surface.py

@@ -5,7 +5,7 @@ import asyncio
 import sqlite3
 
 from tests.test_dashboard_signals import client  # noqa: F401  (fixture)
-from harvey.state import StateManager
+from sellbird.state import StateManager
 
 
 def _sql(db, query, params=()):
@@ -48,11 +48,11 @@ def test_discover_tab_knows_how_many_sites_are_unread(client):
 
 def test_a_paused_brain_is_on_today_not_hidden(client, monkeypatch):
     import json as _json
-    import harvey.dashboard as dash
+    import sellbird.dashboard as dash
     asyncio.run(StateManager(str(client.db_path)).init_db())
     monkeypatch.setattr(dash, "_active_provider", lambda: "codex")
     _sql(client.db_path, "INSERT INTO settings (key, value) VALUES (?, ?)",
-         (__import__("harvey.brain", fromlist=["x"]).BRAIN_STATUS_KEY,
+         (__import__("sellbird.brain", fromlist=["x"]).BRAIN_STATUS_KEY,
           _json.dumps({"provider": "codex", "status": "paused", "reason": "codex login expired"})))
     items = client.get("/api/today").json()["items"]
     [item] = [i for i in items if i["key"] == "brain-paused"]

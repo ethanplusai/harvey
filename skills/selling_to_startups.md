@@ -96,5 +96,5 @@ to hit the targets in the deck, and infrastructure that scales.
 - Offer the self-serve path before a meeting. If they want a call, give a
   booking link and keep it short (15 minutes).
 - "Not now" from a founder usually means "after we raise" or "after launch".
-  Thank them and don't argue. Harvey records it; the next touch is theirs.
+  Thank them and don't argue. Sellbird records it; the next touch is theirs.
 - An opt-out is final, as with everyone else.

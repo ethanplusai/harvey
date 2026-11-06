@@ -1,4 +1,4 @@
-"""Harvey's built-in skill for YC startups: find them, tag them, write to them.
+"""Sellbird's built-in skill for YC startups: find them, tag them, write to them.
 
 Without touching ycombinator.com, whose terms forbid scraping and
 harvesting contact details. A company says it's YC-backed on its own site
@@ -15,11 +15,11 @@ from types import SimpleNamespace
 import pytest
 import pytest_asyncio
 
-from harvey.collectors.discover import build_queries, is_junk, preset_problem
-from harvey.collectors.profile import ProfileCollector, yc_backed
-from harvey.models.company import Company
-from harvey.signals import SIGNAL_CATALOG, seed_signal_catalog
-from harvey.state import StateManager
+from sellbird.collectors.discover import build_queries, is_junk, preset_problem
+from sellbird.collectors.profile import ProfileCollector, yc_backed
+from sellbird.models.company import Company
+from sellbird.signals import SIGNAL_CATALOG, seed_signal_catalog
+from sellbird.state import StateManager
 
 
 @pytest_asyncio.fixture
@@ -137,9 +137,9 @@ def test_startup_databases_and_press_are_not_prospects(domain):
 def test_cli_estimate_with_the_preset(tmp_path, monkeypatch, capsys):
     import argparse
     import asyncio
-    from harvey import cli
-    import harvey.config as config_mod
-    import harvey.state as state_mod
+    from sellbird import cli
+    import sellbird.config as config_mod
+    import sellbird.state as state_mod
     real = state_mod.StateManager
     monkeypatch.setattr(state_mod, "StateManager", lambda *a, **k: real(str(tmp_path / "c.db")))
     monkeypatch.setattr(config_mod, "load_config", lambda *a, **k: _config())
@@ -168,7 +168,7 @@ class RecordingBrain:
         return "PROMPT"
 
     def load_skill(self, name):
-        from harvey.brain import Brain
+        from sellbird.brain import Brain
         return Brain.load_skill(self, name)
 
     async def think_json(self, prompt, **kw):
@@ -180,8 +180,8 @@ class RecordingBrain:
         return "Thanks, here's more."
 
 
-def test_the_skill_ships_with_harvey():
-    from harvey.paths import PROJECT_ROOT
+def test_the_skill_ships_with_sellbird():
+    from sellbird.paths import PROJECT_ROOT
     text = (PROJECT_ROOT / "skills" / "selling_to_startups.md").read_text(encoding="utf-8")
     assert len(text.split()) > 300
     for topic in ("founder", "batch", "Demo Day"):
@@ -189,7 +189,7 @@ def test_the_skill_ships_with_harvey():
 
 
 async def _yc_company(state, backed: bool):
-    from harvey.models.prospect import Prospect
+    from sellbird.models.prospect import Prospect
     cid = await state.add_company(Company(name="Acme", domain=f"acme{int(backed)}.com"))
     await state.add_observation(company_id=cid, signal_code="YC_BACKED", collector="profile",
                                 value_num=1 if backed else 0, value_text="W24" if backed else "")
@@ -202,7 +202,7 @@ async def _yc_company(state, backed: bool):
 @pytest.mark.asyncio
 @pytest.mark.parametrize("backed", [True, False])
 async def test_the_writer_uses_the_skill_for_yc_startups_only(state, backed):
-    from harvey.agents.writer import Writer
+    from sellbird.agents.writer import Writer
     await seed_signal_catalog(state)
     prospect = await _yc_company(state, backed)
     brain = RecordingBrain()
@@ -224,8 +224,8 @@ async def test_the_writer_uses_the_skill_for_yc_startups_only(state, backed):
 @pytest.mark.asyncio
 @pytest.mark.parametrize("backed", [True, False])
 async def test_the_reply_handler_uses_it_too(state, backed):
-    from harvey.agents.handler import Handler
-    from harvey.models.conversation import Conversation, Message
+    from sellbird.agents.handler import Handler
+    from sellbird.models.conversation import Conversation, Message
     from tests.test_outbox_native import Cfg, Env
     await seed_signal_catalog(state)
     prospect = await _yc_company(state, backed)
@@ -238,9 +238,9 @@ async def test_the_reply_handler_uses_it_too(state, backed):
 
 
 def test_the_dashboard_estimate_takes_the_preset(monkeypatch):
-    import harvey.dashboard as dash
+    import sellbird.dashboard as dash
     from tests.test_dashboard_signals import client as _client  # noqa: F401
-    import harvey.config as config_mod
+    import sellbird.config as config_mod
     monkeypatch.setattr(config_mod, "load_config", lambda *a, **k: _config())
     queries = dash._discovery_queries({"provider": "serper", "preset": "yc"}, _config())
     assert all('"backed by Y Combinator"' in q.term for q in queries)
@@ -310,7 +310,7 @@ def test_an_encoded_apostrophe_isnt_a_batch():
 
 
 def test_a_preset_hit_records_that_the_search_matched():
-    from harvey.collectors.discover import Business, _observations
+    from sellbird.collectors.discover import Business, _observations
     biz = Business(name="Acme", domain="acme.com", source_url="https://acme.com/blog/raise", provider="serper")
     yc = build_queries(_config(), preset="yc")[0]
     plain = build_queries(_config())[0]
@@ -387,7 +387,7 @@ def test_more_real_ways_to_say_it(html, batch):
     ("airtable", "airbnb.com", False),
 ])
 def test_matching_a_yc_page_to_its_company(slug, domain, ours):
-    from harvey.collectors.profile import _is_their_yc_page
+    from sellbird.collectors.profile import _is_their_yc_page
     assert _is_their_yc_page(slug, domain) is ours
 
 
@@ -446,7 +446,7 @@ async def test_ycs_own_domains_are_never_profiled(state):
 
 @pytest.mark.asyncio
 async def test_a_mixed_batch_doesnt_get_founder_framing(state):
-    from harvey.agents.writer import Writer
+    from sellbird.agents.writer import Writer
     await seed_signal_catalog(state)
     yc = await _yc_company(state, True)
     plain = await _yc_company(state, False)
@@ -500,7 +500,7 @@ def test_claims_with_other_words_nearby_still_count(html, batch):
 
 @pytest.mark.parametrize("slug,domain", [("open", "openapp.com"), ("labs", "labsinc.com")])
 def test_generic_slugs_dont_match_by_stripping_affixes(slug, domain):
-    from harvey.collectors.profile import _is_their_yc_page
+    from sellbird.collectors.profile import _is_their_yc_page
     assert _is_their_yc_page(slug, domain) is False
 
 

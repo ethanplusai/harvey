@@ -11,8 +11,8 @@ from types import SimpleNamespace
 
 import pytest
 
-from harvey.config import ComplianceConfig
-from harvey.gate import (
+from sellbird.config import ComplianceConfig
+from sellbird.gate import (
     do_not_contact_domain_match, do_not_contact_match, pre_send_check,
 )
 from tests.test_outbox_native import (  # noqa: F401  (state is a fixture)
@@ -167,8 +167,8 @@ def test_a_mailto_link_is_one_address():
 
 @pytest.mark.asyncio
 async def test_listed_leads_are_left_out_of_the_instantly_upload(state):
-    from harvey.agents.sender import Sender
-    from harvey.models.prospect import Prospect
+    from sellbird.agents.sender import Sender
+    from sellbird.models.prospect import Prospect
     from tests.test_outbox_native import Cfg, Env
     cfg = Cfg()
     cfg.compliance = ComplianceConfig(do_not_contact=["acme.example"])
@@ -180,7 +180,7 @@ async def test_listed_leads_are_left_out_of_the_instantly_upload(state):
 
 @pytest.mark.asyncio
 async def test_an_instantly_reply_to_a_listed_address_goes_to_you(state):
-    from harvey.agents.handler import Handler
+    from sellbird.agents.handler import Handler
     from tests.test_outbox_native import Cfg, Env
     cfg = Cfg()
     cfg.compliance = ComplianceConfig(do_not_contact=["acme.example"])
@@ -236,19 +236,19 @@ def test_an_entry_that_names_nothing_is_a_config_error(bad):
         ComplianceConfig(do_not_contact=bad)
 
 
-def test_a_running_harvey_picks_up_an_edit_to_the_list(tmp_path):
+def test_a_running_sellbird_picks_up_an_edit_to_the_list(tmp_path):
     import shutil
-    from harvey.config import live_do_not_contact, load_config
-    from harvey.paths import PROJECT_ROOT
-    path = tmp_path / "harvey.yaml"
-    shutil.copy(PROJECT_ROOT / "harvey.yaml", path)
+    from sellbird.config import live_do_not_contact, load_config
+    from sellbird.paths import PROJECT_ROOT
+    path = tmp_path / "sellbird.yaml"
+    shutil.copy(PROJECT_ROOT / "sellbird.yaml", path)
     config = load_config(str(path))
     assert live_do_not_contact(config) == []
     text = path.read_text().replace("  do_not_contact: []", '  do_not_contact: ["acme.example"]')
     assert text != path.read_text()
     path.write_text(text)
     assert live_do_not_contact(config) == ["acme.example"]
-    # A typo while Harvey runs keeps the last good list, never an empty one.
+    # A typo while Sellbird runs keeps the last good list, never an empty one.
     path.write_text(text.replace('["acme.example"]', "[5"))
     assert live_do_not_contact(config) == ["acme.example"]
 
@@ -270,8 +270,8 @@ async def test_an_approved_cold_email_to_a_listed_domain_never_leaves(state):
 
 @pytest.mark.asyncio
 async def test_export_leaves_out_listed_prospects(state, monkeypatch):
-    from harvey import export
-    from harvey.models.prospect import Prospect
+    from sellbird import export
+    from sellbird.models.prospect import Prospect
     for email in ("jane@acme.example", "al@other.example"):
         await state.add_prospect(Prospect(first_name="A", last_name="B", company="Co",
                                           email=email, email_status="verified"))
@@ -284,7 +284,7 @@ async def test_export_leaves_out_listed_prospects(state, monkeypatch):
 async def test_a_reply_from_a_listed_address_goes_to_you_without_a_draft(state, monkeypatch):
     """Nothing can be sent to them, so spend no model call drafting, and make
     sure a human sees that they wrote."""
-    from harvey.agents.handler import Handler
+    from sellbird.agents.handler import Handler
     from tests.test_outbox_native import Cfg, Env
     pid = await seed_prospect(state, email="jane@acme.example", status="contacted")
     cfg = Cfg()

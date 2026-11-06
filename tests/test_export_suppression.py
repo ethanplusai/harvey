@@ -9,9 +9,9 @@ import httpx
 import pytest
 import pytest_asyncio
 
-from harvey.export import collect_prospects, export_prospects_csv
-from harvey.models.prospect import Prospect
-from harvey.state import StateManager
+from sellbird.export import collect_prospects, export_prospects_csv
+from sellbird.models.prospect import Prospect
+from sellbird.state import StateManager
 
 
 async def _seed_state(tmp_path):
@@ -95,13 +95,13 @@ async def test_export_does_not_drop_legacy_null_pipeline_status(state):
     (["--all"], {"New", "Catchall", "Contacted", "Guess", "Optout", "OptoutCatchall"}),
 ])
 def test_cli_export_respects_suppression_and_raw_mode(tmp_path, monkeypatch, all_flag, expected):
-    from harvey import cli, state as state_module
+    from sellbird import cli, state as state_module
 
     state = asyncio.run(_seed_state(tmp_path))
     # Redirect only the CLI's default database selection to real temporary state.
     monkeypatch.setattr(state_module, "StateManager", lambda: state)
     output = tmp_path / "prospects.csv"
-    monkeypatch.setattr(sys, "argv", ["harvey", "export", "--out", str(output), *all_flag])
+    monkeypatch.setattr(sys, "argv", ["sellbird", "export", "--out", str(output), *all_flag])
     cli.main()
     assert _names(output.read_text(encoding="utf-8")) == expected
 
@@ -112,7 +112,7 @@ def test_cli_export_respects_suppression_and_raw_mode(tmp_path, monkeypatch, all
     ("?all=true", {"New", "Catchall", "Contacted", "Guess", "Optout", "OptoutCatchall"}),
 ])
 async def test_authenticated_dashboard_export_uses_the_same_policy(state, monkeypatch, query, expected):
-    from harvey import dashboard
+    from sellbird import dashboard
 
     monkeypatch.setattr(dashboard, "DB_PATH", state.db_path)
     # conftest redirects this store into a temporary directory for every test.
