@@ -38,8 +38,10 @@ AGENT_ROUTES: tuple[tuple[str, str], ...] = (
     ("GET", r"/api/outbox"),
     ("GET", r"/api/signals"),
     ("GET", r"/api/discover/providers"),
+    ("GET", r"/api/inboxes"),
     ("POST", r"/api/discover/estimate"),   # computes a price, runs nothing
     ("POST", r"/api/sending/pause"),       # never resume: that's yours
+    ("POST", r"/api/inboxes/[^/]+/pause"), # one inbox; resuming is yours too
 )
 
 USER_ONLY = {

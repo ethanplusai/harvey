@@ -2753,6 +2753,11 @@ async def get_instance():
     return {"instance": INSTANCE_ID}
 
 
+from sellbird.inbox_routes import router as _inbox_router  # noqa: E402
+
+app.include_router(_inbox_router)
+
+
 # ── Extensions (sellbird.extensions): their routes, after every built-in one,
 # so an extension can add paths but never replace one. ──
 from sellbird import extensions as _extensions  # noqa: E402

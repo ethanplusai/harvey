@@ -420,6 +420,7 @@ function loadCurrentTab() {
     case 'outbox': loadOutbox(); break;
     case 'conversations': loadConversations(); break;
     case 'activity': loadActivity(); break;
+    case 'inboxes': loadInboxes(); break;
     case 'usage': loadUsage(); break;
     case 'settings': loadSettings(); loadSendingModeCard(); break;
     case 'controls': loadSellbirdStatus(); loadLogs(); break;
@@ -2657,6 +2658,88 @@ async function setConvoStatus(id, status) {
   loadToday();
 }
 
+// ── Inboxes: the main mailbox and the extra ones you connected ──
+
+const INBOX_STATE = {sending: 'Sending', paused: 'Paused', not_connected: 'Not connected'};
+
+async function loadInboxes() {
+  const el = document.getElementById('inboxes-list');
+  const data = await api('/api/inboxes');
+  if (!data) { el.innerHTML = offlineState(); return; }
+  if (!data.native) {
+    el.innerHTML = emptyState(icon('inboxes'), 'Instantly sends for you',
+      'Several inboxes work with Gmail, Microsoft 365 or SMTP. Set channels.email.provider in sellbird.yaml to one of those to use them.');
+    return;
+  }
+  let html = '';
+  if (data.sending_paused) {
+    html += '<div class="card"><b>All sending is paused:</b> ' + escHtml(data.sending_paused) +
+      '. Resume it on the Outbox tab.</div>';
+  }
+  html += '<div class="table-card"><table><thead><tr><th>Inbox</th><th>State</th>' +
+    '<th>Cold today</th><th>First emails waiting</th><th></th></tr></thead><tbody>';
+  for (const ib of data.inboxes) {
+    const who = '<b>' + escHtml(ib.address || '(main mailbox)') + '</b>' +
+      (ib.main ? ' <span class="chip">main</span>' : '') +
+      '<div class="muted">' + escHtml(ib.name || '') + '</div>';
+    const state = escHtml(INBOX_STATE[ib.state] || ib.state) +
+      (ib.paused_reason ? '<div class="muted">' + escHtml(ib.paused_reason) + '</div>' : '');
+    const cap = Number(ib.cold_sent_today) + ' / ' + Number(ib.cold_cap) +
+      (ib.cap_is_yours ? ' <span class="chip">your cap</span>' : '');
+    let actions = '';
+    if (!ib.main) {
+      const id = jsq(ib.id);
+      actions = (ib.state === 'paused'
+          ? '<button class="btn btn-secondary btn-sm" onclick="inboxAction(' + id + ',\'resume\')">Resume</button>'
+          : '<button class="btn btn-secondary btn-sm" onclick="inboxAction(' + id + ',\'pause\')">Pause</button>') +
+        ' <button class="btn btn-ghost btn-sm" onclick="inboxCap(' + id + ')">Cap</button>' +
+        ' <button class="btn btn-ghost btn-sm" onclick="inboxName(' + id + ')">Name</button>' +
+        ' <button class="btn btn-ghost btn-sm" onclick="inboxRemove(' + id + ',' + jsq(ib.address) + ')">Remove</button>';
+    }
+    html += '<tr><td>' + who + '</td><td>' + state + '</td><td>' + cap + '</td><td>' +
+      Number(ib.first_emails_waiting) + '</td><td>' + actions + '</td></tr>';
+  }
+  html += '</tbody></table></div>';
+  html += '<div class="card"><h3>Add an inbox</h3><p>Connect another inbox you own from your terminal ' +
+    '(a browser sign-in, or your SMTP password at a prompt; it is kept in your system keychain):</p>' +
+    '<pre>' + escHtml(data.connect_command) + '</pre><p class="muted">Each inbox sends up to ' +
+    Number(data.per_inbox_daily_cap) + ' cold emails a day unless you set its cap. Everything sent in a day stays under max_daily_sends (' +
+    Number(data.max_daily_sends) + ').</p></div>';
+  el.innerHTML = html;
+}
+
+async function inboxPost(path, body, done) {
+  const r = await api(path, {method: 'POST', headers: {'Content-Type': 'application/json'},
+                             body: JSON.stringify(body || {})});
+  if (r && r.success) { showToast(done, 'success'); loadInboxes(); }
+  else showToast((r && r.message) || 'That didn\'t work.', 'error');
+}
+
+function inboxAction(id, action) {
+  inboxPost('/api/inboxes/' + encodeURIComponent(id) + '/' + action, {},
+            action === 'pause' ? 'Inbox paused' : 'Inbox sends again');
+}
+
+function inboxCap(id) {
+  const v = prompt('Daily cold-email cap for this inbox (1-500), or blank for the default:');
+  if (v === null) return;
+  const cap = v.trim() === '' ? null : Number(v.trim());
+  inboxPost('/api/inboxes/' + encodeURIComponent(id) + '/cap', {cap: cap}, 'Cap saved');
+}
+
+function inboxName(id) {
+  const v = prompt('Name this inbox sends as (blank: your persona name):');
+  if (v === null) return;
+  inboxPost('/api/inboxes/' + encodeURIComponent(id) + '/name', {name: v.trim()}, 'Name saved');
+}
+
+function inboxRemove(id, address) {
+  const v = prompt('Removing ' + address + ' ends the threads it started. Type its address to confirm:');
+  if (v === null) return;
+  inboxPost('/api/inboxes/' + encodeURIComponent(id) + '/remove', {confirm: v.trim().toLowerCase()},
+            'Inbox removed');
+}
+
 async function loadActivity() {
   const el = document.getElementById('activity-list');
   const data = await api('/api/activity');
@@ -2722,6 +2805,7 @@ setInterval(() => {
     case 'campaigns': loadCampaigns(); break;
     case 'conversations': loadConversations(); break;
     case 'activity': loadActivity(); break;
+    case 'inboxes': loadInboxes(); break;
     case 'usage': loadUsage(); break;
     case 'controls': loadLogs(); break;
   }

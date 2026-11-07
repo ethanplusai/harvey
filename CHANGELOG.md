@@ -17,7 +17,8 @@ minor versions can still change behaviour.
   its own daily cold cap (`channels.email.per_inbox_daily_cap`, or your own
   number) and warmup ramp, and can be paused, renamed, removed or limited
   to some campaigns. Replies are read from every inbox. With one inbox
-  nothing changes. See "Several sending inboxes" in
+  nothing changes. The dashboard's Inboxes tab shows and runs them, and
+  your coding agent can list them and pause one. See "Several sending inboxes" in
   [docs/configuration.md](docs/configuration.md).
 - **An MCP server for your coding agent.** `sellbird mcp install` adds
   Sellbird to Claude Code (or Codex), showing the change first. The agent

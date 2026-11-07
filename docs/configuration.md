@@ -100,6 +100,11 @@ sellbird inboxes list                                           # each inbox and
 - Replies are read from every inbox each cycle. If one can't be read,
   nothing is sent that cycle, as with one inbox, and the Today page says
   which inbox.
+- The dashboard's **Inboxes** tab shows every inbox with today's cold sends
+  against its cap, and pauses, resumes, caps, renames and removes them.
+  Connecting stays in the terminal (a browser sign-in or a password prompt).
+- Your coding agent can list inboxes and pause one (`inboxes_list`,
+  `inbox_pause`); only you resume one or change its cap.
 - An extension can add another way to connect an inbox with
   `registry.add_mailbox_connection` ([docs/extensions.md](extensions.md)).
 
