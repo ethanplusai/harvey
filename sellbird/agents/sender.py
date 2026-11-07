@@ -15,7 +15,7 @@ import logging
 import random
 import re
 import time
-from datetime import date, datetime, timedelta, timezone
+from datetime import datetime, timedelta, timezone
 
 from sellbird.brain import Brain
 from sellbird.config import (
@@ -78,6 +78,12 @@ SENDABLE_EMAIL_STATUSES_WITH_RISKY = {"verified", "risky"}
 def _utcnow() -> datetime:
     """Naive UTC now, as the outbox stores times. Tests pin it."""
     return datetime.now(timezone.utc).replace(tzinfo=None)
+
+
+def _local_now() -> datetime:
+    """Timezone-aware local now, for "today" counted from local midnight.
+    Tests pin it."""
+    return datetime.now().astimezone()
 
 
 class Sender:
@@ -535,13 +541,20 @@ class Sender:
         )
 
     async def _count_sends_today(self) -> int:
-        """Count how many prospects were contacted today."""
+        """Count how many prospects were contacted today (the local day).
+
+        prospects.updated_at is stored as naive UTC, so "today" is measured
+        from local midnight converted to UTC. Matching the stored text
+        against the local date would shift the day by the UTC offset.
+        """
         import aiosqlite
-        today = date.today().isoformat()
+        midnight = _local_now().replace(hour=0, minute=0, second=0, microsecond=0)
+        since = midnight.astimezone(timezone.utc).replace(tzinfo=None).isoformat()
         async with aiosqlite.connect(self.state.db_path) as db:
             async with db.execute(
-                "SELECT COUNT(*) FROM prospects WHERE status = 'contacted' AND updated_at LIKE ?",
-                (f"{today}%",),
+                "SELECT COUNT(*) FROM prospects "
+                "WHERE status = 'contacted' AND datetime(updated_at) >= datetime(?)",
+                (since,),
             ) as cursor:
                 row = await cursor.fetchone()
                 return row[0] if row else 0
