@@ -26,7 +26,7 @@ from fastapi.responses import (
 logger = logging.getLogger("sellbird.dashboard")
 
 from sellbird import dashboard_auth as auth  # noqa: E402
-from sellbird.paths import PROJECT_ROOT  # noqa: E402
+from sellbird.paths import PACKAGE_ROOT, PROJECT_ROOT, is_checkout  # noqa: E402
 from sellbird.pidfile import LOCK_FILE, loop_lock_held, pid_alive  # noqa: E402
 from sellbird.textio import read_user_text  # noqa: E402
 DB_PATH = PROJECT_ROOT / "data" / "sellbird.db"
@@ -191,7 +191,8 @@ async def get_setup_status():
     # 1. Venv
     checks.append({
         "id": "venv", "label": "Python virtual environment",
-        "done": (PROJECT_ROOT / ".venv").is_dir(),
+        # An installed app (pipx) has no checkout venv to make.
+        "done": (not is_checkout(PACKAGE_ROOT)) or (PACKAGE_ROOT / ".venv").is_dir(),
         "required": True,
         "help": "Run: python3 -m venv .venv && source .venv/bin/activate && pip install -e .",
     })

@@ -8,9 +8,16 @@ and ``@pytest.mark.real_claude_cli`` tests use the real installed CLI. This
 lives in tests/ only; the shipped package has no way to skip the check.
 """
 
-import pytest
+import os
 
-from sellbird import claude_runtime
+# An exported SELLBIRD_HOME (manual checks) must not move the home that
+# sellbird.paths resolves at import, so drop it before any sellbird import.
+# Tests that need it pass env= to resolve_home or use monkeypatch.
+os.environ.pop("SELLBIRD_HOME", None)
+
+import pytest  # noqa: E402
+
+from sellbird import claude_runtime  # noqa: E402
 
 FAKE_HELP = "\n".join(f"  {flag} <value>   test" for flag in claude_runtime.REQUIRED_FLAGS)
 
@@ -50,3 +57,13 @@ import sellbird.humanize  # noqa: E402
 def _no_installed_humanizer(monkeypatch, tmp_path):
     """Tests never pick up the operator's real ~/.claude Humanizer skill."""
     monkeypatch.setattr(sellbird.humanize, "SKILL_PATH", tmp_path / "no-humanizer.md")
+
+
+# Every CLI command seeds the home folder first (sellbird.home). Tests that
+# call cli.main() would create the checkout's data/, so seeding is a no-op
+# here; tests of seeding itself call the real function.
+@pytest.fixture(autouse=True)
+def _no_home_seeding(monkeypatch):
+    import sellbird.home
+
+    monkeypatch.setattr(sellbird.home, "seed_home", lambda home, source: [])

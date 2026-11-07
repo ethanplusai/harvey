@@ -1060,13 +1060,30 @@ def _find_config_file() -> str:
     the tracked ``sellbird.yaml`` stays an untrained template — nobody
     publishes their positioning, pricing, and prospect targeting by accident.
     """
-    candidates = [
-        Path.cwd() / "sellbird.local.yaml",
-        PROJECT_ROOT / "sellbird.local.yaml",
-        Path.cwd() / "sellbird.yaml",
-        Path.cwd().parent / "sellbird.yaml",
-        PROJECT_ROOT / "sellbird.yaml",
-    ]
+    # A home that names its config file uses exactly that one.
+    from sellbird.workspace_home import current_home
+    home_config = current_home().config_file
+    if home_config is not None:
+        if not home_config.exists():
+            raise ConfigFileNotFoundError(
+                f"sellbird.yaml not found at {home_config}. "
+                "Create one from sellbird.yaml.example or run 'sellbird setup'."
+            )
+        return str(home_config)
+    # The working directory counts only for a checkout run in place. A home
+    # folder (SELLBIRD_HOME, a pipx install, Docker) reads its own config even
+    # when started from a folder holding a sellbird.yaml.
+    from sellbird.paths import HOME_ENV, is_checkout
+    if is_checkout(PROJECT_ROOT) and not os.environ.get(HOME_ENV, "").strip():
+        candidates = [
+            Path.cwd() / "sellbird.local.yaml",
+            PROJECT_ROOT / "sellbird.local.yaml",
+            Path.cwd() / "sellbird.yaml",
+            Path.cwd().parent / "sellbird.yaml",
+            PROJECT_ROOT / "sellbird.yaml",
+        ]
+    else:
+        candidates = [PROJECT_ROOT / "sellbird.local.yaml", PROJECT_ROOT / "sellbird.yaml"]
     for path in candidates:
         if path.exists():
             return str(path)
