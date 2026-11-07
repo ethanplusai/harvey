@@ -467,6 +467,7 @@ main.content { min-width: 0; padding: var(--sp-6) var(--sp-6) 96px; }
 .email-tag.verified { background: var(--good-bg); color: var(--good); }
 .email-tag.risky { background: var(--wait-bg); color: var(--wait); }
 .email-tag.guess { background: var(--surface-2); color: var(--text-3); }
+.email-tag.invalid { background: var(--bad-bg); color: var(--bad); }
 
 /* ── Tables ──────────────────────────────────────────────────── */
 

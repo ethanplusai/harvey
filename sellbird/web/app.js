@@ -1294,13 +1294,17 @@ async function loadSettings() {
   // Gmail auth status chip
   const g = document.getElementById('gmail-status');
   if (g) {
-    if (data.gmail_authorized) { g.className = 'email-tag verified'; g.textContent = 'authorized'; }
+    const realId = /^\d+-[0-9a-z]+\.apps\.googleusercontent\.com$/.test((data.gmail_client_id || '').trim());
+    if (data.gmail_client_id && !realId) { g.className = 'email-tag invalid'; g.textContent = 'client ID isn\'t real'; }
+    else if (data.gmail_authorized) { g.className = 'email-tag verified'; g.textContent = 'authorized'; }
     else if (data.gmail_client_secret_set) { g.className = 'email-tag risky'; g.textContent = 'sign in on Inboxes'; }
     else { g.className = 'email-tag guess'; g.textContent = 'not set up'; }
   }
   const m = document.getElementById('m365-status');
   if (m) {
-    if (data.m365_authorized) { m.className = 'email-tag verified'; m.textContent = 'authorized'; }
+    const realM = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test((data.m365_client_id || '').trim());
+    if (data.m365_client_id && !realM) { m.className = 'email-tag invalid'; m.textContent = 'client ID isn\'t real'; }
+    else if (data.m365_authorized) { m.className = 'email-tag verified'; m.textContent = 'authorized'; }
     else if (data.m365_client_id) { m.className = 'email-tag risky'; m.textContent = 'sign in on Inboxes'; }
     else { m.className = 'email-tag guess'; m.textContent = 'not set up'; }
   }
