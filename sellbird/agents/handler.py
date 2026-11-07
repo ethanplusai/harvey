@@ -13,6 +13,7 @@ import re
 import unicodedata
 from datetime import datetime, timezone
 
+from sellbird.booking import booking_instruction
 from sellbird.brain import Brain, BrainUnavailable
 from sellbird.config import (
     DEFAULT_OPT_OUT_LINE, SellbirdConfig, EnvConfig, compliance_of, legacy_sending_held,
@@ -25,6 +26,7 @@ from sellbird.integrations.mail_provider import (
     NATIVE_PROVIDERS, get_mail_provider, strip_quoted_reply,
 )
 from sellbird.models.conversation import Conversation, Message
+from sellbird.send_window import recipient_zone
 from sellbird.state import COLLEAGUE_REPLIED, REVIEW_NEXT_REPLY_KEY, StateManager
 from sellbird.sending_mode import sync_sending_mode
 from sellbird.startups import startup_facts
@@ -1252,11 +1254,32 @@ Respond with ONLY the category label, nothing else."""
                     objection_context = f"\nSuggested approach for this objection: {response}"
                     break
 
-        prompt = self.brain.load_prompt("handler", stage=convo.stage)
+        # Only an interested prospect (or a thread already closing) should be
+        # moved to the configured next step. Everything else gets an answer,
+        # not a pitch.
+        if intent == "interested" or convo.stage == "closing":
+            try:
+                zone = await recipient_zone(self.state, prospect, self.config)
+            except Exception as e:
+                logger.warning(f"Handler: couldn't resolve the recipient's time zone: {e}")
+                zone = ""
+            booking = booking_instruction(
+                self.config, datetime.now(timezone.utc), zone,
+            )
+        else:
+            booking = (
+                "Do not offer a meeting, a call, a trial, or a booking link. "
+                "Answer their message and follow the intent guidance above."
+            )
+
+        prompt = self.brain.load_prompt("handler", stage=convo.stage, booking=booking)
         if not prompt:
             prompt = f"""You are {self.config.persona.name}, {self.config.persona.role} at {self.config.persona.company}.
 Your tone is: {self.config.persona.tone}
-Product: {self.config.product.name} — {self.config.product.description}"""
+Product: {self.config.product.name} — {self.config.product.description}
+
+NEXT STEP
+{booking}"""
 
         # Inject objection handling + sales methodology skills
         if self.skills:
@@ -1291,9 +1314,9 @@ Write a reply that:"""
         if intent == "interested":
             prompt += """
 - Acknowledges their interest warmly
-- Suggests a specific next step (brief call or meeting)
+- Moves to the next step exactly as the NEXT STEP guidance says
 - Keeps it short (under 80 words)
-- Includes a clear CTA with flexibility on timing"""
+- Includes one clear CTA"""
         elif intent == "objection":
             prompt += """
 - Addresses the concern directly and empathetically
