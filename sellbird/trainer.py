@@ -329,6 +329,9 @@ def brain_section(brain_config: BrainConfig) -> dict:
         section["model"] = brain_config.model
     if brain_config.reasoning_effort:
         section["reasoning_effort"] = brain_config.reasoning_effort
+    if brain_config.provider == "deepseek":
+        # The operator's spending cap must survive a retrain.
+        section["max_daily_usd"] = brain_config.max_daily_usd
     return section
 
 

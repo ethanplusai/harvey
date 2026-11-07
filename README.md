@@ -63,7 +63,7 @@ Cycle complete. Sleeping for 15 minutes.
 
 ## No model API bill
 
-Sellbird thinks through the Claude Code CLI on your Claude Pro or Max plan, or through Codex on a ChatGPT plan. There's no API key and no per-token billing, and Sellbird throttles itself to leave room for your own work.
+Sellbird thinks through the Claude Code CLI on your Claude Pro or Max plan, or through Codex on a ChatGPT plan. There's no API key and no per-token billing, and Sellbird throttles itself to leave room for your own work. (No plan? It can also use [DeepSeek's API](docs/deepseek.md) with a prepaid key: billed per token, usually cents a day, with a daily dollar cap.)
 
 | | |
 |---|---|
@@ -154,6 +154,7 @@ Links to `github.com/ethanplusai/harvey` keep working: GitHub redirects them her
 | [The dashboard and the data](docs/dashboard.md) | Every screen, how sign-in works, and how the data is stored |
 | [Configuration and commands](docs/configuration.md) | `.env`, `sellbird.yaml` and every command |
 | [Using a ChatGPT plan (Codex)](docs/codex.md) | Running on Codex instead of Claude |
+| [Using DeepSeek's API](docs/deepseek.md) | Running on a prepaid DeepSeek key, with a daily dollar cap |
 | [Legal and deliverability](docs/deliverability.md) | The rules you're sending under, and warmup |
 | [Microsoft 365](docs/microsoft365.md) · [Precleared](docs/precleared.md) | Provider setup guides |
 | [Docker](docs/docker.md) · [Troubleshooting](docs/troubleshooting.md) · [Roadmap](docs/roadmap.md) | Running, fixing and what's next |

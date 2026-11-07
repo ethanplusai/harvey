@@ -608,7 +608,7 @@ class UsageConfig(BaseModel):
         return v
 
 
-BRAIN_PROVIDERS = ("claude", "codex")
+BRAIN_PROVIDERS = ("claude", "codex", "deepseek")
 CODEX_REASONING_EFFORTS = ("minimal", "low", "medium", "high", "xhigh")
 
 # Model names are passed to a CLI, so they must look like a model name and
@@ -620,14 +620,30 @@ class BrainConfig(BaseModel):
     """Which subscription Sellbird thinks with.
 
     ``claude`` (default) runs Claude Code headless on your Claude plan.
-    ``codex`` runs Codex on your ChatGPT plan. There is never an automatic
-    fallback between them, and an explicit ``model`` only affects Sellbird —
-    your own Claude Code / Codex settings are never read or changed.
+    ``codex`` runs Codex on your ChatGPT plan. ``deepseek`` calls DeepSeek's
+    API with a prepaid key (DEEPSEEK_API_KEY), billed per token. There is
+    never an automatic fallback between them, and an explicit ``model`` only
+    affects Sellbird — your own Claude Code / Codex settings are never read
+    or changed.
     """
 
     provider: str = "claude"
     model: str = ""  # empty = the provider's own default
     reasoning_effort: str = ""  # codex only; empty = model default
+    # deepseek only: stop for the day once the estimated spend reaches this
+    # many dollars (0 = no dollar cap; the daily call limit still applies).
+    max_daily_usd: float = 0.50
+
+    @field_validator("max_daily_usd", mode="before")
+    @classmethod
+    def _valid_daily_usd(cls, v) -> float:
+        try:
+            v = float(0 if v is None else v)
+        except (TypeError, ValueError):
+            raise ValueError(f"brain.max_daily_usd must be a number of dollars, not {v!r}.")
+        if v < 0:
+            raise ValueError("brain.max_daily_usd can't be negative (0 means no dollar cap).")
+        return v
 
     @field_validator("provider", mode="before")
     @classmethod

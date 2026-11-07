@@ -9,6 +9,16 @@ minor versions can still change behaviour.
 
 ### Added
 
+- **DeepSeek as a brain provider** (`brain: {provider: deepseek}`), for people
+  without a Claude or ChatGPT plan. Each call is one request to DeepSeek's API
+  with no tools, thinking mode off, and a prepaid key (`DEEPSEEK_API_KEY`).
+  It's billed per token, so every call records an estimated cost at peak
+  rates, and `brain.max_daily_usd` (default $0.50) stops Sellbird for the day.
+  A rejected key or an empty balance pauses it like a Codex problem. `sellbird
+  usage` and the dashboard show today's spend against the cap. DeepSeek calls
+  count separately (schema v15). Claude and Codex are unchanged. See
+  [docs/deepseek.md](docs/deepseek.md).
+
 - **Verifier API keys stay out of logs** (from #185 by @techity-mushtaque).
   Hunter's key now goes in the `X-API-KEY` header; Reoon and ZeroBounce only
   take it in the URL, so the `httpx` and `httpcore` loggers stay at WARNING and

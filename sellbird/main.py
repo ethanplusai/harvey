@@ -383,10 +383,12 @@ async def heartbeat(stop_event: asyncio.Event | None = None):
             if not await brain.is_within_budget(
                 max_calls, max_percent=config.usage.max_daily_claude_percent
             ):
+                limit = (f"${config.brain.max_daily_usd:.2f} a day (brain.max_daily_usd)"
+                         if brain.provider == "deepseek"
+                         else f"{config.usage.max_daily_claude_percent}% of quota")
                 logger.info(
                     f"{brain.provider_label} usage limit reached "
-                    f"({config.usage.max_daily_claude_percent}% of quota or "
-                    f"{max_calls} calls). Sleeping 1h, then re-checking."
+                    f"({limit} or {max_calls} calls). Sleeping 1h, then re-checking."
                 )
                 if await _interruptible_sleep(3600, stop_event):
                     break

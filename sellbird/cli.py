@@ -215,6 +215,8 @@ def cmd_status(args):
         by_provider = summary.get("usage_today_by_provider", {})
         print(f"  Claude calls today:   {by_provider.get('claude', summary['usage_today'])}")
         print(f"  Codex calls today:    {by_provider.get('codex', 0)}")
+        if by_provider.get("deepseek"):
+            print(f"  DeepSeek calls today: {by_provider['deepseek']}")
         from sellbird.config import compliance_notice, load_config, sending_notice
         loaded = None
         try:
@@ -259,7 +261,8 @@ def cmd_status(args):
             print("  Postal address:       MISSING")
             print(textwrap.fill(address_notice, width=72, initial_indent="                        ",
                                 subsequent_indent="                        "))
-        from sellbird.brain import BRAIN_STATUS_KEY, Brain, active_brain_status
+        from sellbird.brain import (BRAIN_STATUS_KEY, PROVIDER_LABELS, Brain,
+                                    active_brain_status)
         from sellbird.config import ConfigError, load_brain_config
         try:
             brain_config = load_brain_config()
@@ -286,11 +289,14 @@ def cmd_status(args):
                 elif brain.provider == "codex":
                     print(f"  Brain:                {label} ready (CLI, isolation, login, "
                           "model and account checked; no prompt sent)")
+                elif brain.provider == "deepseek":
+                    print(f"  Brain:                {label} ready (API key set; direct API "
+                          "calls with no tools; key and balance checked by the first call)")
                 else:
                     print(f"  Brain:                {label} CLI isolation flags present "
                           "(login not checked: Claude is checked by its first call)")
         elif brain_status.get("status") == "paused":
-            label = {"claude": "Claude", "codex": "Codex"}.get(brain_status.get("provider"), "Brain")
+            label = PROVIDER_LABELS.get(brain_status.get("provider"), "Brain")
             print(f"  Brain:                {label} PAUSED since {brain_status.get('since', '?')}")
             print(f"                        {brain_status.get('reason', '')}")
         print()
@@ -332,7 +338,8 @@ def cmd_usage(args):
         except Exception:
             pass
 
-        label = {"claude": "Claude", "codex": "Codex"}.get(provider, "Brain")
+        from sellbird.brain import PROVIDER_LABELS
+        label = PROVIDER_LABELS.get(provider, "Brain")
         print(f"\n  {label} Usage")
         print("  " + "=" * 52)
         if windows:
@@ -346,6 +353,14 @@ def cmd_usage(args):
                   "version, and network).")
         elif provider == "claude":
             print("  Quota gauge unavailable (run 'claude login' or check network).")
+        elif provider == "deepseek":
+            # Billed per token from a prepaid balance: no quota, a dollar cap.
+            spent = await state.get_cost_today(provider="deepseek")
+            cap = brain_config.max_daily_usd
+            print(f"  Spent today      ~${spent:.3f}"
+                  + (f" of ${cap:.2f} (brain.max_daily_usd)" if cap else " (no dollar cap)"))
+            print("  An estimate at DeepSeek's peak rates; your balance is at "
+                  "platform.deepseek.com.")
 
         totals = await state.usage_totals()
         print()
@@ -1084,8 +1099,8 @@ def main():
         help="Max pages to crawl (default: 100)",
     )
     sub.add_argument(
-        "--provider", choices=["claude", "codex"], default=None,
-        help="Subscription to think with (default: the one in your config, else claude)",
+        "--provider", choices=["claude", "codex", "deepseek"], default=None,
+        help="What to think with (default: the one in your config, else claude)",
     )
     sub.add_argument("--model", default=None, help="Model for this provider (default: provider default)")
     sub.add_argument(

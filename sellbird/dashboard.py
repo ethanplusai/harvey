@@ -852,11 +852,12 @@ async def get_stats():
         # get_usage_today use date.today()); SQLite's date('now') is UTC and
         # can select a different day's counts on either side of UTC midnight.
         usage = await query_db(
-            "SELECT claude_calls, codex_calls FROM usage_log WHERE date = ?",
+            "SELECT claude_calls, codex_calls, deepseek_calls FROM usage_log WHERE date = ?",
             (date.today().isoformat(),),
         )
         usage_today = (usage[0]["claude_calls"] or 0) if usage else 0
         codex_today = (usage[0]["codex_calls"] or 0) if usage else 0
+        deepseek_today = (usage[0]["deepseek_calls"] or 0) if usage else 0
 
         return {
             "prospects": {"total": prospect_total, "by_status": prospect_map},
@@ -866,6 +867,7 @@ async def get_stats():
             "actions_total": action_count,
             "claude_calls_today": usage_today,
             "codex_calls_today": codex_today,
+            "deepseek_calls_today": deepseek_today,
             "brain_provider": _active_provider(),
             "brain_status": await _brain_status(),
         }
@@ -966,9 +968,21 @@ async def get_usage():
     except Exception as e:
         logger.debug("Quota lookup failed: %s", e)
 
+    # DeepSeek bills per token: instead of a quota, today's estimated spend
+    # against brain.max_daily_usd (local date, as the budget check counts it).
+    spend = None
+    if provider == "deepseek":
+        rows = await query_db(
+            "SELECT COALESCE(SUM(cost_usd), 0) AS usd FROM usage_events "
+            "WHERE provider = 'deepseek' "
+            "AND date(created_at, 'localtime') = date('now', 'localtime')")
+        spend = {"today_usd": float(rows[0]["usd"] or 0) if rows else 0.0,
+                 "cap_usd": float(getattr(brain, "max_daily_usd", 0) or 0)}
+
     return {
         "provider": provider,
         "quota": quota,
+        "spend": spend,
         # Whose quota this is, even when it couldn't be read, so the UI shows
         # "unavailable" for the active provider instead of hiding the gauge.
         "quota_provider": provider,
@@ -2176,7 +2190,8 @@ async def get_today():
         # Ordered by how much it blocks Sellbird from doing anything at all.
         brain = await _brain_status()
         if brain.get("status") == "paused":
-            who = "Codex" if brain.get("provider") == "codex" else "Sellbird's model"
+            who = {"codex": "Codex", "deepseek": "DeepSeek"}.get(
+                brain.get("provider"), "Sellbird's model")
             items.append({
                 "key": "brain-paused", "tone": "bad",
                 "title": f"{who} is paused, so Sellbird is waiting",

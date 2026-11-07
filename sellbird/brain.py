@@ -1,10 +1,11 @@
 """Brain — Sellbird's thinking engine.
 
 Runs on the operator's Claude subscription (Claude Code headless, the
-default) or, when ``brain.provider: codex`` is configured, their ChatGPT
-subscription through an isolated Codex runtime (see sellbird/codex.py). The
-provider is fixed per Brain; a failing provider never falls back to the
-other one.
+default); when ``brain.provider: codex`` is configured, on their ChatGPT
+subscription through an isolated Codex runtime (see sellbird/codex.py); or,
+with ``brain.provider: deepseek``, on DeepSeek's API with a prepaid key (see
+sellbird/deepseek.py). The provider is fixed per Brain; a failing provider
+never falls back to another one.
 """
 
 import asyncio
@@ -39,7 +40,7 @@ _NON_RETRYABLE_PATTERNS = (
 )
 
 
-PROVIDER_LABELS = {"claude": "Claude", "codex": "Codex"}
+PROVIDER_LABELS = {"claude": "Claude", "codex": "Codex", "deepseek": "DeepSeek"}
 
 # Settings key holding the brain's last health transition, for `sellbird
 # status` and the dashboard: {"provider", "status": "ok"|"paused", "reason",
@@ -79,6 +80,19 @@ class BrainUnavailable(Exception):
     a caller must leave its input untouched for a later retry."""
 
 
+class _SetupProblem(Exception):
+    """Something the operator must fix before the provider can be used."""
+    kind = "setup"
+
+
+class _NoQuota:
+    """A provider with no subscription gauge: DeepSeek bills per token, so
+    its budget is dollars a day (brain.max_daily_usd), not a quota."""
+
+    async def get_utilization(self):
+        return None
+
+
 class Brain:
     def __init__(self, state: StateManager, brain_config=None):
         from sellbird.config import BrainConfig
@@ -88,6 +102,7 @@ class Brain:
         self.provider = self.config.provider
         self.model = self.config.model
         self.codex = None
+        self.deepseek = None
         # Whether the last think_json got no reply at all (an outage, logout,
         # rate limit or timeout), as opposed to a reply that wasn't valid
         # JSON. Callers that count model failures must not count outages.
@@ -105,6 +120,11 @@ class Brain:
                 model=self.model, reasoning_effort=self.config.reasoning_effort
             )
             self.quota = CodexQuotaClient(self.codex)
+        elif self.provider == "deepseek":
+            from sellbird.deepseek import DeepSeekClient
+            self.deepseek = DeepSeekClient(model=self.model)
+            self.model = self.deepseek.model
+            self.quota = _NoQuota()
         else:
             # Lazy import avoids a cycle (quota -> usage -> state).
             from sellbird.integrations.quota import QuotaClient
@@ -136,7 +156,25 @@ class Brain:
         file or the Codex executable changes, or every
         PROVIDER_RECHECK_SECONDS, so a persistent problem doesn't start
         runtimes every heartbeat.
+
+        DeepSeek: the key is set and the model is a DeepSeek one. No request
+        is made, so a wrong key or an empty balance shows on the first call.
         """
+        if self.provider == "deepseek":
+            problem = self.deepseek.configured()
+            if problem:
+                await self._mark_unavailable(_SetupProblem(problem))
+                return self.unavailable
+            if self.unavailable:
+                # A rejected key or an empty balance from an earlier call.
+                # Try again once the key changes (or every
+                # PROVIDER_RECHECK_SECONDS, for a top-up), not every cycle.
+                unchanged = self._fingerprint() == self._unavailable_fingerprint
+                recent = time.monotonic() - self._unavailable_at < PROVIDER_RECHECK_SECONDS
+                if unchanged and recent:
+                    return self.unavailable
+                await self._mark_available()
+            return ""
         if self.provider != "codex":
             return await self._claude_preflight()
         from sellbird.codex import CodexError
@@ -196,6 +234,12 @@ class Brain:
     def _fingerprint(self):
         if self.provider == "codex":
             return self.codex.fingerprint()
+        if self.provider == "deepseek":
+            # Changes when the key or model does; a digest, never the key.
+            import hashlib
+            from sellbird.deepseek import api_key
+            return hashlib.sha256(
+                f"{api_key()}|{self.model}".encode()).hexdigest()[:16]
         from sellbird.claude_runtime import fingerprint
         return fingerprint()
 
@@ -264,6 +308,11 @@ class Brain:
         """
         if self.provider == "codex":
             return await self._think_codex(
+                prompt, session_id=session_id, timeout=timeout,
+                max_retries=max_retries, agent=agent, task=task,
+            )
+        if self.provider == "deepseek":
+            return await self._think_deepseek(
                 prompt, session_id=session_id, timeout=timeout,
                 max_retries=max_retries, agent=agent, task=task,
             )
@@ -482,6 +531,75 @@ class Brain:
         )
         return ""
 
+    async def _think_deepseek(
+        self,
+        prompt: str,
+        session_id: str | None,
+        timeout: float,
+        max_retries: int,
+        agent: str,
+        task: str,
+    ) -> str:
+        """One tool-less chat completion per attempt (see sellbird/deepseek.py).
+        A rejected key or an empty balance pauses the brain, like a Codex setup
+        problem, until the next heartbeat's preflight; network errors, rate
+        limits and server errors are retried."""
+        from sellbird.deepseek import DeepSeekError
+
+        if self.unavailable:
+            logger.debug(f"DeepSeek call skipped: {self.unavailable}")
+            return ""
+        label = session_id or ""
+        last_error = ""
+        for attempt in range(max_retries + 1):
+            if attempt > 0:
+                delay = RETRY_BASE_DELAY * (2 ** (attempt - 1))
+                logger.info(
+                    f"Retrying DeepSeek call in {delay:.0f}s "
+                    f"(attempt {attempt + 1}/{max_retries + 1})..."
+                )
+                await asyncio.sleep(delay)
+            try:
+                result = await self.deepseek.complete(prompt, timeout=timeout)
+            except DeepSeekError as e:
+                last_error = str(e)
+                if e.kind in ("auth", "balance"):
+                    logger.error(f"DeepSeek call failed: {e}")
+                    await self._mark_unavailable(e)
+                    return ""
+                if not e.retryable:
+                    logger.error(f"DeepSeek call failed: {e}")
+                    return ""
+                logger.warning(f"DeepSeek call failed: {e}")
+                continue
+            except Exception as e:
+                # Log only the type: a message could carry call details.
+                # CancelledError is not an Exception, so shutdown propagates.
+                logger.error(f"DeepSeek call failed unexpectedly ({type(e).__name__}).")
+                return ""
+
+            try:
+                await self.state.increment_usage(provider="deepseek")
+            except Exception as e:
+                logger.warning(f"Failed to record usage counter: {e}")
+            try:
+                if not agent and label.startswith("sellbird-"):
+                    agent = label[len("sellbird-"):].split("-")[0]
+                await self.state.record_usage_event(
+                    agent=agent, task=task or label, session_id=result.request_id,
+                    model=result.model, duration_ms=result.duration_ms, num_turns=1,
+                    source="deepseek_api", provider="deepseek", **result.usage,
+                )
+            except Exception as e:
+                logger.warning(f"Failed to record usage event: {e}")
+            return result.text
+
+        logger.error(
+            f"DeepSeek call failed after {max_retries + 1} attempts. "
+            f"Last error: {last_error[:200]}"
+        )
+        return ""
+
     async def _record_codex_usage(self, result, agent: str, task: str, label: str):
         """One usage row per Codex call. ChatGPT plans aren't billed per
         token, so cost is recorded as 0 rather than estimated."""
@@ -639,7 +757,25 @@ class Brain:
         against max_percent so Sellbird always leaves the remainder for the
         user's own interactive work. Fallback when those are unavailable:
         Sellbird's own call counter for this provider against max_daily_calls.
+
+        DeepSeek has no quota to read: it bills per token, so its limit is
+        the estimated spend today against brain.max_daily_usd, plus the same
+        daily call counter.
         """
+        if self.provider == "deepseek":
+            cap = float(self.config.max_daily_usd or 0)
+            if cap:
+                try:
+                    spent = await self.state.get_cost_today(provider="deepseek")
+                except Exception as e:
+                    # Unknown spend must not read as room to spend.
+                    logger.warning(f"Could not read today's DeepSeek spend: {e}")
+                    return False
+                if spent >= cap:
+                    logger.info(f"DeepSeek daily cap reached: about ${spent:.3f} of "
+                                f"${cap:.2f} (brain.max_daily_usd).")
+                    return False
+            return await self.check_usage() < max_daily_calls
         await self._expire_usage_pause()
         if time.monotonic() < self._usage_limited_until:
             # Codex said the plan is out of usage: an unreadable quota must
