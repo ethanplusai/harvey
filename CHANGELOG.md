@@ -7,6 +7,14 @@ minor versions can still change behaviour.
 
 ## [Unreleased]
 
+### Changed
+
+- **The opt-out line takes any wording.** `compliance.opt_out_line` no longer
+  has to ask for a keyword: "Not interested? Just let me know and I won't email
+  you again." is the new default. Clear phrases are still caught by rule, and
+  the model reads every other reply for a request to stop. A link or an email
+  address is still refused.
+
 ### Added
 
 - **Several sending inboxes.** Besides the main mailbox, connect Gmail,

@@ -440,28 +440,17 @@ class PreclearedConfig(BaseModel):
         return self
 
 
-DEFAULT_OPT_OUT_LINE = 'Not interested? Reply "no thanks" and I won\'t email again.'
-# The replies the Handler always honours as an opt-out on their own; an
-# opt_out_line must ask for one of them ("Reply STOP", 'reply "no thanks"').
+DEFAULT_OPT_OUT_LINE = "Not interested? Just let me know and I won't email you again."
+# The default before any wording was allowed: emails already sent carry it, so a
+# reply quoting it is still recognised as our text.
+PREVIOUS_DEFAULT_OPT_OUT_LINE = 'Not interested? Reply "no thanks" and I won\'t email again.'
+# Replies the Handler honours as an opt-out by rule, before the model reads them.
+# The opt-out line itself can use any wording: the model reads every reply for a
+# request to stop, however it is put.
 OPT_OUT_WORDS = ("no thanks", "no thank you", "unsubscribe", "stop", "remove me",
                  "opt out")
-# The same in Hebrew ('השיבו "הסר"', 'תגידו לי "לא תודה"').
 HEBREW_OPT_OUT_WORDS = ("הסר", "הסירו", "הסרה", "לא תודה", "הסירו אותי", "תורידו אותי")
-# The same in Spanish ('Responda "no, gracias"', 'Responda BAJA').
 SPANISH_OPT_OUT_WORDS = ("no gracias", "baja", "darme de baja")
-_OPT_OUT_WORD_RE = "(?:" + "|".join(
-    r"[\s,]+".join(map(re.escape, w.split()))
-    for w in OPT_OUT_WORDS + HEBREW_OPT_OUT_WORDS + SPANISH_OPT_OUT_WORDS) + ")"
-_ASKS_FOR_OPT_OUT_RE = re.compile(
-    r"\b(?:reply(?:\s+with)?|(?:responda|responde|respondan|conteste|contesta|escriba)(?:\s+con)?)"
-    r"\s*[\"'\u201c\u2018]?\s*" + _OPT_OUT_WORD_RE + r"\b", re.IGNORECASE)
-# Reply / answer / write / tell me, then a few words at most ("במייל חוזר").
-_ASKS_FOR_OPT_OUT_HE_RE = re.compile(
-    r"(?<!\w)ו?(?:השיב[וי]?|השב|תשיב[וי]?|ענ[הוי]|תענ[הוי]|כתוב|כתב[וי]|תכתוב|תכתב[וי]"
-    r"|הגב|הגיב[וי]|תגיב[וי]?|שלח[וי]?|תשלח[וי]?|תגיד[וי]?|אמור|אמר[וי])"
-    r"(?:\s+[^\s\"'\u05f3\u05f4\u201c\u201d\u2018\u2019]+){0,3}?"
-    r"\s*[\"'\u05f3\u05f4\u201c\u201d\u2018\u2019]?\s*" + _OPT_OUT_WORD_RE + r"(?!\w)",
-    re.IGNORECASE)
 # "Click" in Hebrew: a footer has no link to click.
 _HEBREW_CLICK_RE = re.compile(r"(?<!\w)ו?(?:לחצו|לחצי|לחץ\s+(?:כאן|על)|הקליקו|הקליקי|הקלק)(?!\w)")
 
@@ -472,9 +461,8 @@ class ComplianceConfig(BaseModel):
     # CAN-SPAM requires a postal address you receive mail at (a street
     # address, PO box or virtual mailbox) and a working way to opt out.
     postal_address: str = ""
-    # Must ask for wording Sellbird recognises as an opt-out (OPT_OUT_WORDS,
-    # HEBREW_OPT_OUT_WORDS).
-    # "" leaves it off (and sellbird warns).
+    # Any wording that tells people they can opt out by replying. "" leaves it
+    # off (and sellbird warns).
     opt_out_line: str = DEFAULT_OPT_OUT_LINE
     # Companies this operator will never email: competitors, existing
     # customers, anyone under a legal hold, a partner you agreed not to
@@ -529,13 +517,6 @@ class ComplianceConfig(BaseModel):
             raise ValueError(
                 "opt_out_line can't contain a link or an email address: cold email "
                 "allows one link, and opting out must be as simple as replying."
-            )
-        if not (_ASKS_FOR_OPT_OUT_RE.search(v) or _ASKS_FOR_OPT_OUT_HE_RE.search(v)):
-            raise ValueError(
-                "opt_out_line must ask for a reply Sellbird recognises as an opt-out, "
-                'e.g. Reply "no thanks" / Reply STOP, in Hebrew השיבו "הסר", or in Spanish Responda BAJA. Recognised: '
-                + ", ".join(f'"{w}"' for w in OPT_OUT_WORDS + HEBREW_OPT_OUT_WORDS
-                            + SPANISH_OPT_OUT_WORDS) + "."
             )
         return v
 
