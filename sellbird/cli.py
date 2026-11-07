@@ -306,11 +306,14 @@ def cmd_status(args):
                 elif brain.provider == "codex":
                     print(f"  Brain:                {label} ready (CLI, isolation, login, "
                           "model and account checked; no prompt sent)")
+                elif brain.provider == "kimi":
+                    print(f"  Brain:                {label} CLI isolation flags present "
+                          "(login not checked: Kimi is checked by its first call)")
                 else:
                     print(f"  Brain:                {label} CLI isolation flags present "
                           "(login not checked: Claude is checked by its first call)")
         elif brain_status.get("status") == "paused":
-            label = {"claude": "Claude", "codex": "Codex"}.get(brain_status.get("provider"), "Brain")
+            label = {"claude": "Claude", "codex": "Codex", "kimi": "Kimi"}.get(brain_status.get("provider"), "Brain")
             print(f"  Brain:                {label} PAUSED since {brain_status.get('since', '?')}")
             print(f"                        {brain_status.get('reason', '')}")
         print()
@@ -349,10 +352,12 @@ def cmd_usage(args):
             elif provider == "claude":
                 from sellbird.integrations.quota import QuotaClient
                 windows = await QuotaClient().get_utilization()
+            # kimi: the membership quota is server-side; the CLI exposes no
+            # gauge, so windows stays None and call counting is the meter.
         except Exception:
             pass
 
-        label = {"claude": "Claude", "codex": "Codex"}.get(provider, "Brain")
+        label = {"claude": "Claude", "codex": "Codex", "kimi": "Kimi"}.get(provider, "Brain")
         print(f"\n  {label} Usage")
         print("  " + "=" * 52)
         if windows:
@@ -366,6 +371,9 @@ def cmd_usage(args):
                   "version, and network).")
         elif provider == "claude":
             print("  Quota gauge unavailable (run 'claude login' or check network).")
+        elif provider == "kimi":
+            print("  Quota gauge unavailable (the Kimi CLI reports none; call\n"
+                  "  counting above is the meter).")
 
         totals = await state.usage_totals()
         print()
@@ -1139,7 +1147,7 @@ def main():
         help="Max pages to crawl (default: 100)",
     )
     sub.add_argument(
-        "--provider", choices=["claude", "codex"], default=None,
+        "--provider", choices=["claude", "codex", "kimi"], default=None,
         help="Subscription to think with (default: the one in your config, else claude)",
     )
     sub.add_argument("--model", default=None, help="Model for this provider (default: provider default)")

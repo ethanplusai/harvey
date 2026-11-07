@@ -16,7 +16,7 @@ channels:
   email:      { provider: gmail | microsoft | smtp | instantly, max_daily_sends, per_inbox_daily_cap,
                 require_approval, send_to_risky, min_write_score, max_bounce_rate, warmup, send_window, signature }
 usage:        { max_daily_claude_percent, heartbeat_interval_minutes, quiet_hours }
-brain:        { provider: claude | codex, model, reasoning_effort }   # optional; claude by default
+brain:        { provider: claude | codex | kimi, model, reasoning_effort }   # optional; claude by default
 writer:       { humanizer }   # optional; true adds one editing pass per batch using ~/.claude/skills/humanizer/SKILL.md
               # email_rules: your own markdown rules for the emails' shape (see The skills library)
 ```
