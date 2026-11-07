@@ -25,6 +25,8 @@ from sellbird.state import StateManager
 
 logger = logging.getLogger("sellbird.trainer")
 
+MAX_OBJECTION_ATTEMPTS = 3
+
 from sellbird.paths import PROJECT_ROOT
 from sellbird.textio import read_user_text
 
@@ -521,7 +523,16 @@ class Trainer:
 
         # Step 5: Generate objection responses
         print("[5/6] Generating objection handling playbook...")
-        objections = await self._generate_objections(product_info, competitive_intel)
+        objections = await self._generate_objections(
+            product_info,
+            competitive_intel,
+        )
+
+        if not objections:
+            print("\nERROR: Could not generate a valid objection playbook.")
+            print("Training stopped. Existing configuration was not modified.")
+            return None
+
         print(f"      Prepared {len(objections)} objection responses.\n")
 
         # Step 6: Generate config + skills
@@ -700,20 +711,34 @@ If the website doesn't mention specific competitors, infer the most likely ones 
         result = await self.brain.think_json(prompt, session_id="sellbird-trainer")
         return result if isinstance(result, dict) else {"competitors": []}
 
-    async def _generate_objections(self, product_info: dict, competitive_intel: dict) -> dict:
-        """Generate objection handling responses based on product + competitive intel."""
+
+    async def _generate_objections(
+        self, product_info: dict, competitive_intel: dict
+    ) -> dict | None:
+        """Generate and validate objection responses with bounded retries."""
         competitors = competitive_intel.get("competitors", [])
-        competitor_names = [c.get("name", "") for c in competitors if isinstance(c, dict)]
+        competitor_names = [
+            c.get("name", "")
+            for c in competitors
+            if isinstance(c, dict) and isinstance(c.get("name", ""), str)
+        ]
+
+        key_benefits = product_info.get("key_benefits", [])
+        differentiators = product_info.get("differentiators", [])
+        if not isinstance(key_benefits, list):
+            key_benefits = []
+        if not isinstance(differentiators, list):
+            differentiators = []
 
         prompt = f"""You are a world-class B2B sales trainer. Based on this product and its competitive
-landscape, generate the most common objections a prospect would raise, with killer responses.
+landscape, generate the most common objections a prospect would raise, with consultative responses.
 
 Product: {product_info.get('product_name', '')}
 Description: {product_info.get('product_description', '')}
 Pricing: {product_info.get('pricing', '')}
-Key Benefits: {', '.join(product_info.get('key_benefits', []))}
+Key Benefits: {', '.join(str(item) for item in key_benefits)}
 Competitors: {', '.join(competitor_names)}
-Differentiators: {', '.join(product_info.get('differentiators', []))}
+Differentiators: {', '.join(str(item) for item in differentiators)}
 
 Generate 8-12 objections covering:
 - Price/budget concerns
@@ -726,10 +751,59 @@ Generate 8-12 objections covering:
 Each response should be 1-2 sentences, consultative (not defensive), and end with
 a question or redirect that keeps the conversation going.
 
-Return as a JSON object where keys are the objection and values are the response."""
+Return a JSON object where keys are objections and values are non-empty responses."""
 
-        result = await self.brain.think_json(prompt, session_id="sellbird-trainer")
-        return result if isinstance(result, dict) else {}
+        for attempt in range(MAX_OBJECTION_ATTEMPTS):
+            result = await self.brain.think_json(
+                prompt,
+                session_id="sellbird-trainer",
+            )
+
+            # A provider outage is different from malformed model output.
+            if getattr(self.brain, "last_reply_empty", False):
+                logger.warning(
+                    "Objection generation stopped: provider returned no response."
+                )
+                return None
+
+            # Accept only a non-empty dictionary of non-empty string pairs.
+            if isinstance(result, dict) and result:
+                valid = all(
+                    isinstance(objection, str)
+                    and objection.strip()
+                    and isinstance(response, str)
+                    and response.strip()
+                    for objection, response in result.items()
+                )
+                if valid:
+                    cleaned = {
+                        objection.strip(): response.strip()
+                        for objection, response in result.items()
+                    }
+                    logger.info(
+                        "Generated %s valid objection responses.", len(cleaned)
+                    )
+                    return cleaned
+
+            if attempt < MAX_OBJECTION_ATTEMPTS - 1:
+                logger.warning(
+                    "Invalid objection playbook. Retrying attempt %s/%s.",
+                    attempt + 1,
+                    MAX_OBJECTION_ATTEMPTS,
+                )
+                prompt += """
+
+IMPORTANT: Your previous response was invalid or empty.
+Return a NON-EMPTY JSON object containing objection strings as keys
+and non-empty consultative response strings as values.
+Do not return an empty object, markdown, or explanations.
+"""
+
+        logger.error(
+            "Objection generation failed after %s attempts.",
+            MAX_OBJECTION_ATTEMPTS,
+        )
+        return None
 
     async def _generate_product_knowledge(
         self, product_info: dict, icp_info: dict, competitive_intel: dict
