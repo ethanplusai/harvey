@@ -29,6 +29,7 @@ MAX_OBJECTION_ATTEMPTS = 3
 
 from sellbird.paths import PROJECT_ROOT
 from sellbird.textio import read_user_text
+from sellbird.untrusted import UNTRUSTED_RULE, fence
 
 
 def _normalize_start_url(url: str) -> str:
@@ -578,7 +579,11 @@ class Trainer:
         return config
 
     def _get_all_content(self, max_chars: int = 60000) -> str:
-        """Combine all scraped pages into one string for analysis."""
+        """All scraped pages as one <untrusted> block, for analysis.
+
+        Even your own site can carry text you didn't write (comments,
+        reviews, a page someone else controls), and what training learns
+        goes into every email afterwards, so the pages are fenced as data."""
         all_content = ""
         for url, content in self.scraped_pages.items():
             path = urlparse(url).path or "/"
@@ -587,7 +592,7 @@ class Trainer:
             all_content += f"\n\n--- PAGE: {path} ---\n{page_content}"
             if len(all_content) > max_chars:
                 break
-        return all_content
+        return fence(all_content, "your website")
 
     async def _extract_product_info(self) -> dict:
         """Ask Claude to extract product information from all crawled content."""
@@ -597,6 +602,8 @@ class Trainer:
 
 WEBSITE CONTENT ({len(self.scraped_pages)} pages):
 {all_content}
+
+{UNTRUSTED_RULE}
 
 Extract the following and return as JSON:
 {{
@@ -631,6 +638,8 @@ to understand exactly who this product is built for.
 
 WEBSITE CONTENT ({len(self.scraped_pages)} pages):
 {all_content}
+
+{UNTRUSTED_RULE}
 
 Return as JSON:
 {{
@@ -687,6 +696,8 @@ Known competitors: {', '.join(product_info.get('competitors', []))}
 
 WEBSITE CONTENT:
 {all_content}
+
+{UNTRUSTED_RULE}
 
 Look for comparison pages, "why us" messaging, feature differentiation,
 and any mentions of competitors or alternatives.
