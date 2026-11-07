@@ -63,6 +63,7 @@ class Registry:
     send_headers: dict[str, Any] = field(default_factory=dict)
     agent_routes: list[tuple[str, str]] = field(default_factory=list)
     mcp_tools: dict[str, Any] = field(default_factory=dict)
+    mailbox_connections: dict[str, Any] = field(default_factory=dict)
 
     def add_router(self, router) -> None:
         """A FastAPI ``APIRouter`` served by the dashboard, behind its guard,
@@ -129,6 +130,18 @@ class Registry:
         if name in self.mcp_tools:
             raise ExtensionError(f"MCP tool set {name!r} is already registered")
         self.mcp_tools[name] = register
+
+
+    def add_mailbox_connection(self, connection: str, build) -> None:
+        """Another way an inbox can connect (sellbird.mailboxes): mailbox rows
+        whose ``connection`` is this name are sent and read with
+        ``build(row, config=, env=, secrets=)``, a MailProvider or None. The
+        built-in kinds (oauth, smtp) can't be replaced."""
+        from sellbird.mailboxes import BUILT_IN_CONNECTIONS
+        _check_name(connection, "mailbox connection")
+        if connection in BUILT_IN_CONNECTIONS or connection in self.mailbox_connections:
+            raise ExtensionError(f"mailbox connection {connection!r} is already registered")
+        self.mailbox_connections[connection] = build
 
 
 def _check_name(name: str, what: str) -> None:

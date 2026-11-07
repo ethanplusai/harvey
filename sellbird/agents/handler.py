@@ -529,8 +529,12 @@ class Handler:
         self.brain = brain
         self.state = state
         self.config = config
+        self.env = env
         self.instantly = InstantlyClient(env.instantly_api_key)
         self.provider = get_mail_provider(config, env)
+        # For extra inboxes' sign-ins (sellbird.mailboxes); None = the keychain.
+        self.secrets = None
+        self._inbox_providers: dict = {}   # extra inboxes' providers, kept across cycles
         self.skills = ""
         self.last_read_problem = ""   # why the last mailbox read failed, for the heartbeat
 
@@ -828,6 +832,9 @@ class Handler:
                 intent=intent,
                 stage=convo.stage,
             )
+        if (reply_meta or {}).get("mailbox_id") is not None:
+            # With several inboxes: the one they wrote to answers them.
+            await self.state.update_conversation(convo.id, mailbox_id=reply_meta["mailbox_id"])
         if convo.stage != old_stage:
             logger.info(f"Handler: Stage for {lead_email}: {old_stage} -> {convo.stage}")
 
@@ -1004,21 +1011,41 @@ class Handler:
     # ── Native provider path (Gmail / SMTP) ──
 
     async def _run_native(self) -> bool:
-        """Poll the mailbox, split bounces from human replies, handle both.
-        Returns True only if the mailbox was read and every message handled."""
-        if not self.provider.is_configured():
-            logger.debug(
-                f"Handler: provider '{self.provider.name}' not configured yet."
-            )
-            return True  # nothing to read; the sender can't send through it either
+        """Poll the mailbox (every connected inbox, with several), split
+        bounces from human replies, handle both. Returns True only if every
+        inbox was read and every message handled: the heartbeat sends nothing
+        otherwise, since an unread reply can't have stopped its follow-ups."""
+        from sellbird.mailboxes import load_inboxes
 
         self.last_read_problem = ""
+        inboxes = await load_inboxes(self.state, self.config, self.env, self.provider,
+                                     secrets=self.secrets, cache=self._inbox_providers)
+        if not inboxes.several:
+            if not self.provider.is_configured():
+                logger.debug(
+                    f"Handler: provider '{self.provider.name}' not configured yet."
+                )
+                return True  # nothing to read; the sender can't send through it either
+            return await self._read_inbox(self.provider, None)
+
+        complete = True
+        for inbox in inboxes.readers():
+            # Every inbox is read even after one fails: replies elsewhere
+            # still stop their follow-ups.
+            if not await self._read_inbox(inbox.provider, inbox.id, label=inbox.address):
+                complete = False
+        return complete
+
+    async def _read_inbox(self, provider, mailbox_id: str | None, label: str = "") -> bool:
+        """Read one inbox and handle what came in. mailbox_id tags each reply
+        with the inbox it arrived in (None: the only inbox)."""
+        name = f"{label} ({provider.name})" if label else provider.name
         try:
-            inbound = await self.provider.get_replies()
+            inbound = await provider.get_replies()
         except Exception as e:
-            logger.error(f"Handler: fetching replies failed: {e}")
+            logger.error(f"Handler: fetching replies failed for {name}: {e}")
             # Kept for the heartbeat: sending is held, and Today says why.
-            self.last_read_problem = f"{self.provider.name}: {e}"
+            self.last_read_problem = f"{name}: {e}"
             return False
 
         handled = 0
@@ -1040,6 +1067,7 @@ class Handler:
                             "thread_ref": msg.thread_ref,
                             "message_id": msg.message_id,
                             "subject": msg.subject,
+                            **({"mailbox_id": mailbox_id} if mailbox_id is not None else {}),
                         },
                     )
                 handled += 1
@@ -1056,15 +1084,16 @@ class Handler:
                 if consumed:
                     await self.state.mark_reply_processed(dedup_key)
 
+        where = f" in {label}" if label else ""
         if handled:
-            logger.info(f"Handler: processed {handled} inbound message(s).")
+            logger.info(f"Handler: processed {handled} inbound message(s){where}.")
         else:
-            logger.info("Handler: no new replies.")
+            logger.info(f"Handler: no new replies{where}.")
         if complete:
             # Every reply read was handled: the provider may start its next
             # read after these (Gmail's history marker). Not otherwise, so
             # what wasn't handled is read again.
-            self.provider.confirm_read()
+            provider.confirm_read()
         return complete
 
     async def _handle_bounce(self, msg):
@@ -1144,6 +1173,7 @@ class Handler:
             thread_ref=reply_meta.get("thread_ref", ""),
             in_reply_to=reply_meta.get("message_id", ""),
             approved_by="" if require_approval else "autopilot",
+            mailbox_id=reply_meta.get("mailbox_id", ""),
         )
         if item_id:
             await self.state.delete_setting(review_key)

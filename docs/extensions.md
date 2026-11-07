@@ -63,6 +63,8 @@ def install(registry):
     registry.add_send_rule("myext.warm", warm_enough)
     registry.add_send_headers("myext.unsubscribe",
                               lambda item: [("List-Unsubscribe", "<mailto:stop@example.org>")])
+    # Inboxes whose `connection` is "myext" send and read through your MailProvider.
+    registry.add_mailbox_connection("myext", lambda row, *, config, env, secrets: MyProvider(row))
 ```
 
 ## The rules

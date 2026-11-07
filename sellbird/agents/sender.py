@@ -30,6 +30,7 @@ from sellbird.integrations.instantly import InstantlyClient
 from sellbird.integrations.mail_provider import NATIVE_PROVIDERS, get_mail_provider
 from sellbird.integrations.precleared import PreclearedClient, clear_hold, record_hold
 from sellbird.integrations.signature import signature_problem
+from sellbird.mailboxes import Inboxes, load_inboxes
 from sellbird.sending_mode import SIGNATURE_HOLD_PREFIX, sync_sending_mode
 from sellbird.state import (
     AUTOPILOT_OFF_REASON, COLLEAGUE_REPLIED, HAND_SENT_REASON, HELD_FOR_REVIEW,
@@ -99,8 +100,14 @@ class Sender:
         self.brain = brain
         self.state = state
         self.config = config
+        self.env = env
         self.instantly = InstantlyClient(env.instantly_api_key)
         self.provider = get_mail_provider(config, env)
+        # Every inbox this cycle may send from (sellbird.mailboxes), read once
+        # per run; None outside a run. Tests pass a SecretStore for extra inboxes.
+        self.inboxes: Inboxes | None = None
+        self.secrets = None
+        self._inbox_providers: dict = {}   # extra inboxes' providers, kept across cycles
         # Optional per-recipient compliance check; None unless enabled.
         self.precleared = PreclearedClient.from_config(config, env)
         # Domains whose check failed since Precleared last answered. Kept
@@ -213,16 +220,24 @@ class Sender:
         window = send_window_of(self.config)
         if window is None or not self.is_native:
             return False
-        if not self.provider.is_configured() or await self.state.get_setting(KILL_SWITCH_KEY):
+        if await self.state.get_setting(KILL_SWITCH_KEY):
             return False
         email = self.config.channels.email
         if email.max_daily_sends - await self.state.count_outbox_sent_today() <= 0:
             return False
-        midnight = datetime.now().astimezone().replace(hour=0, minute=0, second=0, microsecond=0)
-        if cold_daily_cap(email) - await self.state.count_outbox_sent_today(
-                kind="sequence",
-                since=midnight.astimezone(timezone.utc).replace(tzinfo=None).isoformat()) <= 0:
-            return False
+        inboxes = await self._load_inboxes()
+        if inboxes.several:
+            # Any inbox with cold room left today is worth waking for.
+            if not any(i.cold_left > 0 for i in inboxes.sendable()):
+                return False
+        else:
+            if not self.provider.is_configured():
+                return False
+            midnight = datetime.now().astimezone().replace(hour=0, minute=0, second=0, microsecond=0)
+            if cold_daily_cap(email) - await self.state.count_outbox_sent_today(
+                    kind="sequence",
+                    since=midnight.astimezone(timezone.utc).replace(tzinfo=None).isoformat()) <= 0:
+                return False
         now = _utcnow()
         due_before = datetime.now(timezone.utc).replace(tzinfo=None).isoformat()
         due = await self.state.get_outbox(
@@ -584,13 +599,23 @@ class Sender:
             )
             return
 
-        for campaign in await self.state.get_campaigns_by_status("draft"):
-            try:
-                await self._stage_campaign_native(campaign)
-            except Exception as e:
-                logger.error(f"Sender: staging '{campaign.name}' failed: {e}")
+        # Read once, before staging, so a new thread only goes to an inbox
+        # that can send, and each pick sees the threads assigned before it.
+        self.inboxes = await self._load_inboxes()
+        try:
+            for campaign in await self.state.get_campaigns_by_status("draft"):
+                try:
+                    await self._stage_campaign_native(campaign)
+                except Exception as e:
+                    logger.error(f"Sender: staging '{campaign.name}' failed: {e}")
 
-        await self._drain_due()
+            await self._drain_due()
+        finally:
+            self.inboxes = None
+
+    async def _load_inboxes(self) -> Inboxes:
+        return await load_inboxes(self.state, self.config, self.env, self.provider,
+                                  secrets=self.secrets, cache=self._inbox_providers)
 
     def _render(self, text: str, prospect) -> str:
         """Fill merge variables. The pre-send gate rejects any leftovers."""
@@ -660,6 +685,7 @@ class Sender:
             # office hours; follow-ups keep their delay, then move into it.
             zone = await self._zone_or_default(prospect) if window is not None else ""
             cumulative_days = 0
+            new_rows = 0
             for step in campaign.sequence:
                 cumulative_days += max(0, step.delay_days)
                 send_at = now + timedelta(days=cumulative_days)
@@ -679,6 +705,10 @@ class Sender:
                 )
                 if item_id:
                     staged += 1
+                    new_rows += 1
+            if new_rows and self.inboxes is not None and self.inboxes.several:
+                # The thread's inbox: every one of its emails leaves from it.
+                await self.inboxes.assign(campaign.id, prospect.id, staged_now=True)
             # Conditional: never overwrite a status set while staging
             # (marked sent by hand, a reply).
             await self.state.queue_prospect_if_unsent(prospect.id)
@@ -840,11 +870,19 @@ class Sender:
             # Check switched off: cold email no longer waits on it, so a
             # hold recorded while it was on must not stay on Today.
             await clear_hold(self.state)
-        if not self.provider.is_configured():
+        loaded = self.inboxes if self.inboxes is not None else await self._load_inboxes()
+        # Several inboxes: each email is routed to its thread's inbox. One
+        # inbox (the main mailbox only): exactly as before.
+        inboxes = loaded if loaded.several else None
+        if inboxes is None and not self.provider.is_configured():
             logger.warning(
                 f"Sender: mail provider '{self.provider.name}' is not configured "
                 "yet — outbox is holding. See CLAUDE.md → provider setup."
             )
+            return
+        if inboxes is not None and not inboxes.sendable():
+            logger.warning("Sender: no inbox can send right now (each is paused or not "
+                           "connected) — outbox is holding. See `sellbird inboxes list`.")
             return
         # Every email carries the configured logo, or none goes out: a
         # broken logo holds approved email rather than failing it.
@@ -856,7 +894,10 @@ class Sender:
 
         max_daily = self.config.channels.email.max_daily_sends
         sent_today = await self.state.count_outbox_sent_today()
-        budget = min(MAX_SENDS_PER_CYCLE, max_daily - sent_today)
+        # Each inbox sends up to MAX_SENDS_PER_CYCLE a cycle; max_daily_sends
+        # stays the ceiling on everything sent in a day.
+        per_cycle = MAX_SENDS_PER_CYCLE * (len(inboxes.sendable()) if inboxes else 1)
+        budget = min(per_cycle, max_daily - sent_today)
         if budget <= 0:
             logger.info(f"Sender: daily send cap reached ({sent_today}/{max_daily}).")
             return
@@ -924,12 +965,31 @@ class Sender:
         # several domains pause checks.)
         failed_addresses: set[str] = set()
         check_seconds = 0.0
+        # Several inboxes: why emails waited on their inbox, by reason.
+        inbox_waits: dict[str, int] = {}
         for item in due:
             if sent >= budget:
                 break
             if self.cold_only and item["kind"] != "sequence":
                 continue  # quiet hours: replies wait for the operator's hours
-            if item["kind"] == "sequence" and sent_cold >= cold_left:
+            provider, inbox = self.provider, None
+            if inboxes is not None:
+                route = await inboxes.route(item)
+                if route.action == "cancel":
+                    await self.state.update_outbox_item(
+                        item["id"], status="cancelled", error=route.reason)
+                    continue
+                if route.action == "hold":
+                    inbox_waits[route.reason] = inbox_waits.get(route.reason, 0) + 1
+                    continue
+                inbox = inboxes.get(route.mailbox_id)
+                if inbox.sent_this_cycle >= MAX_SENDS_PER_CYCLE:
+                    continue
+                if item["kind"] == "sequence" and inbox.cold_left <= 0:
+                    held_cold += 1
+                    continue
+                provider = inbox.provider
+            elif item["kind"] == "sequence" and sent_cold >= cold_left:
                 held_cold += 1
                 continue
             needs_check = self.precleared is not None and item["kind"] == "sequence"
@@ -1064,14 +1124,14 @@ class Sender:
                 await self.state.update_outbox_item(item["id"], status="approved",
                                                     error=f"held: {e}"[:300])
                 continue
-            if headers and not getattr(self.provider, "carries_headers", False):
+            if headers and not getattr(provider, "carries_headers", False):
                 # Never send it without them: it waits for an inbox that can.
                 await self.state.update_outbox_item(item["id"], status="approved",
                                                     error=f"held: {NO_HEADERS_HOLD}")
                 continue
             extra = {"headers": headers} if headers else {}
             try:
-                result = await self.provider.send_email(
+                result = await provider.send_email(
                     item["to_email"], item["subject"], body,
                     thread_ref=item.get("thread_ref", ""),
                     in_reply_to=item.get("in_reply_to", ""),
@@ -1104,12 +1164,21 @@ class Sender:
             sent += 1
             if item["kind"] == "sequence":
                 sent_cold += 1
+            if inbox is not None:
+                inbox.sent_this_cycle += 1
+                if item["kind"] == "sequence":
+                    inbox.sent_today += 1
+                # Which inbox and provider it actually left from.
+                note_inbox = {"mailbox_id": inbox.id, "provider": provider.name}
+            else:
+                note_inbox = {}
             now_iso = datetime.now(timezone.utc).replace(tzinfo=None).isoformat()
             # A note that the check moved it back no longer applies.
             note = {"error": ""} if (item.get("error") or "").startswith(RECHECK_PREFIX) else {}
             await self.state.update_outbox_item(
                 item["id"], status="sent", sent_at=now_iso, body=body,
                 message_id=result.message_id, thread_ref=result.thread_ref, **note,
+                **note_inbox,
             )
             if prospect.status in ("new", "queued"):
                 await self.state.update_prospect_status(prospect.id, "contacted")
@@ -1130,8 +1199,10 @@ class Sender:
                     logger.debug(f"Sender: convo append failed: {e}")
             details = {
                 "to": item["to_email"], "step": item["step"],
-                "kind": item["kind"], "provider": self.provider.name,
+                "kind": item["kind"], "provider": provider.name,
             }
+            if inbox is not None:
+                details["from"] = inbox.address
             if receipt_id:
                 details["precleared_receipt"] = receipt_id
             await self.state.log_action(
@@ -1141,7 +1212,8 @@ class Sender:
             )
             logger.info(
                 f"Sender: sent step {item['step']} to {item['to_email']} "
-                f"via {self.provider.name}."
+                f"via {provider.name}"
+                + (f" from {inbox.address}." if inbox is not None else ".")
             )
             # Human-ish pacing BETWEEN sends (not after the last, and never
             # in tests where pacing is disabled).
@@ -1149,6 +1221,8 @@ class Sender:
                 await asyncio.sleep(random.uniform(*SEND_JITTER_SECONDS))
 
         self.compliance_held = compliance_paused
+        for reason, count in inbox_waits.items():
+            logger.info(f"Sender: {count} email(s) wait: {reason}.")
         if outside_window:
             logger.info(
                 f"Sender: {outside_window} cold email(s) wait for the recipient's "
@@ -1164,7 +1238,10 @@ class Sender:
                 await record_hold(self.state, hold, waiting_on_check)
             elif answered:
                 await clear_hold(self.state)
-        if held_cold:
+        if held_cold and inboxes is not None:
+            logger.info(f"Sender: {held_cold} cold email(s) wait for their inbox's daily cap. "
+                        "Replies still go out. See `sellbird inboxes list`.")
+        elif held_cold:
             warmup = getattr(self.config.channels.email, "warmup", None)
             days = warmup.days_in() if warmup is not None else None
             if days is not None and cold_cap < max_daily:
