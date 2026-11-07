@@ -520,6 +520,18 @@ MIGRATIONS: list[str] = [
     -- knows about the recipient. Empty until then.
     ALTER TABLE prospects ADD COLUMN timezone TEXT DEFAULT '';
     """,
+    # ── v15: suppressions ──
+    # Addresses and whole domains that are never emailed, whoever asks:
+    # opt-outs, bounces, complaints, and what the user (or their agent)
+    # adds. A suppressed domain covers its subdomains. Only the user removes
+    # one. compliance.do_not_contact in sellbird.yaml is the hand-kept list;
+    # this is the one Sellbird keeps itself.
+    """
+    CREATE TABLE IF NOT EXISTS suppressions (id TEXT PRIMARY KEY, kind TEXT NOT NULL,
+      value TEXT NOT NULL, reason TEXT DEFAULT 'manual', source TEXT DEFAULT '',
+      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP);
+    CREATE UNIQUE INDEX IF NOT EXISTS uq_suppressions_kind_value ON suppressions(kind, value);
+    """,
 ]
 
 BRAIN_PROVIDERS = ("claude", "codex")
@@ -861,8 +873,10 @@ class StateManager:
         nothing new on its own (the sender never stages 'replied'), and what
         the opt-out cancelled stays cancelled. Sellbird's first reply to them
         after this waits for approval even on autopilot (REVIEW_NEXT_REPLY_KEY).
-        The status, that flag and the opt_out_undone log entry are one write.
-        False, and nothing written, when they weren't opted out."""
+        The status, that flag, lifting their opt-out suppression and the
+        opt_out_undone log entry are one write (a bounce or a suppression the
+        user added stays). False, and nothing written, when they weren't
+        opted out."""
         async with self._connect() as db:
             cursor = await db.execute(
                 "UPDATE prospects SET status = 'replied', updated_at = ? "
@@ -872,6 +886,13 @@ class StateManager:
             if cursor.rowcount != 1:
                 await db.rollback()
                 return False
+            async with db.execute("SELECT email FROM prospects WHERE id = ?",
+                                  (prospect_id,)) as cur:
+                row = await cur.fetchone()
+            if row and row[0]:
+                await db.execute(
+                    "DELETE FROM suppressions WHERE kind = 'address' AND value = ? "
+                    "AND reason = 'opted_out'", (self.suppression_key("address", row[0]),))
             await db.execute(
                 """INSERT INTO settings (key, value, updated_at)
                    VALUES (?, '1', CURRENT_TIMESTAMP)
@@ -1417,6 +1438,93 @@ class StateManager:
             )
             await db.commit()
             return cursor.rowcount
+
+    # ── Suppressions: addresses and domains never emailed ──
+
+    SUPPRESSION_KINDS = ("address", "domain")
+    SUPPRESSION_REASONS = ("opted_out", "bounced", "complaint", "manual", "imported")
+
+    @staticmethod
+    def suppression_key(kind: str, value: str) -> str:
+        """The stored value: a lower-cased address, or a bare lower-cased domain."""
+        value = _norm(value)
+        if kind == "domain":
+            # "https://www.Example.org/contact", "pat@example.org" and "example.org." all mean example.org.
+            value = value.split("@")[-1]
+            for prefix in ("https://", "http://"):
+                value = value.removeprefix(prefix)
+            value = value.split("/")[0].split("?")[0].split("#")[0].split(":")[0]
+            value = value.removeprefix("www.").strip(".")
+            if "." not in value or " " in value:
+                return ""
+        return value
+
+    async def add_suppression(self, kind: str, value: str, reason: str = "manual",
+                              source: str = "") -> bool:
+        """Suppress an address or a domain. True if it is new; adding twice is harmless."""
+        if kind not in self.SUPPRESSION_KINDS:
+            raise ValueError("kind must be address or domain")
+        if reason not in self.SUPPRESSION_REASONS:
+            reason = "manual"
+        key = self.suppression_key(kind, value)
+        if not key or (kind == "address" and "@" not in key):
+            raise ValueError("not an address or domain")  # also a domain that normalises to nothing
+        async with self._connect() as db:
+            cursor = await db.execute(
+                "INSERT OR IGNORE INTO suppressions (id, kind, value, reason, source) VALUES (?, ?, ?, ?, ?)",
+                (uuid.uuid4().hex, kind, key, reason, source[:200]))
+            await db.commit()
+            return cursor.rowcount > 0
+
+    async def suppressed_among(self, emails) -> dict[str, str]:
+        """{email: reason} for each address that is suppressed, itself or by its domain. One query."""
+        wanted = {_norm(e) for e in emails if _norm(e)}
+        if not wanted:
+            return {}
+
+        def parents(domain: str) -> list[str]:
+            """mail.sales.example.org -> itself, sales.example.org, example.org: a suppressed
+            domain covers its subdomains."""
+            labels = domain.split(".")
+            return [".".join(labels[i:]) for i in range(len(labels) - 1)]
+        domains = {d for e in wanted for d in parents(e.split("@")[-1])}
+        keys = [("address", e) for e in wanted] + [("domain", d) for d in domains]
+        found: dict[tuple[str, str], str] = {}
+        async with self._connect() as db:
+            for start in range(0, len(keys), 500):
+                chunk = keys[start:start + 500]
+                where = " OR ".join("(kind = ? AND value = ?)" for _ in chunk)
+                params = [x for pair in chunk for x in pair]
+                async with db.execute(f"SELECT kind, value, reason FROM suppressions WHERE {where}",
+                                      params) as cursor:
+                    for kind, value, reason in await cursor.fetchall():
+                        found[(kind, value)] = reason
+        out = {}
+        for e in wanted:
+            reason = found.get(("address", e)) or next(
+                (found[("domain", d)] for d in parents(e.split("@")[-1]) if ("domain", d) in found), None)
+            if reason:
+                out[e] = reason
+        return out
+
+    async def is_suppressed(self, email: str) -> str | None:
+        """The reason an address won't be emailed (itself or its domain), or None."""
+        return (await self.suppressed_among([email])).get(_norm(email))
+
+    async def list_suppressions(self, limit: int = 200, offset: int = 0) -> list[dict]:
+        async with self._connect() as db:
+            db.row_factory = aiosqlite.Row
+            async with db.execute(
+                "SELECT id, kind, value, reason, source, created_at FROM suppressions"
+                " ORDER BY created_at DESC, id LIMIT ? OFFSET ?", (int(limit), int(offset))) as cursor:
+                return [dict(r) for r in await cursor.fetchall()]
+
+    async def remove_suppression(self, suppression_id: str) -> bool:
+        async with self._connect() as db:
+            cursor = await db.execute("DELETE FROM suppressions WHERE id = ?", (suppression_id,))
+            await db.commit()
+            return cursor.rowcount > 0
+
 
     async def colleague_who_replied(self, prospect_id: str) -> str | None:
         """The name of someone at this prospect's company who has replied,

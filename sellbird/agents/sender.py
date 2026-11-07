@@ -22,7 +22,9 @@ from sellbird.config import (
     SellbirdConfig, EnvConfig, cold_daily_cap, compliance_footer_lines, compliance_notice,
     compliance_of, live_do_not_contact, operator_timezone, send_window_of,
 )
+from sellbird import extensions
 from sellbird.gate import autopilot_review, do_not_contact_match, pre_send_check
+from sellbird.send_hooks import NO_HEADERS_HOLD, SendCheck, SendHookError, extra_headers, first_verdict
 from sellbird.send_window import in_window, next_send_time, recipient_country, recipient_zone
 from sellbird.integrations.instantly import InstantlyClient
 from sellbird.integrations.mail_provider import NATIVE_PROVIDERS, get_mail_provider
@@ -430,6 +432,9 @@ class Sender:
                 continue
             if await self.state.get_setting(MANUAL_SEND_KEY + prospect.id):
                 continue  # the user emailed them by hand
+            if await self.state.is_suppressed(email):  # never emailed, on Instantly too
+                logger.debug(f"Sender: Skipping {email} (suppressed).")
+                continue
             # Deliverability gate: never send to unverified/guessed addresses —
             # bounces are the fastest way to torch a sending domain.
             if (prospect.email_status or "guess") not in sendable_email:
@@ -547,8 +552,6 @@ class Sender:
         from local midnight converted to UTC. Matching the stored text
         against the local date would shift the day by the UTC offset.
         """
-        import aiosqlite
-
         from sellbird import storage
         midnight = _local_now().replace(hour=0, minute=0, second=0, microsecond=0)
         since = midnight.astimezone(timezone.utc).replace(tzinfo=None).isoformat()
@@ -642,6 +645,8 @@ class Sender:
             if not EMAIL_RE.match(email) or email in seen_emails:
                 continue
             if prospect.status not in SENDABLE_STATUSES:
+                continue
+            if await self.state.is_suppressed(email):  # never staged
                 continue
             if (prospect.email_status or "guess") not in sendable_email:
                 skipped += 1
@@ -774,6 +779,10 @@ class Sender:
         await sync_sending_mode(self.config, self.state)   # "Turn off autopilot" counts at once
         if prospect is None:
             return "failed", "prospect missing"
+        # A suppressed address or domain is never emailed, whatever the kind.
+        suppressed = await self.state.is_suppressed(item["to_email"])
+        if suppressed:
+            return "cancelled", f"suppressed ({suppressed})"
         if item["kind"] == "sequence":
             # Stop-on-reply / opt-out: never continue a sequence after contact.
             if prospect.status in STOP_STATUSES:
@@ -814,6 +823,15 @@ class Sender:
             if held:
                 logger.warning(f"Sender: holding email to {item['to_email']} for review: {held}")
                 return "pending_review", (HELD_FOR_REVIEW + "; ".join(held))[:300]
+        # Extensions' send rules (sellbird.send_hooks): after every built-in
+        # check, so they can only hold or cancel, never let through.
+        rules = extensions.registry().send_rules
+        if rules:
+            verdict = await first_verdict(rules, SendCheck(
+                item=item, prospect=prospect, config=self.config, state=self.state))
+            if verdict:
+                logger.info(f"Sender: {verdict[1]} ({item['to_email']})")
+                return verdict
         return None
 
     async def _drain_due(self):
@@ -1040,10 +1058,24 @@ class Sender:
 
             body = self._outgoing_body(item)
             try:
+                headers = extra_headers(extensions.registry().send_headers, item)
+            except SendHookError as e:
+                logger.error(f"Sender: holding email to {item['to_email']}: {e}")
+                await self.state.update_outbox_item(item["id"], status="approved",
+                                                    error=f"held: {e}"[:300])
+                continue
+            if headers and not getattr(self.provider, "carries_headers", False):
+                # Never send it without them: it waits for an inbox that can.
+                await self.state.update_outbox_item(item["id"], status="approved",
+                                                    error=f"held: {NO_HEADERS_HOLD}")
+                continue
+            extra = {"headers": headers} if headers else {}
+            try:
                 result = await self.provider.send_email(
                     item["to_email"], item["subject"], body,
                     thread_ref=item.get("thread_ref", ""),
                     in_reply_to=item.get("in_reply_to", ""),
+                    **extra,
                 )
             except Exception as e:
                 # It may have gone out before the error: never retry it.

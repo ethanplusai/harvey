@@ -45,6 +45,7 @@ sellbird export                # deliverable prospects → CSV
 sellbird precleared-key        # free key for the cold-email check, saved to .env
 sellbird companies             # company register → CSV: every company, fit, and why it wasn't contacted
 sellbird sending pause|resume  # kill switch
+sellbird suppressions [add|remove <value>]  # addresses and domains never emailed
 sellbird warmup [domain]       # is the sending domain ready? (SPF/DKIM/DMARC, age, blocklists, warmup)
 sellbird trulyinbox connect    # connect TrulyInbox so Sellbird reads the mailbox's warmup
 sellbird retry-writes          # retry prospects the Writer gave up on

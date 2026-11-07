@@ -644,6 +644,14 @@ class Handler:
             compliance.postal_address, compliance.opt_out_line, DEFAULT_OPT_OUT_LINE,
         ])
 
+    async def _suppress(self, email: str, reason: str, source: str) -> None:
+        """Suppress an address; a bad address or a database hiccup never stops
+        the opt-out or bounce handling around it (the status already changed)."""
+        try:
+            await self.state.add_suppression("address", email or "", reason, source)
+        except Exception as e:
+            logger.warning(f"Handler: could not suppress {email!r}: {e}")
+
     async def _stop_colleagues(self, prospect):
         """A reply from anyone at a company stops the cold sequence to
         everyone else there: the owner said no, the office manager doesn't
@@ -677,6 +685,7 @@ class Handler:
             await self.state.cancel_pending_outbox_for_prospect(prospect.id)
         except Exception as e:
             logger.debug(f"Handler: outbox cancel failed: {e}")
+        await self._suppress(prospect.email, "opted_out", "reply")
         await self._stop_colleagues(prospect)
         await self.state.add_conversation(Conversation(
             id="",
@@ -830,6 +839,8 @@ class Handler:
                 convo.id, status="needs_human" if handed_off or escalate else "closed",
                 stage="closed_lost")
             await self.state.update_prospect_status(prospect.id, "opted_out")
+            # Suppressed by address too, so a re-import or another campaign can't reach them.
+            await self._suppress(lead_email, "opted_out", "reply")
             await self.state.log_action(
                 action_type="opt_out",
                 agent="handler",
@@ -1067,6 +1078,7 @@ class Handler:
             await self.state.update_prospect_email(
                 prospect.id, prospect.email, "invalid"
             )
+            await self._suppress(prospect.email, "bounced", "bounce")
             cancelled = await self.state.cancel_pending_outbox_for_prospect(
                 prospect.id, reason="bounced"
             )

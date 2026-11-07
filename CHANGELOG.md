@@ -9,6 +9,16 @@ minor versions can still change behaviour.
 
 ### Added
 
+- **Suppressions.** Addresses and whole domains Sellbird never emails,
+  kept in the database: an opt-out or a bounce adds the address, and
+  `sellbird suppressions` lists, adds and removes them. A suppressed domain
+  covers its subdomains. Nothing suppressed is staged, sent, or uploaded to
+  Instantly. Undoing someone's opt-out lifts its suppression too.
+  `compliance.do_not_contact` stays the hand-kept list in `sellbird.yaml`.
+- **Send rules and headers for extensions.** An extension can hold or cancel
+  an email after Sellbird's own checks, and add headers such as
+  `List-Unsubscribe`. An email that needs headers its inbox can't carry
+  waits rather than going out without them. See [docs/extensions.md](docs/extensions.md).
 - **Mail providers take who they send as, and where their sign-in lives.**
   Gmail, Microsoft 365 and SMTP accept an identity (address and name; the
   persona by default), Gmail and Microsoft a token source (the token file by
