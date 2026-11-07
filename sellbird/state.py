@@ -29,7 +29,8 @@ from sellbird.startups import parse_funding
 DB_PATH = PROJECT_ROOT / "data" / "sellbird.db"
 
 # How long (seconds) a connection waits on a locked database before failing.
-BUSY_TIMEOUT_SECONDS = 30.0
+from sellbird import storage  # noqa: E402
+from sellbird.storage import BUSY_TIMEOUT_SECONDS  # noqa: E402,F401 (re-exported)
 
 # Email statuses the Writer drafts for. Shared with the heartbeat so it only
 # chooses write_campaign when there is something the Writer will act on.
@@ -550,23 +551,31 @@ _CONVERSATION_COLUMNS = frozenset({
 
 class StateManager:
     def __init__(self, db_path: str | None = None):
-        self.db_path = db_path or str(DB_PATH)
+        if not db_path:
+            # A bare StateManager() inside a home uses that home's database,
+            # never the process default (a server's other workspaces).
+            from sellbird.workspace_home import _HOME
+            home = _HOME.get()
+            db_path = str(home.db_path) if home is not None else str(DB_PATH)
+        self.db_path = db_path
 
     @asynccontextmanager
     async def _connect(self):
         """Open a connection with sane concurrency settings.
 
         `timeout` maps to SQLite's busy handler, so writers wait for locks
-        (e.g. while the dashboard holds a read) instead of erroring.
+        (e.g. while the dashboard holds a read) instead of erroring. The
+        locator may also name a registered storage backend (sellbird.storage).
         """
-        db = await aiosqlite.connect(self.db_path, timeout=BUSY_TIMEOUT_SECONDS)
-        try:
+        async with storage.connect(self.db_path, timeout=BUSY_TIMEOUT_SECONDS) as db:
             yield db
-        finally:
-            await db.close()
 
     async def init_db(self):
         """Create/upgrade the schema. Safe to call on every startup."""
+        if storage.manages_schema(self.db_path):
+            # A backend that owns its schema is only checked, never migrated here.
+            await storage.check_schema(self.db_path)
+            return
         Path(self.db_path).parent.mkdir(parents=True, exist_ok=True)
         async with self._connect() as db:
             # WAL is persistent in the DB file: readers (dashboard) never
