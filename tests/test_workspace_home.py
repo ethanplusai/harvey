@@ -105,14 +105,28 @@ async def test_to_thread_inherits_home(tmp_path):
 def test_require_self_hosted_raises_in_hosted(tmp_path):
     with use_home(Home.for_root(tmp_path, mode="hosted")):
         with pytest.raises(NotOnHosted) as e:
-            require_self_hosted("training")
+            require_self_hosted("local_training")
     assert e.value.payload["error"] == "not_on_hosted"
-    assert e.value.payload["message"] == "This isn't available on hosted Sellbird."
+    message = e.value.payload["message"]
+    assert message.startswith("This runs only on your own computer (training through")
+    assert "on the server instead" in message
 
 
 def test_require_self_hosted_passes_when_self_hosted(tmp_path):
     with use_home(Home.for_root(tmp_path)):
+        require_self_hosted("local_training")
+
+
+def test_an_unknown_local_only_feature_is_a_bug(tmp_path):
+    with pytest.raises(ValueError, match="unknown local-only feature"):
         require_self_hosted("training")
+
+
+def test_every_local_only_feature_says_why():
+    from sellbird.workspace_home import HOSTED_REFUSED, LOCAL_ONLY
+
+    assert HOSTED_REFUSED == tuple(LOCAL_ONLY)
+    assert all(reason.strip() for reason in LOCAL_ONLY.values())
 
 
 def test_brain_reads_prompts_and_skills_from_the_current_home(tmp_path):

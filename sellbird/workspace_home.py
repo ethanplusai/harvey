@@ -110,23 +110,39 @@ def use_home(home: Home) -> Iterator[Home]:
         _HOME.reset(token)
 
 
-# What a hosted home refuses (require_self_hosted's feature names): things that
-# only make sense on the user's own machine.
-HOSTED_REFUSED = ("ai_loop", "training", "paid_discovery", "free_discovery",
-                  "desktop", "mcp_install", "env_settings",
-                  "process_logs", "demo_vendors")
+# What only runs on the user's own machine, by require_self_hosted's feature
+# name. A hosted home refuses these because they reach into that machine (its
+# Claude or Codex login, its files, its processes), not because hosted lacks
+# the capability: hosted runs its own brain, training and discovery on the
+# server, through the same engine.
+LOCAL_ONLY: dict[str, str] = {
+    "local_ai_loop": "the heartbeat calling the Claude or Codex CLI signed in on this computer",
+    "local_training": "training through the Claude or Codex CLI on this computer",
+    "local_discovery": "discovery runs started from this computer's dashboard",
+    "desktop": "the menu-bar app and starting at login",
+    "mcp_install": "adding Sellbird to this computer's coding-agent config",
+    "env_settings": "editing this install's .env file",
+    "process_logs": "this computer's process log",
+    "demo_vendors": "the offline demo vendors",
+}
+HOSTED_REFUSED = tuple(LOCAL_ONLY)
 
 
 class NotOnHosted(Exception):
     def __init__(self, feature: str = ""):
         super().__init__(feature)
         self.feature = feature
+        what = LOCAL_ONLY.get(feature)
         self.payload = {
             "error": "not_on_hosted",
-            "message": "This isn't available on hosted Sellbird.",
+            "message": (f"This runs only on your own computer ({what}). Hosted Sellbird does "
+                        "this on the server instead." if what else
+                        "This runs only on your own computer, not on hosted Sellbird."),
         }
 
 
 def require_self_hosted(feature: str) -> None:
+    if feature not in LOCAL_ONLY:
+        raise ValueError(f"unknown local-only feature: {feature!r}")
     if current_home().hosted:
         raise NotOnHosted(feature)
