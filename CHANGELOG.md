@@ -9,6 +9,13 @@ minor versions can still change behaviour.
 
 ### Added
 
+- **Runs from a home folder, not only from a checkout.** Installed with `pip`
+  or `pipx`, Sellbird used to look for its config, prompts and skills inside
+  site-packages. Now one home folder holds them: `SELLBIRD_HOME` if set, else
+  the checkout (unchanged), else the per-user data folder. The package ships
+  the defaults and copies in what's missing on first run, never overwriting
+  your edits. The Docker image sets `SELLBIRD_HOME=/app`. See "Where your
+  files live" in the README.
 - **Verifier API keys stay out of logs** (from #185 by @techity-mushtaque).
   Hunter's key now goes in the `X-API-KEY` header; Reoon and ZeroBounce only
   take it in the URL, so the `httpx` and `httpcore` loggers stay at WARNING and
