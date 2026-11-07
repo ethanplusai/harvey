@@ -122,10 +122,12 @@ def test_installed_wheel_runs_codex_without_the_checkout(tmp_path):
     pytest.importorskip("setuptools")
     src = tmp_path / "src"
     src.mkdir()
-    for name in ("pyproject.toml", "README.md", "LICENSE"):
+    # Everything pyproject names: the package and the defaults it ships.
+    for name in ("pyproject.toml", "README.md", "LICENSE", "sellbird.yaml", ".env.example"):
         shutil.copy(ROOT / name, src / name)
-    shutil.copytree(ROOT / "sellbird", src / "sellbird",
-                    ignore=shutil.ignore_patterns("__pycache__"))
+    for folder in ("sellbird", "prompts", "skills"):
+        shutil.copytree(ROOT / folder, src / folder,
+                        ignore=shutil.ignore_patterns("__pycache__"))
     dist, site, work = tmp_path / "dist", tmp_path / "site", tmp_path / "work"
     work.mkdir()
     subprocess.run([sys.executable, "-m", "pip", "wheel", "-q", "--no-deps",
@@ -136,7 +138,9 @@ def test_installed_wheel_runs_codex_without_the_checkout(tmp_path):
                     "--target", str(site), str(wheel)], check=True, timeout=300)
     script = tmp_path / "check.py"
     script.write_text(CHECK)
+    # An installed package uses the per-user home folder; keep it in tmp_path.
+    env = {**os.environ, "SELLBIRD_HOME": str(work / "home")}
     out = subprocess.run([sys.executable, "-I", str(script), str(site), str(FAKE), str(work)],
-                         cwd=work, capture_output=True, text=True, timeout=300)
+                         cwd=work, capture_output=True, text=True, timeout=300, env=env)
     assert out.returncode == 0, out.stderr[-2000:]
     assert "WHEEL-OK" in out.stdout

@@ -12,29 +12,36 @@ import subprocess
 import sys
 import tempfile
 import uuid
+from collections.abc import Sequence
 from datetime import date, datetime, timezone
 from pathlib import Path
 
 import aiosqlite
 import yaml
 from dotenv import load_dotenv
-from fastapi import FastAPI, Request
+from fastapi import APIRouter, FastAPI, Request
 from fastapi.responses import (
     HTMLResponse, JSONResponse, PlainTextResponse, Response,
 )
+from starlette.middleware import Middleware
+from starlette.routing import Mount
 
 logger = logging.getLogger("sellbird.dashboard")
 
+from sellbird import agent_policy  # noqa: E402
 from sellbird import dashboard_auth as auth  # noqa: E402
-from sellbird.paths import PROJECT_ROOT  # noqa: E402
+from sellbird.paths import PACKAGE_ROOT, PROJECT_ROOT, is_checkout  # noqa: E402
+from sellbird import storage  # noqa: E402
 from sellbird.pidfile import LOCK_FILE, loop_lock_held, pid_alive  # noqa: E402
 from sellbird.textio import read_user_text  # noqa: E402
+from sellbird.workspace_home import NotOnHosted, use_home  # noqa: E402
 DB_PATH = PROJECT_ROOT / "data" / "sellbird.db"
 ENV_FILE = PROJECT_ROOT / ".env"
 CONFIG_FILE = PROJECT_ROOT / "sellbird.yaml"
 PID_FILE = PROJECT_ROOT / "data" / "sellbird.pid"
 LOG_FILE = PROJECT_ROOT / "data" / "sellbird.log"
 TOKEN_FILE = PROJECT_ROOT / "data" / "dashboard-token"
+AGENT_TOKEN_FILE = PROJECT_ROOT / "data" / "agent-token"
 
 
 def _resolve_config_file() -> Path:
@@ -52,7 +59,41 @@ def _resolve_config_file() -> Path:
 # route except the static shell needs the token (see dashboard_auth).
 app = FastAPI(title="Sellbird Dashboard", docs_url=None, redoc_url=None, openapi_url=None)
 token_store = auth.TokenStore(TOKEN_FILE)
-app.add_middleware(auth.DashboardGuard, store=token_store)
+agent_token_store = auth.TokenStore(AGENT_TOKEN_FILE)
+# Innermost first: the guard (added next) sets the principal before this runs.
+app.add_middleware(agent_policy.AgentPolicy)
+app.add_middleware(auth.DashboardGuard, store=token_store, agent_store=agent_token_store)
+
+
+class home_middleware:
+    """A request runs in its app's home (``app.state.home``, see build_app).
+
+    Pure ASGI, so the ContextVar set here is seen by everything inside it:
+    the guard, async handlers and the sync handlers Starlette runs in its
+    threadpool. An app with no ``state.home`` sets nothing, and the default
+    home (the module globals) applies, which is every self-hosted install."""
+
+    def __init__(self, app):
+        self.app = app
+
+    async def __call__(self, scope, receive, send):
+        home = None
+        if scope["type"] in ("http", "websocket"):
+            home = getattr(getattr(scope.get("app"), "state", None), "home", None)
+        if home is None:
+            await self.app(scope, receive, send)
+            return
+        with use_home(home):
+            await self.app(scope, receive, send)
+
+
+# Added last, so it is the outermost middleware.
+app.add_middleware(home_middleware)
+
+
+@app.exception_handler(NotOnHosted)
+async def _not_on_hosted(request: Request, exc: NotOnHosted):
+    return JSONResponse(exc.payload, status_code=409)
 
 # Sellbird process tracking
 _sellbird_process: subprocess.Popen | None = None
@@ -72,7 +113,7 @@ async def query_db(sql: str, params: tuple = ()) -> list[dict]:
     if not DB_PATH.exists():
         return []
     try:
-        async with aiosqlite.connect(str(DB_PATH)) as db:
+        async with storage.connect(str(DB_PATH)) as db:
             db.row_factory = aiosqlite.Row
             async with db.execute(sql, params) as cursor:
                 rows = await cursor.fetchall()
@@ -191,7 +232,8 @@ async def get_setup_status():
     # 1. Venv
     checks.append({
         "id": "venv", "label": "Python virtual environment",
-        "done": (PROJECT_ROOT / ".venv").is_dir(),
+        # An installed app (pipx) has no checkout venv to make.
+        "done": (not is_checkout(PACKAGE_ROOT)) or (PACKAGE_ROOT / ".venv").is_dir(),
         "required": True,
         "help": "Run: python3 -m venv .venv && source .venv/bin/activate && pip install -e .",
     })
@@ -631,7 +673,7 @@ async def add_feedback(request: Request):
     feedback_id = uuid.uuid4().hex[:12]
     try:
         DB_PATH.parent.mkdir(parents=True, exist_ok=True)
-        async with aiosqlite.connect(str(DB_PATH)) as db:
+        async with storage.connect(str(DB_PATH)) as db:
             # Ensure the table exists so feedback works even on a fresh install
             await db.execute(
                 """CREATE TABLE IF NOT EXISTS feedback (
@@ -1263,10 +1305,24 @@ def _sellbird_can_send() -> bool:
             return False
         if (email.provider or "").strip().lower() in NATIVE_PROVIDERS:
             provider = get_mail_provider(config, env)
-            return bool(provider and provider.is_configured())
+            return bool(provider and provider.is_configured()) or _extra_inboxes_connected()
         return bool(env.instantly_api_key)
     except Exception:
         return True
+
+
+def _extra_inboxes_connected() -> bool:
+    """Whether an inbox besides the main one is connected (sellbird inboxes):
+    Sellbird sends from it even while the main mailbox isn't signed in."""
+    import sqlite3
+    if not Path(DB_PATH).exists():
+        return False
+    try:
+        with sqlite3.connect(f"file:{DB_PATH}?mode=ro", uri=True) as db:
+            row = db.execute("SELECT 1 FROM mailboxes WHERE state != 'retired' LIMIT 1").fetchone()
+    except sqlite3.Error:
+        return False   # no table yet: no extra inbox
+    return row is not None
 
 
 def _send_as() -> str:
@@ -2686,6 +2742,45 @@ def dashboard_url(host: str = "127.0.0.1", port: int = 5555) -> str:
     return f"http://{name}:{port}/#token={token_store.get()}"
 
 
+# Which dashboard answers on this port: a random id per process, never the
+# token. The MCP server checks it against data/dashboard.json before it sends
+# the agent token anywhere (dashboard_auth lets it through unauthenticated).
+INSTANCE_ID = uuid.uuid4().hex
+
+
+@app.get("/api/instance")
+async def get_instance():
+    return {"instance": INSTANCE_ID}
+
+
+# ── Extensions (sellbird.extensions): their routes, after every built-in one,
+# so an extension can add paths but never replace one. ──
+from sellbird import extensions as _extensions  # noqa: E402
+
+for _router in _extensions.registry().routers:
+    app.include_router(_router)
+
+
+def build_app(*, guard: Middleware | None = None, routers: Sequence[APIRouter] = ()) -> FastAPI:
+    """A fresh app serving the module-level ``app``'s routes, middleware and
+    exception handlers, for a server that runs Sellbird for someone else.
+
+    ``routers`` come first, so they win over a built-in route on the same
+    path. The built-in routes are mounted live, not copied: a route added to
+    ``app`` later still reaches every built app. ``guard`` takes
+    ``auth.DashboardGuard``'s place in the middleware stack (a server's own
+    sign-in instead of the dashboard token). Set ``state.home`` on the result
+    to run its requests in that home."""
+    new = FastAPI(title=app.title, docs_url=None, redoc_url=None, openapi_url=None)
+    for router in routers:
+        new.include_router(router)
+    new.router.routes.append(Mount("", app=app.router))
+    new.user_middleware = [guard if guard is not None and m.cls is auth.DashboardGuard else m
+                           for m in app.user_middleware]
+    new.exception_handlers.update(app.exception_handlers)
+    return new
+
+
 def start_dashboard(host: str = "127.0.0.1", port: int = 5555):
     """Start the dashboard server (loopback only, token required)."""
     import uvicorn
@@ -2702,5 +2797,10 @@ def start_dashboard(host: str = "127.0.0.1", port: int = 5555):
     if os.name == "nt":
         print("  Windows: the token file is protected by your folder's permissions,")
         print("  not POSIX file modes.\n")
-    uvicorn.run(app, host=bind, port=port, log_level="warning",
-                proxy_headers=False, server_header=False, date_header=False)
+    from sellbird import dashboard_instance
+    dashboard_instance.write(DB_PATH.parent, host=bind, port=port, instance=INSTANCE_ID)
+    try:
+        uvicorn.run(app, host=bind, port=port, log_level="warning",
+                    proxy_headers=False, server_header=False, date_header=False)
+    finally:
+        dashboard_instance.remove(DB_PATH.parent, instance=INSTANCE_ID)

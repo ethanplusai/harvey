@@ -29,7 +29,8 @@ from sellbird.startups import parse_funding
 DB_PATH = PROJECT_ROOT / "data" / "sellbird.db"
 
 # How long (seconds) a connection waits on a locked database before failing.
-BUSY_TIMEOUT_SECONDS = 30.0
+from sellbird import storage  # noqa: E402
+from sellbird.storage import BUSY_TIMEOUT_SECONDS  # noqa: E402,F401 (re-exported)
 
 # Email statuses the Writer drafts for. Shared with the heartbeat so it only
 # chooses write_campaign when there is something the Writer will act on.
@@ -519,6 +520,38 @@ MIGRATIONS: list[str] = [
     -- knows about the recipient. Empty until then.
     ALTER TABLE prospects ADD COLUMN timezone TEXT DEFAULT '';
     """,
+    # ── v15: suppressions ──
+    # Addresses and whole domains that are never emailed, whoever asks:
+    # opt-outs, bounces, complaints, and what the user (or their agent)
+    # adds. A suppressed domain covers its subdomains. Only the user removes
+    # one. compliance.do_not_contact in sellbird.yaml is the hand-kept list;
+    # this is the one Sellbird keeps itself.
+    """
+    CREATE TABLE IF NOT EXISTS suppressions (id TEXT PRIMARY KEY, kind TEXT NOT NULL,
+      value TEXT NOT NULL, reason TEXT DEFAULT 'manual', source TEXT DEFAULT '',
+      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP);
+    CREATE UNIQUE INDEX IF NOT EXISTS uq_suppressions_kind_value ON suppressions(kind, value);
+    """,
+    # ── v16: several sending inboxes ──
+    # Inboxes the user already owns, besides the main mailbox (channels.email
+    # .provider). The main mailbox is never a row: an outbox row or
+    # conversation with mailbox_id '' is the main mailbox's, so an install
+    # with one inbox is unchanged. Sign-ins and passwords live in the system
+    # keychain; credential_ref names the entry and settings_json keeps only
+    # public server settings. A campaign with rows in campaign_mailboxes
+    # sends from those inboxes only ('' = the main mailbox).
+    """
+    CREATE TABLE IF NOT EXISTS mailboxes (id TEXT PRIMARY KEY, address TEXT NOT NULL UNIQUE,
+      display_name TEXT DEFAULT '', provider TEXT NOT NULL, connection TEXT NOT NULL,
+      state TEXT DEFAULT 'active', paused_reason TEXT DEFAULT '', cap_override INTEGER,
+      credential_ref TEXT DEFAULT '', settings_json TEXT DEFAULT '{}',
+      warmup_started_at TIMESTAMP, created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP);
+    CREATE TABLE IF NOT EXISTS campaign_mailboxes (campaign_id TEXT NOT NULL,
+      mailbox_id TEXT NOT NULL, PRIMARY KEY (campaign_id, mailbox_id));
+    ALTER TABLE outbox ADD COLUMN mailbox_id TEXT DEFAULT '';
+    ALTER TABLE conversations ADD COLUMN mailbox_id TEXT DEFAULT '';
+    CREATE INDEX IF NOT EXISTS idx_outbox_mailbox_sent ON outbox(mailbox_id, status, sent_at);
+    """,
 ]
 
 BRAIN_PROVIDERS = ("claude", "codex")
@@ -544,29 +577,37 @@ _CAMPAIGN_COLUMNS = frozenset({
 })
 _CONVERSATION_COLUMNS = frozenset({
     "prospect_id", "campaign_id", "channel",
-    "thread_json", "intent", "stage", "status",
+    "thread_json", "intent", "stage", "status", "mailbox_id",
 })
 
 
 class StateManager:
     def __init__(self, db_path: str | None = None):
-        self.db_path = db_path or str(DB_PATH)
+        if not db_path:
+            # A bare StateManager() inside a home uses that home's database,
+            # never the process default (a server's other workspaces).
+            from sellbird.workspace_home import _HOME
+            home = _HOME.get()
+            db_path = str(home.db_path) if home is not None else str(DB_PATH)
+        self.db_path = db_path
 
     @asynccontextmanager
     async def _connect(self):
         """Open a connection with sane concurrency settings.
 
         `timeout` maps to SQLite's busy handler, so writers wait for locks
-        (e.g. while the dashboard holds a read) instead of erroring.
+        (e.g. while the dashboard holds a read) instead of erroring. The
+        locator may also name a registered storage backend (sellbird.storage).
         """
-        db = await aiosqlite.connect(self.db_path, timeout=BUSY_TIMEOUT_SECONDS)
-        try:
+        async with storage.connect(self.db_path, timeout=BUSY_TIMEOUT_SECONDS) as db:
             yield db
-        finally:
-            await db.close()
 
     async def init_db(self):
         """Create/upgrade the schema. Safe to call on every startup."""
+        if storage.manages_schema(self.db_path):
+            # A backend that owns its schema is only checked, never migrated here.
+            await storage.check_schema(self.db_path)
+            return
         Path(self.db_path).parent.mkdir(parents=True, exist_ok=True)
         async with self._connect() as db:
             # WAL is persistent in the DB file: readers (dashboard) never
@@ -852,8 +893,10 @@ class StateManager:
         nothing new on its own (the sender never stages 'replied'), and what
         the opt-out cancelled stays cancelled. Sellbird's first reply to them
         after this waits for approval even on autopilot (REVIEW_NEXT_REPLY_KEY).
-        The status, that flag and the opt_out_undone log entry are one write.
-        False, and nothing written, when they weren't opted out."""
+        The status, that flag, lifting their opt-out suppression and the
+        opt_out_undone log entry are one write (a bounce or a suppression the
+        user added stays). False, and nothing written, when they weren't
+        opted out."""
         async with self._connect() as db:
             cursor = await db.execute(
                 "UPDATE prospects SET status = 'replied', updated_at = ? "
@@ -863,6 +906,13 @@ class StateManager:
             if cursor.rowcount != 1:
                 await db.rollback()
                 return False
+            async with db.execute("SELECT email FROM prospects WHERE id = ?",
+                                  (prospect_id,)) as cur:
+                row = await cur.fetchone()
+            if row and row[0]:
+                await db.execute(
+                    "DELETE FROM suppressions WHERE kind = 'address' AND value = ? "
+                    "AND reason = 'opted_out'", (self.suppression_key("address", row[0]),))
             await db.execute(
                 """INSERT INTO settings (key, value, updated_at)
                    VALUES (?, '1', CURRENT_TIMESTAMP)
@@ -1010,22 +1060,24 @@ class StateManager:
         thread_ref: str = "",
         in_reply_to: str = "",
         approved_by: str = "",
+        mailbox_id: str = "",
     ) -> str | None:
         """Queue one outgoing email. Returns its id, or None when the
         (campaign, prospect, step) slot already exists — the double-send guard.
-        ``approved_by="autopilot"`` when it's queued approved on autopilot."""
+        ``approved_by="autopilot"`` when it's queued approved on autopilot.
+        ``mailbox_id`` is the inbox it leaves from ('' = the main mailbox)."""
         item_id = _new_id()
         async with self._connect() as db:
             cursor = await db.execute(
                 """INSERT OR IGNORE INTO outbox
                    (id, campaign_id, prospect_id, conversation_id, step, kind,
                     to_email, subject, body, status, send_at, provider,
-                    thread_ref, in_reply_to)
-                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                    thread_ref, in_reply_to, mailbox_id)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
                 (
                     item_id, campaign_id, prospect_id, conversation_id,
                     int(step), kind, _norm(to_email), subject, body,
-                    status, send_at, provider, thread_ref, in_reply_to,
+                    status, send_at, provider, thread_ref, in_reply_to, mailbox_id or "",
                 ),
             )
             if cursor.rowcount > 0 and approved_by:
@@ -1178,7 +1230,7 @@ class StateManager:
 
     _OUTBOX_COLUMNS = frozenset({
         "status", "error", "message_id", "thread_ref", "sent_at",
-        "subject", "body", "send_at", "provider",
+        "subject", "body", "send_at", "provider", "mailbox_id",
     })
 
     async def update_outbox_item(self, item_id: str, **kwargs):
@@ -1409,6 +1461,93 @@ class StateManager:
             await db.commit()
             return cursor.rowcount
 
+    # ── Suppressions: addresses and domains never emailed ──
+
+    SUPPRESSION_KINDS = ("address", "domain")
+    SUPPRESSION_REASONS = ("opted_out", "bounced", "complaint", "manual", "imported")
+
+    @staticmethod
+    def suppression_key(kind: str, value: str) -> str:
+        """The stored value: a lower-cased address, or a bare lower-cased domain."""
+        value = _norm(value)
+        if kind == "domain":
+            # "https://www.Example.org/contact", "pat@example.org" and "example.org." all mean example.org.
+            value = value.split("@")[-1]
+            for prefix in ("https://", "http://"):
+                value = value.removeprefix(prefix)
+            value = value.split("/")[0].split("?")[0].split("#")[0].split(":")[0]
+            value = value.removeprefix("www.").strip(".")
+            if "." not in value or " " in value:
+                return ""
+        return value
+
+    async def add_suppression(self, kind: str, value: str, reason: str = "manual",
+                              source: str = "") -> bool:
+        """Suppress an address or a domain. True if it is new; adding twice is harmless."""
+        if kind not in self.SUPPRESSION_KINDS:
+            raise ValueError("kind must be address or domain")
+        if reason not in self.SUPPRESSION_REASONS:
+            reason = "manual"
+        key = self.suppression_key(kind, value)
+        if not key or (kind == "address" and "@" not in key):
+            raise ValueError("not an address or domain")  # also a domain that normalises to nothing
+        async with self._connect() as db:
+            cursor = await db.execute(
+                "INSERT OR IGNORE INTO suppressions (id, kind, value, reason, source) VALUES (?, ?, ?, ?, ?)",
+                (uuid.uuid4().hex, kind, key, reason, source[:200]))
+            await db.commit()
+            return cursor.rowcount > 0
+
+    async def suppressed_among(self, emails) -> dict[str, str]:
+        """{email: reason} for each address that is suppressed, itself or by its domain. One query."""
+        wanted = {_norm(e) for e in emails if _norm(e)}
+        if not wanted:
+            return {}
+
+        def parents(domain: str) -> list[str]:
+            """mail.sales.example.org -> itself, sales.example.org, example.org: a suppressed
+            domain covers its subdomains."""
+            labels = domain.split(".")
+            return [".".join(labels[i:]) for i in range(len(labels) - 1)]
+        domains = {d for e in wanted for d in parents(e.split("@")[-1])}
+        keys = [("address", e) for e in wanted] + [("domain", d) for d in domains]
+        found: dict[tuple[str, str], str] = {}
+        async with self._connect() as db:
+            for start in range(0, len(keys), 500):
+                chunk = keys[start:start + 500]
+                where = " OR ".join("(kind = ? AND value = ?)" for _ in chunk)
+                params = [x for pair in chunk for x in pair]
+                async with db.execute(f"SELECT kind, value, reason FROM suppressions WHERE {where}",
+                                      params) as cursor:
+                    for kind, value, reason in await cursor.fetchall():
+                        found[(kind, value)] = reason
+        out = {}
+        for e in wanted:
+            reason = found.get(("address", e)) or next(
+                (found[("domain", d)] for d in parents(e.split("@")[-1]) if ("domain", d) in found), None)
+            if reason:
+                out[e] = reason
+        return out
+
+    async def is_suppressed(self, email: str) -> str | None:
+        """The reason an address won't be emailed (itself or its domain), or None."""
+        return (await self.suppressed_among([email])).get(_norm(email))
+
+    async def list_suppressions(self, limit: int = 200, offset: int = 0) -> list[dict]:
+        async with self._connect() as db:
+            db.row_factory = aiosqlite.Row
+            async with db.execute(
+                "SELECT id, kind, value, reason, source, created_at FROM suppressions"
+                " ORDER BY created_at DESC, id LIMIT ? OFFSET ?", (int(limit), int(offset))) as cursor:
+                return [dict(r) for r in await cursor.fetchall()]
+
+    async def remove_suppression(self, suppression_id: str) -> bool:
+        async with self._connect() as db:
+            cursor = await db.execute("DELETE FROM suppressions WHERE id = ?", (suppression_id,))
+            await db.commit()
+            return cursor.rowcount > 0
+
+
     async def colleague_who_replied(self, prospect_id: str) -> str | None:
         """The name of someone at this prospect's company who has replied,
         or None. A cold email to them is no longer cold: the company answered."""
@@ -1430,9 +1569,11 @@ class StateManager:
                 return (await cursor.fetchone())[0]
 
     async def count_outbox_sent_today(self, kind: str | None = None,
-                                      since: str | None = None) -> int:
+                                      since: str | None = None,
+                                      mailbox_id: str | None = None) -> int:
         """Emails sent today (the UTC day, or since `since`, a naive UTC
-        ISO time); only one kind ("sequence", "reply") if given."""
+        ISO time); only one kind ("sequence", "reply") if given, and only
+        from one inbox if `mailbox_id` is given ('' = the main mailbox)."""
         if since:
             sql = "SELECT COUNT(*) FROM outbox WHERE status = 'sent' AND sent_at >= ?"
             params: tuple = (since,)
@@ -1443,6 +1584,9 @@ class StateManager:
         if kind:
             sql += " AND kind = ?"
             params += (kind,)
+        if mailbox_id is not None:
+            sql += " AND COALESCE(mailbox_id, '') = ?"
+            params += (mailbox_id,)
         async with self._connect() as db:
             async with db.execute(sql, params) as cursor:
                 return (await cursor.fetchone())[0]

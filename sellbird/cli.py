@@ -41,24 +41,27 @@ def cmd_install(args):
     _check_python_version()
     print("\n  Installing Sellbird dependencies...\n")
 
-    # Install Python packages
-    print("  [1/2] Installing Python packages...")
-    requirements = Path(args._project_root) / "requirements.txt"
-    if requirements.exists():
-        pip_args = ["-r", "requirements.txt"]
-    else:
+    # An installed app (pipx, pip) already has its packages; only a checkout
+    # installs them, from the checkout (not the home folder).
+    from sellbird.paths import PACKAGE_ROOT, is_checkout
+    checkout = is_checkout(PACKAGE_ROOT)
+    if checkout:
+        print("  [1/2] Installing Python packages...")
+        requirements = PACKAGE_ROOT / "requirements.txt"
         # Fall back to an editable install from pyproject.toml
-        pip_args = ["-e", "."]
-    result = subprocess.run(
-        [sys.executable, "-m", "pip", "install", *pip_args],
-        cwd=args._project_root,
-    )
-    if result.returncode != 0:
-        print("\n  Failed to install Python packages.")
-        print("  Tip: make sure you're inside a virtualenv "
-              "(python3 -m venv .venv && source .venv/bin/activate).")
-        sys.exit(1)
-    print("  ✓ Python packages installed.\n")
+        pip_args = ["-r", "requirements.txt"] if requirements.exists() else ["-e", "."]
+        result = subprocess.run(
+            [sys.executable, "-m", "pip", "install", *pip_args],
+            cwd=str(PACKAGE_ROOT),
+        )
+        if result.returncode != 0:
+            print("\n  Failed to install Python packages.")
+            print("  Tip: make sure you're inside a virtualenv "
+                  "(python3 -m venv .venv && source .venv/bin/activate).")
+            sys.exit(1)
+        print("  ✓ Python packages installed.\n")
+    else:
+        print("  [1/2] Python packages: already part of this install.")
 
     # Install Playwright browsers
     print("  [2/2] Installing Playwright browsers...")
@@ -75,7 +78,8 @@ def cmd_install(args):
     else:
         print("  ✓ Playwright browsers installed.\n")
 
-    _ensure_importable(args._project_root)
+    if checkout:
+        _ensure_importable(str(PACKAGE_ROOT))
     print("  Sellbird is installed. Run 'sellbird setup' next.\n")
 
 
@@ -169,6 +173,22 @@ def cmd_train(args):
 
     trainer = Trainer(brain_config=brain_config)
     asyncio.run(trainer.train(url, max_pages=args.max_pages))
+
+
+def cmd_mcp(args):
+    """Serve MCP over stdio for the user's coding agent. Prints nothing else."""
+    # `sellbird mcp install|uninstall [claude|codex]` and --print.
+    if getattr(args, "mcp_action", None):
+        from sellbird import mcp_install
+        sys.exit(mcp_install.run_command(args.mcp_action, args.client,
+                                         print_only=args.print_config, yes=args.yes))
+    if getattr(args, "print_config", False) or getattr(args, "yes", False):
+        print("  --print and --yes go with install or uninstall, "
+              "e.g. sellbird mcp install --print", file=sys.stderr)
+        sys.exit(2)
+    from sellbird.mcp_server import run_stdio
+
+    run_stdio()
 
 
 def cmd_dashboard(args):
@@ -1049,6 +1069,41 @@ def _carry_over_from_harvey():
         print(f"Sellbird (formerly Harvey): {note}", file=sys.stderr)
 
 
+def cmd_suppressions(args):
+    """See, add or remove suppressed addresses and domains. Removing is yours alone."""
+    from sellbird.state import StateManager
+
+    async def _run():
+        state = StateManager()
+        await state.init_db()
+        if args.suppression_action == "add":
+            kind = "domain" if "@" not in args.value else "address"
+            try:
+                added = await state.add_suppression(kind, args.value, "manual", source="cli")
+            except ValueError:
+                print(f"\n  That isn't an email address or a domain: {args.value}\n")
+                return 1
+            key = state.suppression_key(kind, args.value)
+            print(f"\n  {'Suppressed' if added else 'Already suppressed'}: {key} ({kind}).\n")
+        elif args.suppression_action == "remove":
+            if await state.remove_suppression(args.value):
+                print("\n  Removed. Sellbird may email them again.\n")
+            else:
+                print(f"\n  No suppression with id {args.value}. Run `sellbird suppressions` to see ids.\n")
+                return 1
+        else:
+            rows = await state.list_suppressions(limit=1000)
+            if not rows:
+                print("\n  Nobody is suppressed.\n")
+            for r in rows:
+                print(f"  {r['id']}  {r['kind']:<7} {r['value']:<40} {r['reason']:<10} {r['created_at']}")
+        return 0
+
+    code = asyncio.run(_run())
+    if code:
+        sys.exit(code)
+
+
 def main():
     from sellbird.textio import utf8_stdio
     utf8_stdio()
@@ -1234,9 +1289,49 @@ def main():
     sub.add_argument("--days", type=int, default=30, help="Breakdown window (default: 30)")
     sub.set_defaults(func=cmd_usage)
 
+    sub = subparsers.add_parser(
+        "mcp", help="MCP server for your coding agent (launched by it, over stdio)")
+    sub.add_argument("mcp_action", nargs="?", choices=["install", "uninstall"],
+                     help="Add or remove the server in your coding agent's config")
+    sub.add_argument("client", nargs="?", choices=["claude", "codex"],
+                     help="Which agent (default: Claude Code only)")
+    sub.add_argument("--print", dest="print_config", action="store_true",
+                     help="Print the config to add by hand; change nothing")
+    sub.add_argument("--yes", action="store_true", help="Apply without asking")
+    sub.set_defaults(func=cmd_mcp)
+
+    from sellbird.inbox_cli import register as register_inboxes
+    register_inboxes(subparsers)
+
+    sub = subparsers.add_parser("suppressions", help="Addresses and domains Sellbird never emails")
+    sub.add_argument("suppression_action", nargs="?", default="list", choices=["list", "add", "remove"])
+    sub.add_argument("value", nargs="?", default="", help="add: an address or domain; remove: its id")
+    sub.set_defaults(func=cmd_suppressions)
+
+    # Commands that installed extensions add (sellbird.extensions). A name the
+    # built-in CLI already uses is refused, so an extension never hides one.
+    from sellbird import extensions
+    for name, (help_text, configure) in extensions.registry().cli_commands.items():
+        if name in subparsers.choices:
+            raise extensions.ExtensionError(
+                f"an extension's command {name!r} clashes with a built-in command")
+        sub = subparsers.add_parser(name, help=help_text)
+        sub.set_defaults(func=configure(sub))
+
     args = parser.parse_args()
     _carry_over_from_harvey()
     args._project_root = project_root
+
+    # Fill the home folder before any command. Silent: a command's stdout may
+    # be a protocol or a file. A failure is one stderr line, and the command
+    # still runs where it can.
+    from sellbird import home
+    from sellbird.paths import PROJECT_ROOT as home_root
+    try:
+        home.seed_home(home_root, home.bundled_defaults())
+    except Exception as e:
+        reason = (e.strerror if isinstance(e, OSError) else None) or type(e).__name__
+        print(f"  Could not prepare the home folder {home_root}: {reason}", file=sys.stderr)
 
     if args.command is None:
         parser.print_help()

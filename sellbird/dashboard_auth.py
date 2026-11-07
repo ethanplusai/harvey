@@ -14,18 +14,25 @@ every request passes, in order:
    (A top-level navigation to ``/`` is the one exception: the shell carries
    no data.) No CORS headers are ever sent, so preflights fail.
 3. Public shell: only ``GET``/``HEAD`` of ``/`` and ``/static/*`` (HTML, CSS,
-   JS, fonts; no data, no token) skip authentication.
+   JS, fonts; no data, no token) skip authentication, plus ``/api/instance``
+   (a random id per core process, so a new tab's token handoff can tell the
+   core from another server on the port; it unlocks nothing).
 4. Bearer token: everything else needs ``Authorization: Bearer <token>``,
    compared in constant time. Cookies and query strings are never read, so
    a browser can't attach the token on an attacker's behalf, and a
    cross-origin page can neither read it nor set the header without a
    preflight this server never approves. Non-browser clients need it too.
+   Two tokens are accepted: the user's (``data/dashboard-token``, used by the
+   dashboard UI) and the coding agent's (``data/agent-token``, used through
+   the MCP server). The guard records which one matched as the request's
+   principal (``request.state.principal``: ``"user"`` or ``"agent"``); routes
+   that only the user may call check it (``dashboard.require_user``).
 5. Mutations with a body must be ``application/json``.
 
-The token is created once in ``data/dashboard-token`` (owner-only, written
-to a private temporary file and published with an exclusive link so it is
-never seen half-written, never follows a symlink, and never replaces an
-existing file). An existing token is used only if it is a regular file owned
+Each token is created once in its own file, ``data/dashboard-token`` or
+``data/agent-token`` (owner-only, written to a private temporary file and
+published with an exclusive link so it is never seen half-written, never
+follows a symlink, and never replaces an existing file). An existing token is used only if it is a regular file owned
 by this user with no group/other permissions and a well-formed value;
 otherwise the API stays locked (fail closed) and the error says what to do.
 
@@ -56,7 +63,10 @@ _IS_WINDOWS = os.name == "nt"
 
 SECURITY_HEADERS = [
     (b"cache-control", b"no-store"),
-    (b"referrer-policy", b"no-referrer"),
+    # same-origin, not no-referrer: under no-referrer Firefox (per the Fetch
+    # spec) sends `Origin: null` on POSTs, which the provenance check refuses.
+    # Other sites still never get a Referer.
+    (b"referrer-policy", b"same-origin"),
     (b"x-content-type-options", b"nosniff"),
     (b"x-frame-options", b"DENY"),
     (b"cross-origin-opener-policy", b"same-origin"),
@@ -235,6 +245,13 @@ class TokenStore:
                 self._token = load_or_create_token(self.path)
             return self._token
 
+    def peek(self) -> str | None:
+        """The token if its file already exists; never creates one."""
+        with self._lock:
+            if self._token is None:
+                self._token = _read_token_settled(self.path)
+            return self._token
+
 
 # ── Request checks ──
 
@@ -279,6 +296,9 @@ def is_public_path(method: str, path: str) -> bool:
         return False
     if path == "/":
         return True
+    # ── Phase 6: which core answers here (a random id, never the token; R6-2) ──
+    if path == "/api/instance":
+        return True
     if not path.startswith("/static/"):
         return False
     return all(seg not in ("", ".", "..") for seg in path[len("/static/"):].split("/"))
@@ -299,13 +319,23 @@ def _is_json(content_type: str) -> bool:
     return media == "application/json"
 
 
+def _same_token(a: str, b: str) -> bool:
+    return hmac.compare_digest(a.encode("ascii"), b.encode("ascii"))
+
+
 class DashboardGuard:
     """ASGI middleware applying the checks in the module docstring to every
     request, and the security headers to every response."""
 
-    def __init__(self, app, store: TokenStore):
+    def __init__(self, app, store: TokenStore, agent_store: TokenStore | None = None):
         self.app = app
         self.store = store
+        self.agent_store = agent_store
+
+    def _same_tokens_message(self) -> str:
+        return (f"The agent token ({self.agent_store.path}) is the same as the dashboard "
+                "token, so the agent would have your rights. Delete the agent token file "
+                "and restart the dashboard to create a new one.")
 
     async def __call__(self, scope, receive, send):
         if scope["type"] == "lifespan":
@@ -361,15 +391,41 @@ class DashboardGuard:
         if public:
             return await self.app(scope, receive, send_secured)
 
-        # 3. Token (fail closed when it can't be loaded).
+        # 3. Token (fail closed when it can't be loaded). The user's token is
+        # checked first, so the UI never loads (or creates) the agent's.
+        authorization = headers.get("authorization", [])
         try:
             token = self.store.get()
         except TokenError as e:
             return await deny(503, "token_unavailable", str(e))
-        if not bearer_ok(headers.get("authorization", []), token):
-            return await deny(401, "unauthorized",
-                              "Open the link printed by 'sellbird dashboard' to unlock.",
-                              extra=[(b"www-authenticate", b'Bearer realm="sellbird"')])
+        if bearer_ok(authorization, token):
+            # A copied token would give the agent the user's rights: refuse
+            # both until the agent's is recreated. Peek, so the UI's requests
+            # never create the agent token.
+            if self.agent_store is not None:
+                try:
+                    agent_token = self.agent_store.peek()
+                except TokenError:
+                    agent_token = None  # agent requests get the 503 themselves
+                if agent_token is not None and _same_token(agent_token, token):
+                    return await deny(503, "token_unavailable", self._same_tokens_message())
+            principal = "user"
+        else:
+            principal = None
+            if self.agent_store is not None and authorization:
+                try:
+                    agent_token = self.agent_store.get()
+                except TokenError as e:
+                    return await deny(503, "token_unavailable", str(e))
+                if _same_token(agent_token, token):
+                    return await deny(503, "token_unavailable", self._same_tokens_message())
+                if bearer_ok(authorization, agent_token):
+                    principal = "agent"
+            if principal is None:
+                return await deny(401, "unauthorized",
+                                  "Open the link printed by 'sellbird dashboard' to unlock.",
+                                  extra=[(b"www-authenticate", b'Bearer realm="sellbird"')])
+        scope.setdefault("state", {})["principal"] = principal
 
         # 4. Mutations carry JSON or nothing.
         if method in _UNSAFE_METHODS:

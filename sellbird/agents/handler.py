@@ -13,6 +13,7 @@ import re
 import unicodedata
 from datetime import datetime, timezone
 
+from sellbird.booking import booking_instruction
 from sellbird.brain import Brain, BrainUnavailable
 from sellbird.config import (
     DEFAULT_OPT_OUT_LINE, SellbirdConfig, EnvConfig, compliance_of, legacy_sending_held,
@@ -25,6 +26,7 @@ from sellbird.integrations.mail_provider import (
     NATIVE_PROVIDERS, get_mail_provider, strip_quoted_reply,
 )
 from sellbird.models.conversation import Conversation, Message
+from sellbird.send_window import recipient_zone
 from sellbird.state import COLLEAGUE_REPLIED, REVIEW_NEXT_REPLY_KEY, StateManager
 from sellbird.sending_mode import sync_sending_mode
 from sellbird.startups import startup_facts
@@ -527,8 +529,12 @@ class Handler:
         self.brain = brain
         self.state = state
         self.config = config
+        self.env = env
         self.instantly = InstantlyClient(env.instantly_api_key)
         self.provider = get_mail_provider(config, env)
+        # For extra inboxes' sign-ins (sellbird.mailboxes); None = the keychain.
+        self.secrets = None
+        self._inbox_providers: dict = {}   # extra inboxes' providers, kept across cycles
         self.skills = ""
         self.last_read_problem = ""   # why the last mailbox read failed, for the heartbeat
 
@@ -642,6 +648,14 @@ class Handler:
             compliance.postal_address, compliance.opt_out_line, DEFAULT_OPT_OUT_LINE,
         ])
 
+    async def _suppress(self, email: str, reason: str, source: str) -> None:
+        """Suppress an address; a bad address or a database hiccup never stops
+        the opt-out or bounce handling around it (the status already changed)."""
+        try:
+            await self.state.add_suppression("address", email or "", reason, source)
+        except Exception as e:
+            logger.warning(f"Handler: could not suppress {email!r}: {e}")
+
     async def _stop_colleagues(self, prospect):
         """A reply from anyone at a company stops the cold sequence to
         everyone else there: the owner said no, the office manager doesn't
@@ -675,6 +689,7 @@ class Handler:
             await self.state.cancel_pending_outbox_for_prospect(prospect.id)
         except Exception as e:
             logger.debug(f"Handler: outbox cancel failed: {e}")
+        await self._suppress(prospect.email, "opted_out", "reply")
         await self._stop_colleagues(prospect)
         await self.state.add_conversation(Conversation(
             id="",
@@ -817,6 +832,9 @@ class Handler:
                 intent=intent,
                 stage=convo.stage,
             )
+        if (reply_meta or {}).get("mailbox_id") is not None:
+            # With several inboxes: the one they wrote to answers them.
+            await self.state.update_conversation(convo.id, mailbox_id=reply_meta["mailbox_id"])
         if convo.stage != old_stage:
             logger.info(f"Handler: Stage for {lead_email}: {old_stage} -> {convo.stage}")
 
@@ -828,6 +846,8 @@ class Handler:
                 convo.id, status="needs_human" if handed_off or escalate else "closed",
                 stage="closed_lost")
             await self.state.update_prospect_status(prospect.id, "opted_out")
+            # Suppressed by address too, so a re-import or another campaign can't reach them.
+            await self._suppress(lead_email, "opted_out", "reply")
             await self.state.log_action(
                 action_type="opt_out",
                 agent="handler",
@@ -991,21 +1011,41 @@ class Handler:
     # ── Native provider path (Gmail / SMTP) ──
 
     async def _run_native(self) -> bool:
-        """Poll the mailbox, split bounces from human replies, handle both.
-        Returns True only if the mailbox was read and every message handled."""
-        if not self.provider.is_configured():
-            logger.debug(
-                f"Handler: provider '{self.provider.name}' not configured yet."
-            )
-            return True  # nothing to read; the sender can't send through it either
+        """Poll the mailbox (every connected inbox, with several), split
+        bounces from human replies, handle both. Returns True only if every
+        inbox was read and every message handled: the heartbeat sends nothing
+        otherwise, since an unread reply can't have stopped its follow-ups."""
+        from sellbird.mailboxes import load_inboxes
 
         self.last_read_problem = ""
+        inboxes = await load_inboxes(self.state, self.config, self.env, self.provider,
+                                     secrets=self.secrets, cache=self._inbox_providers)
+        if not inboxes.several:
+            if not self.provider.is_configured():
+                logger.debug(
+                    f"Handler: provider '{self.provider.name}' not configured yet."
+                )
+                return True  # nothing to read; the sender can't send through it either
+            return await self._read_inbox(self.provider, None)
+
+        complete = True
+        for inbox in inboxes.readers():
+            # Every inbox is read even after one fails: replies elsewhere
+            # still stop their follow-ups.
+            if not await self._read_inbox(inbox.provider, inbox.id, label=inbox.address):
+                complete = False
+        return complete
+
+    async def _read_inbox(self, provider, mailbox_id: str | None, label: str = "") -> bool:
+        """Read one inbox and handle what came in. mailbox_id tags each reply
+        with the inbox it arrived in (None: the only inbox)."""
+        name = f"{label} ({provider.name})" if label else provider.name
         try:
-            inbound = await self.provider.get_replies()
+            inbound = await provider.get_replies()
         except Exception as e:
-            logger.error(f"Handler: fetching replies failed: {e}")
+            logger.error(f"Handler: fetching replies failed for {name}: {e}")
             # Kept for the heartbeat: sending is held, and Today says why.
-            self.last_read_problem = f"{self.provider.name}: {e}"
+            self.last_read_problem = f"{name}: {e}"
             return False
 
         handled = 0
@@ -1027,6 +1067,7 @@ class Handler:
                             "thread_ref": msg.thread_ref,
                             "message_id": msg.message_id,
                             "subject": msg.subject,
+                            **({"mailbox_id": mailbox_id} if mailbox_id is not None else {}),
                         },
                     )
                 handled += 1
@@ -1043,15 +1084,16 @@ class Handler:
                 if consumed:
                     await self.state.mark_reply_processed(dedup_key)
 
+        where = f" in {label}" if label else ""
         if handled:
-            logger.info(f"Handler: processed {handled} inbound message(s).")
+            logger.info(f"Handler: processed {handled} inbound message(s){where}.")
         else:
-            logger.info("Handler: no new replies.")
+            logger.info(f"Handler: no new replies{where}.")
         if complete:
             # Every reply read was handled: the provider may start its next
             # read after these (Gmail's history marker). Not otherwise, so
             # what wasn't handled is read again.
-            self.provider.confirm_read()
+            provider.confirm_read()
         return complete
 
     async def _handle_bounce(self, msg):
@@ -1065,6 +1107,7 @@ class Handler:
             await self.state.update_prospect_email(
                 prospect.id, prospect.email, "invalid"
             )
+            await self._suppress(prospect.email, "bounced", "bounce")
             cancelled = await self.state.cancel_pending_outbox_for_prospect(
                 prospect.id, reason="bounced"
             )
@@ -1130,6 +1173,7 @@ class Handler:
             thread_ref=reply_meta.get("thread_ref", ""),
             in_reply_to=reply_meta.get("message_id", ""),
             approved_by="" if require_approval else "autopilot",
+            mailbox_id=reply_meta.get("mailbox_id", ""),
         )
         if item_id:
             await self.state.delete_setting(review_key)
@@ -1252,11 +1296,32 @@ Respond with ONLY the category label, nothing else."""
                     objection_context = f"\nSuggested approach for this objection: {response}"
                     break
 
-        prompt = self.brain.load_prompt("handler", stage=convo.stage)
+        # Only an interested prospect (or a thread already closing) should be
+        # moved to the configured next step. Everything else gets an answer,
+        # not a pitch.
+        if intent == "interested" or convo.stage == "closing":
+            try:
+                zone = await recipient_zone(self.state, prospect, self.config)
+            except Exception as e:
+                logger.warning(f"Handler: couldn't resolve the recipient's time zone: {e}")
+                zone = ""
+            booking = booking_instruction(
+                self.config, datetime.now(timezone.utc), zone,
+            )
+        else:
+            booking = (
+                "Do not offer a meeting, a call, a trial, or a booking link. "
+                "Answer their message and follow the intent guidance above."
+            )
+
+        prompt = self.brain.load_prompt("handler", stage=convo.stage, booking=booking)
         if not prompt:
             prompt = f"""You are {self.config.persona.name}, {self.config.persona.role} at {self.config.persona.company}.
 Your tone is: {self.config.persona.tone}
-Product: {self.config.product.name} — {self.config.product.description}"""
+Product: {self.config.product.name} — {self.config.product.description}
+
+NEXT STEP
+{booking}"""
 
         # Inject objection handling + sales methodology skills
         if self.skills:
@@ -1291,9 +1356,9 @@ Write a reply that:"""
         if intent == "interested":
             prompt += """
 - Acknowledges their interest warmly
-- Suggests a specific next step (brief call or meeting)
+- Moves to the next step exactly as the NEXT STEP guidance says
 - Keeps it short (under 80 words)
-- Includes a clear CTA with flexibility on timing"""
+- Includes one clear CTA"""
         elif intent == "objection":
             prompt += """
 - Addresses the concern directly and empathetically

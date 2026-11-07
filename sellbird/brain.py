@@ -20,6 +20,7 @@ logger = logging.getLogger("sellbird.brain")
 
 from sellbird.paths import PROJECT_ROOT
 from sellbird.textio import read_user_text
+from sellbird.workspace_home import current_home
 
 PROMPTS_DIR = PROJECT_ROOT / "prompts"
 SKILLS_DIR = PROJECT_ROOT / "skills"
@@ -674,7 +675,7 @@ class Brain:
 
     def load_prompt(self, prompt_name: str, **kwargs) -> str:
         """Load a prompt template from the prompts/ directory and fill in variables."""
-        prompt_file = PROMPTS_DIR / f"{prompt_name}.md"
+        prompt_file = current_home().prompts_dir / f"{prompt_name}.md"
         try:
             template = read_user_text(prompt_file)
         except FileNotFoundError:
@@ -695,7 +696,7 @@ class Brain:
 
     def load_skill(self, skill_name: str) -> str:
         """Load a skill knowledge file from the skills/ directory."""
-        skill_file = SKILLS_DIR / f"{skill_name}.md"
+        skill_file = current_home().skills_dir / f"{skill_name}.md"
         try:
             return read_user_text(skill_file)
         except FileNotFoundError:

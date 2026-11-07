@@ -175,8 +175,10 @@ def sqlite_query(db_path):
     (the CLI has no dashboard to borrow one from)."""
     import aiosqlite
 
+    from sellbird import storage
+
     async def query_db(sql: str, params: tuple = ()) -> list[dict]:
-        async with aiosqlite.connect(str(db_path)) as db:
+        async with storage.connect(str(db_path)) as db:
             db.row_factory = aiosqlite.Row
             async with db.execute(sql, params) as cursor:
                 return [dict(r) for r in await cursor.fetchall()]

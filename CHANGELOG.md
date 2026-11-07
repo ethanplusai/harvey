@@ -7,8 +7,83 @@ minor versions can still change behaviour.
 
 ## [Unreleased]
 
+### Security
+
+- **Autopilot holds phone numbers and money requests.** An email nobody
+  approved now waits in the Outbox when it gives a phone number that isn't
+  yours (`channels.email.phone_numbers`, or one in your postal address) or
+  asks the reader to send money (wire or bank transfer, IBAN, crypto, gift
+  cards and the like), as it already did for links to domains that aren't
+  yours. A planted "call this number instead" can't go out on its own.
+- **Training reads your website as data.** The pages `sellbird train` crawls
+  are fenced as untrusted text, like replies and research already were, so
+  a comment or review on your site can't steer what training writes into
+  every later email.
+
 ### Added
 
+- **Several sending inboxes.** Besides the main mailbox, connect Gmail,
+  Microsoft 365 or SMTP inboxes you already own with
+  `sellbird inboxes connect`. Their sign-ins and passwords live in the
+  system keychain. Each new thread goes to the inbox with the most room;
+  follow-ups and replies leave from the thread's own inbox. Each inbox has
+  its own daily cold cap (`channels.email.per_inbox_daily_cap`, or your own
+  number) and warmup ramp, and can be paused, renamed, removed or limited
+  to some campaigns. Replies are read from every inbox. With one inbox
+  nothing changes. See "Several sending inboxes" in
+  [docs/configuration.md](docs/configuration.md).
+- **An MCP server for your coding agent.** `sellbird mcp install` adds
+  Sellbird to Claude Code (or Codex), showing the change first. The agent
+  reads everything Sellbird knows, estimates discovery costs and can pause
+  sending, through the running dashboard with its own token
+  (`data/agent-token`). Every approval, setting, key, purchase and resume
+  stays yours: the agent's token reaches only a short allowlist of routes.
+  An extension can add tools and open its own routes to the agent. See
+  "Your coding agent (MCP)" in [docs/configuration.md](docs/configuration.md).
+- **Suppressions.** Addresses and whole domains Sellbird never emails,
+  kept in the database: an opt-out or a bounce adds the address, and
+  `sellbird suppressions` lists, adds and removes them. A suppressed domain
+  covers its subdomains. Nothing suppressed is staged, sent, or uploaded to
+  Instantly. Undoing someone's opt-out lifts its suppression too.
+  `compliance.do_not_contact` stays the hand-kept list in `sellbird.yaml`.
+- **Send rules and headers for extensions.** An extension can hold or cancel
+  an email after Sellbird's own checks, and add headers such as
+  `List-Unsubscribe`. An email that needs headers its inbox can't carry
+  waits rather than going out without them. See [docs/extensions.md](docs/extensions.md).
+- **Mail providers take who they send as, and where their sign-in lives.**
+  Gmail, Microsoft 365 and SMTP accept an identity (address and name; the
+  persona by default), Gmail and Microsoft a token source (the token file by
+  default) and an httpx transport, and SMTP its own server settings, so a
+  caller can connect more than one inbox. Signing in as a different account
+  than the inbox being connected saves nothing.
+- **Extensions.** A separate package can add dashboard routes, steps that
+  run each heartbeat cycle and `sellbird` subcommands through the
+  `sellbird.extensions` entry point, without patching Sellbird. A failing
+  extension stops Sellbird with its name; a failing step is logged and
+  skipped. `sellbird.dashboard.build_app(guard=, routers=)` serves the
+  dashboard for someone else, with its own sign-in and a per-request home.
+  See [docs/extensions.md](docs/extensions.md).
+- **Storage and settings seams.** Every database open goes through
+  `sellbird.storage`: SQLite paths as before, or `<prefix>:<name>` for a
+  backend an extension registers (in code or through the `sellbird.storage`
+  entry point), which owns and checks its own schema. `sellbird.config.use_config`
+  sets the config `load_config()` returns for a task and its threads, for
+  settings kept somewhere other than `sellbird.yaml`. A self-hosted install
+  behaves exactly as before.
+- **Runs from a home folder, not only from a checkout.** Installed with `pip`
+  or `pipx`, Sellbird used to look for its config, prompts and skills inside
+  site-packages. Now one home folder holds them: `SELLBIRD_HOME` if set, else
+  the checkout (unchanged), else the per-user data folder. The package ships
+  the defaults and copies in what's missing on first run, never overwriting
+  your edits. The Docker image sets `SELLBIRD_HOME=/app`. See "Where your
+  files live" in the README.
+- **Verifier API keys stay out of logs** (from #185 by @techity-mushtaque).
+  Hunter's key now goes in the `X-API-KEY` header; Reoon and ZeroBounce only
+  take it in the URL, so the `httpx` and `httpcore` loggers stay at WARNING and
+  Sellbird's own debug lines blank the key out of error text.
+- **`channels.email.min_write_score`** (default 0): the writer skips prospects
+  scored below it. Scout also checks `compliance.do_not_contact` before
+  reading a listed company's site or spending verification credits on it.
 - **The Writer sees what Sellbird found on the company's site.** A
   per-person first email now gets the profile and discovery findings as
   facts: no online booking (or that they have it), Google or Meta ads
@@ -27,6 +102,23 @@ minor versions can still change behaviour.
   a day) runs out, the Today page, `sellbird status` and the Outbox reason point
   to the command. Free keys now give 100 checks a day for their first 14 days,
   then 25, and the docs say so.
+
+### Changed
+
+- **`Referrer-Policy: same-origin`** on the dashboard, instead of
+  `no-referrer`: under `no-referrer` Firefox sends `Origin: null` on POSTs,
+  which the dashboard's provenance check refuses. Other sites still never
+  get a Referer.
+- **Microsoft 365: a send that may have gone out keeps its draft.** A 5xx or
+  a dropped connection on the final send no longer deletes the draft, and
+  the Outbox marks the email as possibly sent (never retried). A 4xx refusal
+  still deletes it. Any provider that reports a possible send is marked the
+  same way.
+
+### Fixed
+
+- **Instantly's daily cap counts your local day, not UTC** (from #177 by
+  @solvejet-team), so the cap resets at your midnight.
 
 ## [0.4.0] - 2026-11-06
 

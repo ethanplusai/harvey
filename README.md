@@ -143,6 +143,25 @@ sellbird dashboard
 
 Links to `github.com/ethanplusai/harvey` keep working: GitHub redirects them here.
 
+## Where your files live
+
+Your config, knowledge and data live in one home folder. Which one, first match wins:
+
+1. `SELLBIRD_HOME`, if you set it (the Docker image sets it to `/app`).
+2. A checkout: the checkout folder itself, as before.
+3. Otherwise, for an installed package (`pip` or `pipx`), your user data folder:
+
+| | Home folder |
+|---|---|
+| macOS | `~/Library/Application Support/sellbird` |
+| Windows | `%APPDATA%\sellbird` |
+| Linux | `~/.local/share/sellbird` (or `$XDG_DATA_HOME/sellbird`) |
+
+Inside it are `sellbird.yaml` (and `sellbird.local.yaml` once you train), `.env`,
+`prompts/` and `skills/`, all yours to edit. An installed package copies the defaults in on
+first run and never overwrites them, so your edits survive upgrades. `data/` holds the
+database, the logs and the dashboard token.
+
 ## Documentation
 
 | Guide | What's in it |
@@ -153,6 +172,7 @@ Links to `github.com/ethanplusai/harvey` keep working: GitHub redirects them her
 | [Approval and sending](docs/approval-and-sending.md) | The Outbox, autopilot, office hours and email signatures |
 | [The dashboard and the data](docs/dashboard.md) | Every screen, how sign-in works, and how the data is stored |
 | [Configuration and commands](docs/configuration.md) | `.env`, `sellbird.yaml` and every command |
+| [Extensions](docs/extensions.md) | Adding routes, heartbeat steps and commands from a separate package |
 | [Using a ChatGPT plan (Codex)](docs/codex.md) | Running on Codex instead of Claude |
 | [Legal and deliverability](docs/deliverability.md) | The rules you're sending under, and warmup |
 | [Microsoft 365](docs/microsoft365.md) · [Precleared](docs/precleared.md) | Provider setup guides |

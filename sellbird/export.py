@@ -42,6 +42,8 @@ async def collect_prospects(
     """
     import aiosqlite
 
+    from sellbird import storage
+
     where = []
     params: list = []
     if not include_all:
@@ -67,7 +69,7 @@ async def collect_prospects(
         sql += " WHERE " + " AND ".join(where)
     sql += " ORDER BY score DESC, created_at DESC"
 
-    async with aiosqlite.connect(state.db_path) as db:
+    async with storage.connect(state.db_path) as db:
         db.row_factory = aiosqlite.Row
         async with db.execute(sql, params) as cursor:
             rows = [dict(r) for r in await cursor.fetchall()]

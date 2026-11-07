@@ -3,8 +3,11 @@
 import logging
 import os
 import re
+from contextlib import contextmanager
+from contextvars import ContextVar
 from datetime import date as _date, time as _time
 from pathlib import Path
+from typing import Iterator
 
 import yaml
 
@@ -252,10 +255,20 @@ class EmailChannelConfig(BaseModel):
     # SMTP+IMAP mailbox: AgentMail, Fastmail, ...)
     provider: str = "instantly"
     max_daily_sends: int = 50
+    # Each extra sending inbox's daily cold-email cap (sellbird inboxes),
+    # under the warmup ramp from the day that inbox started warming. The
+    # main mailbox keeps max_daily_sends and warmup.start_date, and
+    # max_daily_sends stays the ceiling on everything sent in a day.
+    per_inbox_daily_cap: int = 30
     # When True, also send to catch-all ("risky") domains, not just verified
     # mailboxes. Off by default — catch-alls accept everything, so a bad
     # guess still bounces.
     send_to_risky: bool = False
+    # Don't write for prospects scored below this (0-100, Scout's fit
+    # score). 0, the default, writes for everyone with a deliverable
+    # address, as before. Raising it keeps Claude calls (and sends) for the
+    # prospects that match the ICP best.
+    min_write_score: int = 0
     # Native providers queue mail for approval. Instantly cannot use that
     # outbox, so it holds campaigns and escalates replies while this is true.
     # Set false explicitly for full autopilot once you trust the output.
@@ -264,6 +277,9 @@ class EmailChannelConfig(BaseModel):
     # (e.g. your main site when you send from a secondary domain). On
     # autopilot, an email linking anywhere else waits in the Outbox.
     link_domains: list[str] = []
+    # Your own phone numbers. On autopilot, an email giving any other number
+    # waits in the Outbox (a planted "call this number instead" can't go out).
+    phone_numbers: list[str] = []
     # Kill switch: pause all sending when bounces exceed this fraction of
     # sent mail (measured over the trailing sends). 0 disables the switch.
     max_bounce_rate: float = 0.05
@@ -292,6 +308,13 @@ class EmailChannelConfig(BaseModel):
     def _sends_non_negative(cls, v: int) -> int:
         if v < 0:
             raise ValueError("max_daily_sends must be >= 0")
+        return v
+
+    @field_validator("per_inbox_daily_cap")
+    @classmethod
+    def _per_inbox_cap_range(cls, v: int) -> int:
+        if not 1 <= v <= 500:
+            raise ValueError("per_inbox_daily_cap must be between 1 and 500")
         return v
 
     def cold_daily_cap(self, today: _date | None = None) -> int:
@@ -769,12 +792,40 @@ def _format_validation_error(e: ValidationError) -> str:
     return "\n".join(lines)
 
 
+_CURRENT_CONFIG: ContextVar["SellbirdConfig | None"] = ContextVar("sellbird_config", default=None)
+
+
+@contextmanager
+def use_config(config: "SellbirdConfig") -> Iterator["SellbirdConfig"]:
+    """Make ``config`` what ``load_config()`` returns, for this task and the
+    threads it starts. A server keeping each workspace's settings somewhere
+    other than a sellbird.yaml loads them and runs the work inside this."""
+    token = _CURRENT_CONFIG.set(config)
+    try:
+        yield config
+    finally:
+        _CURRENT_CONFIG.reset(token)
+
+
+def current_config() -> "SellbirdConfig | None":
+    """The config set with ``use_config``, or None when the file decides."""
+    return _CURRENT_CONFIG.get()
+
+
 def load_config(config_path: str | None = None) -> SellbirdConfig:
     """Load Sellbird configuration from YAML file.
 
     Raises ConfigError with a clear, actionable message on any problem.
     """
     if config_path is None:
+        given = _CURRENT_CONFIG.get()
+        if given is not None:
+            return given
+        from sellbird.workspace_home import current_home
+        if current_home().hosted:
+            # A hosted home has no file to fall back to: its settings must have
+            # been loaded with use_config for this request or tick.
+            raise ConfigFileNotFoundError("This workspace's settings weren't loaded.")
         config_path = _find_config_file()
 
     try:
@@ -1055,13 +1106,30 @@ def _find_config_file() -> str:
     the tracked ``sellbird.yaml`` stays an untrained template — nobody
     publishes their positioning, pricing, and prospect targeting by accident.
     """
-    candidates = [
-        Path.cwd() / "sellbird.local.yaml",
-        PROJECT_ROOT / "sellbird.local.yaml",
-        Path.cwd() / "sellbird.yaml",
-        Path.cwd().parent / "sellbird.yaml",
-        PROJECT_ROOT / "sellbird.yaml",
-    ]
+    # A home that names its config file uses exactly that one.
+    from sellbird.workspace_home import current_home
+    home_config = current_home().config_file
+    if home_config is not None:
+        if not home_config.exists():
+            raise ConfigFileNotFoundError(
+                f"sellbird.yaml not found at {home_config}. "
+                "Create one from sellbird.yaml.example or run 'sellbird setup'."
+            )
+        return str(home_config)
+    # The working directory counts only for a checkout run in place. A home
+    # folder (SELLBIRD_HOME, a pipx install, Docker) reads its own config even
+    # when started from a folder holding a sellbird.yaml.
+    from sellbird.paths import HOME_ENV, is_checkout
+    if is_checkout(PROJECT_ROOT) and not os.environ.get(HOME_ENV, "").strip():
+        candidates = [
+            Path.cwd() / "sellbird.local.yaml",
+            PROJECT_ROOT / "sellbird.local.yaml",
+            Path.cwd() / "sellbird.yaml",
+            Path.cwd().parent / "sellbird.yaml",
+            PROJECT_ROOT / "sellbird.yaml",
+        ]
+    else:
+        candidates = [PROJECT_ROOT / "sellbird.local.yaml", PROJECT_ROOT / "sellbird.yaml"]
     for path in candidates:
         if path.exists():
             return str(path)

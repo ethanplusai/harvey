@@ -176,12 +176,23 @@ async def test_reply_to_a_deleted_message_is_sent_unthreaded(graph):
 
 
 @pytest.mark.asyncio
-async def test_failed_send_deletes_the_draft(graph):
+async def test_a_refused_send_deletes_the_draft(graph):
+    graph.fail[("POST", "/send")] = 400
+    result = await provider(graph).send_email("jane@acme.com", "booking", "Hi.")
+
+    assert not result.ok and not result.uncertain
+    assert ("DELETE", "/v1.0/me/messages/draft1") in graph.calls()
+
+
+@pytest.mark.asyncio
+async def test_a_send_that_may_have_gone_out_keeps_the_draft(graph):
+    # A 5xx after the send request went out: Graph may have sent it. The
+    # draft stays so the user can check Drafts and Sent Items.
     graph.fail[("POST", "/send")] = 500
     result = await provider(graph).send_email("jane@acme.com", "booking", "Hi.")
 
-    assert not result.ok
-    assert ("DELETE", "/v1.0/me/messages/draft1") in graph.calls()
+    assert not result.ok and result.uncertain
+    assert ("DELETE", "/v1.0/me/messages/draft1") not in graph.calls()
 
 
 def signed_config(logo):

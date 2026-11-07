@@ -28,10 +28,12 @@ dependencies = [
     "dnspython>=2.4.2,<3",
     "aiosmtplib>=5.1.3,<6",
     "aiosqlite>=0.19,<1",
+    "keyring>=25,<26",
     "pydantic>=2.5,<3",
     "pytz>=2024.1",
     "fastapi>=0.115,<1",
     "uvicorn>=0.34,<1",
+    "mcp>=2.3,<3",
 ]
 
 [project.optional-dependencies]
@@ -52,6 +54,11 @@ harvey = "harvey.cli:main"
 
 [tool.setuptools.packages.find]
 include = ["sellbird*", "harvey*"]
+
+# The editable defaults an installed app seeds its home folder from
+# (sellbird/home.py). They land in <prefix>/share/sellbird.
+[tool.setuptools]
+data-files = {"share/sellbird" = ["sellbird.yaml", ".env.example"], "share/sellbird/prompts" = ["prompts/*.md"], "share/sellbird/skills" = ["skills/*.md"]}
 
 # The dashboard's HTML/CSS/JS are real files served from disk, and its fonts
 # are vendored so a local tool renders correctly with the network off.
