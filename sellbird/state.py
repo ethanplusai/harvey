@@ -519,10 +519,15 @@ MIGRATIONS: list[str] = [
     -- knows about the recipient. Empty until then.
     ALTER TABLE prospects ADD COLUMN timezone TEXT DEFAULT '';
     """,
+    # ── v15: DeepSeek calls count separately, like Codex's ──
+    """
+    ALTER TABLE usage_log ADD COLUMN deepseek_calls INTEGER DEFAULT 0;
+    """,
 ]
 
-BRAIN_PROVIDERS = ("claude", "codex")
-_USAGE_LOG_COLUMN = {"claude": "claude_calls", "codex": "codex_calls"}
+BRAIN_PROVIDERS = ("claude", "codex", "deepseek")
+_USAGE_LOG_COLUMN = {"claude": "claude_calls", "codex": "codex_calls",
+                     "deepseek": "deepseek_calls"}
 
 # When a company was last profiled: the newer of the explicit check stamp
 # (set on every attempt, reachable or not) and its latest profile observation
@@ -2467,6 +2472,18 @@ class StateManager:
             )
             await db.commit()
 
+    async def get_cost_today(self, provider: str) -> float:
+        """Estimated dollars spent today (local date, like usage_log) on a
+        provider billed per token. Subscription providers record 0."""
+        async with self._connect() as db:
+            async with db.execute(
+                "SELECT COALESCE(SUM(cost_usd), 0) FROM usage_events WHERE provider = ? "
+                "AND date(created_at, 'localtime') = date('now', 'localtime')",
+                (provider,),
+            ) as cursor:
+                row = await cursor.fetchone()
+                return float(row[0] or 0) if row else 0.0
+
     # ── Per-call usage accounting (usage_events) ──
 
     async def record_usage_event(
@@ -2618,11 +2635,13 @@ class StateManager:
             ) as cursor:
                 auto_reply_handoffs = (await cursor.fetchone())[0]
             async with db.execute(
-                "SELECT claude_calls, codex_calls FROM usage_log WHERE date = ?", (today,)
+                "SELECT claude_calls, codex_calls, deepseek_calls FROM usage_log "
+                "WHERE date = ?", (today,)
             ) as cursor:
                 usage_row = await cursor.fetchone()
                 usage_today = (usage_row[0] or 0) if usage_row else 0
                 codex_today = (usage_row[1] or 0) if usage_row else 0
+                deepseek_today = (usage_row[2] or 0) if usage_row else 0
 
         return {
             "prospects": prospect_counts,
@@ -2640,7 +2659,8 @@ class StateManager:
             "open_conversations": open_conversations,
             "auto_reply_handoffs": auto_reply_handoffs,
             "usage_today": usage_today,  # Claude calls (kept for compatibility)
-            "usage_today_by_provider": {"claude": usage_today, "codex": codex_today},
+            "usage_today_by_provider": {"claude": usage_today, "codex": codex_today,
+                                        "deepseek": deepseek_today},
             # Companies discovered but not yet read. The heartbeat profiles
             # these every cycle — it is free, so it never competes with the
             # Claude budget the rest of the loop is rationing.

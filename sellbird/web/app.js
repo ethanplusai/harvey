@@ -1471,18 +1471,24 @@ async function loadLogs() {
 // Calls today per subscription — each labelled with the provider it ran on.
 function brainCallChips(data) {
   const chip = (label, n) => '<span class="chip">' + label + ' calls today <b>' + escHtml(String(n || 0)) + '</b></span>';
-  const codex = data.codex_calls_today || 0;
+  const labels = {claude: 'Claude', codex: 'Codex', deepseek: 'DeepSeek'};
+  const calls = {claude: data.claude_calls_today || 0, codex: data.codex_calls_today || 0,
+                 deepseek: data.deepseek_calls_today || 0};
   const st = data.brain_status || {};
   // A paused brain must not look healthy: say so, and why.
   const paused = st.status === 'paused'
     ? '<span class="chip" title="' + escHtml(st.reason || '') + '">' +
-      escHtml(st.provider === 'codex' ? 'Codex' : 'Brain') + ' <b>paused</b>: ' +
+      escHtml(labels[st.provider] || 'Brain') + ' <b>paused</b>: ' +
       escHtml((st.reason || '').slice(0, 120)) + '</span>'
     : '';
-  if (data.brain_provider === 'codex') {
-    return paused + chip('Codex', codex) + (data.claude_calls_today ? chip('Claude', data.claude_calls_today) : '');
+  // The active provider always shows (even at 0); the others only if used today.
+  const active = Object.prototype.hasOwnProperty.call(labels, data.brain_provider)
+    ? data.brain_provider : 'claude';
+  let html = paused + chip(labels[active], calls[active]);
+  for (const p of Object.keys(labels)) {
+    if (p !== active && calls[p]) html += chip(labels[p], calls[p]);
   }
-  return paused + chip('Claude', data.claude_calls_today) + (codex ? chip('Codex', codex) : '');
+  return html;
 }
 
 function fmtTokens(n) {
@@ -1510,6 +1516,7 @@ function emailTag(p) {
 function quotaCardHtml(data) {
   const provider = data && data.quota_provider;
   if (!provider) return '';
+  if (provider === 'deepseek') return spendCardHtml(data.spend || {});
   const title = provider === 'codex' ? 'Codex (ChatGPT plan) Quota' : 'Claude Subscription Quota';
   let html = '<h2>' + escHtml(title) + '</h2>';
   if (!data.quota || !Object.keys(data.quota).length) {
@@ -1533,6 +1540,31 @@ function quotaCardHtml(data) {
     '</div>';
   }
   return html;
+}
+
+// DeepSeek bills per token from a prepaid balance, so there's no quota:
+// today's estimated spend against brain.max_daily_usd instead.
+function spendCardHtml(spend) {
+  const usd = Number(spend.today_usd) || 0;
+  const cap = Number(spend.cap_usd) || 0;
+  let html = '<h2>DeepSeek Spend Today</h2>';
+  const note = '<p class="muted">An estimate at DeepSeek\'s peak rates, so the real cost is ' +
+    'the same or lower. Your balance is at platform.deepseek.com.</p>';
+  if (!cap) {
+    return html + '<p>About <b>$' + escHtml(usd.toFixed(3)) + '</b> today (no dollar cap set: ' +
+      'brain.max_daily_usd is 0).</p>' + note;
+  }
+  const pct = Math.min(100, Math.max(0, usd / cap * 100));
+  const color = pct >= 80 ? 'yellow' : 'green';
+  html += '<div class="progress-wrap">' +
+    '<div class="progress-label">' +
+      '<span class="text">$' + escHtml(usd.toFixed(3)) + ' of $' + escHtml(cap.toFixed(2)) +
+        ' (brain.max_daily_usd)</span>' +
+      '<span class="pct">' + pct.toFixed(0) + '%</span>' +
+    '</div>' +
+    '<div class="progress-bar"><div class="progress-fill ' + color + '" style="width:' + pct + '%"></div></div>' +
+  '</div>';
+  return html + note;
 }
 
 async function loadUsage() {
@@ -1601,7 +1633,7 @@ async function loadUsage() {
   const anyRows = (data.by_agent || []).length || (data.by_task || []).length;
   if (!anyRows) {
     tablesEl.innerHTML = emptyState(icon('usage'), 'No usage recorded yet',
-      'Once Sellbird starts making model calls (Claude or Codex), every one is logged here with exact calls and tokens by provider, agent and task.');
+      'Once Sellbird starts making model calls (Claude, Codex or DeepSeek), every one is logged here with exact calls and tokens by provider, agent and task.');
   } else {
     const providers = data.by_provider || [];
     const showProviders = providers.length > 1 || (providers.length === 1 && providers[0].provider !== 'claude');
