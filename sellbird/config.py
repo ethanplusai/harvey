@@ -256,6 +256,11 @@ class EmailChannelConfig(BaseModel):
     # mailboxes. Off by default — catch-alls accept everything, so a bad
     # guess still bounces.
     send_to_risky: bool = False
+    # Don't write for prospects scored below this (0-100, Scout's fit
+    # score). 0, the default, writes for everyone with a deliverable
+    # address, as before. Raising it keeps Claude calls (and sends) for the
+    # prospects that match the ICP best.
+    min_write_score: int = 0
     # Native providers queue mail for approval. Instantly cannot use that
     # outbox, so it holds campaigns and escalates replies while this is true.
     # Set false explicitly for full autopilot once you trust the output.

@@ -28,6 +28,22 @@ logging.basicConfig(
 )
 logger = logging.getLogger("sellbird")
 
+
+def quiet_http_client_logs():
+    """Keep request URLs out of the terminal.
+
+    httpx logs every request at INFO ("HTTP Request: GET https://...") with
+    the full query string. Reoon and ZeroBounce only accept their API key as
+    a query parameter, so at INFO `sellbird run` would print those keys in
+    clear text on every verification. Nothing in those lines is useful to a
+    user, so both client loggers sit at WARNING.
+    """
+    for name in ("httpx", "httpcore"):
+        logging.getLogger(name).setLevel(logging.WARNING)
+
+
+quiet_http_client_logs()
+
 # Backoff for consecutive failed cycles: 60s, 120s, 240s, ... capped at 15 min
 ERROR_BACKOFF_BASE = 60
 ERROR_BACKOFF_CAP = 900

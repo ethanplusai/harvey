@@ -14,12 +14,16 @@ product:      { name, description, pricing, key_benefits, objection_responses, o
 icp:          { industries, titles, company_size, geography, hiring_signals, geo_coordinates }
 channels:
   email:      { provider: gmail | microsoft | smtp | instantly, max_daily_sends, require_approval,
-                send_to_risky, max_bounce_rate, warmup, send_window, signature }
+                send_to_risky, min_write_score, max_bounce_rate, warmup, send_window, signature }
 usage:        { max_daily_claude_percent, heartbeat_interval_minutes, quiet_hours }
 brain:        { provider: claude | codex, model, reasoning_effort }   # optional; claude by default
 writer:       { humanizer }   # optional; true adds one editing pass per batch using ~/.claude/skills/humanizer/SKILL.md
               # email_rules: your own markdown rules for the emails' shape (see The skills library)
 ```
+
+`min_write_score` (0-100, default 0) is the lowest Scout fit score the writer
+drafts for: a prospect below it keeps its deliverable address but gets no
+sequence, so Claude calls and sends go to the best matches first.
 
 `max_daily_claude_percent` caps whichever subscription `brain.provider` uses (the name predates Codex support).
 
