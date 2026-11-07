@@ -12,8 +12,10 @@ minor versions can still change behaviour.
 - **The opt-out line takes any wording.** `compliance.opt_out_line` no longer
   has to ask for a keyword: "Not interested? Just let me know and I won't email
   you again." is the new default. Clear phrases are still caught by rule, and
-  the model reads every other reply for a request to stop. A link or an email
-  address is still refused.
+  the model reads every other reply for a request to stop. The line must still
+  say the emails can stop, however it's worded, so a sign-off like "Cheers!" is
+  refused; `""` leaves the line off on purpose. A link or an email address is
+  still refused.
 
 ### Security
 

@@ -454,6 +454,22 @@ OPT_OUT_WORDS = ("no thanks", "no thank you", "unsubscribe", "stop", "remove me"
                  "opt out")
 HEBREW_OPT_OUT_WORDS = ("הסר", "הסירו", "הסרה", "לא תודה", "הסירו אותי", "תורידו אותי")
 SPANISH_OPT_OUT_WORDS = ("no gracias", "baja", "darme de baja")
+# Wording that tells people the emails can stop, in any phrasing. An
+# opt_out_line must say so somehow: one that reads like a sign-off ("Cheers!")
+# gives nobody a way out, which is worse than leaving the line off on purpose.
+_SAYS_IT_STOPS_RE = re.compile(
+    r"\b(?:stop|unsubscribe|opt[\s-]?out|remove|no\s+thanks|not\s+interested"
+    r"|leave\s+you\s+(?:be|alone)|take\s+you\s+off|off\s+(?:my|our|the)\s+list"
+    r"|hear\s+from\s+(?:me|us)|no\s+more\s+e-?mails?"
+    r"|won[\'’]?t\s+(?:\w+\s+){0,2}(?:e-?mail|write|contact|reach|bother|follow|message|send)"
+    r"|(?:not|never)\s+(?:\w+\s+){0,2}(?:e-?mail|contact|write|message)\w*\s+(?:you\s+)?again)",
+    re.IGNORECASE)
+_SAYS_IT_STOPS_HE_RE = re.compile(
+    r"(?:הסר|להסיר|הסירו|הסרה|נסיר|לא,?\s+תודה|להפסיק|אפסיק|תורידו|לא\s+אפנה|לא\s+אכתוב|לא\s+אשלח)")
+_SAYS_IT_STOPS_ES_RE = re.compile(
+    r"(?:\bbaja\b|no,?\s+gracias|dejar[ée]?\s+de|dejo\s+de|no\s+(?:le|te|les)\s+(?:escribir|volver|molestar)"
+    r"|no\s+volver[ée]|eliminar|quitar|\bparar\b)",
+    re.IGNORECASE)
 # "Click" in Hebrew: a footer has no link to click.
 _HEBREW_CLICK_RE = re.compile(r"(?<!\w)ו?(?:לחצו|לחצי|לחץ\s+(?:כאן|על)|הקליקו|הקליקי|הקלק)(?!\w)")
 
@@ -520,6 +536,13 @@ class ComplianceConfig(BaseModel):
             raise ValueError(
                 "opt_out_line can't contain a link or an email address: cold email "
                 "allows one link, and opting out must be as simple as replying."
+            )
+        if not (_SAYS_IT_STOPS_RE.search(v) or _SAYS_IT_STOPS_HE_RE.search(v)
+                or _SAYS_IT_STOPS_ES_RE.search(v)):
+            raise ValueError(
+                "opt_out_line doesn't tell people they can stop these emails. Say so in "
+                "any words (\"Not interested? Just let me know and I won't email you "
+                "again.\"), or set it to \"\" to leave the line off."
             )
         return v
 

@@ -657,9 +657,11 @@ def test_opt_out_line_can_ask_in_hebrew():
                  "השיבו במייל חוזר ״הסר״ ונסיר אתכם.", "ואם לא מתאים, פשוט ענו לא, תודה.",
                  'בלי לחץ: השיבו "הסר" ולא אפנה שוב.'):
         assert ComplianceConfig(opt_out_line=good).opt_out_line == good
-    # Any wording is fine now; a link or a "click" still isn't.
-    for good in ("ואם זה לא בשבילכם, תגידו לי ולא אכתוב שוב.", "תודה שקראתם!"):
-        assert ComplianceConfig(opt_out_line=good).opt_out_line == good
+    # Any wording that says the emails stop; a link, a "click" or a plain
+    # sign-off ("thanks for reading!") still isn't an opt-out line.
+    assert ComplianceConfig(opt_out_line="ואם זה לא בשבילכם, תגידו לי ולא אכתוב שוב.")
+    with pytest.raises(pydantic.ValidationError):
+        ComplianceConfig(opt_out_line="תודה שקראתם!")
     for bad in (
         "להסרה לחצו כאן",
         'להסרה השיבו "הסר" או לחצו כאן',
@@ -928,3 +930,22 @@ def test_more_ways_to_say_a_hebrew_legal_threat(reply):
 def test_hyphens_and_near_words_dont_escalate(reply):
     from sellbird.agents.handler import _escalates, _flat
     assert not _escalates(_flat(reply))
+
+
+def test_an_opt_out_line_has_to_say_the_emails_can_stop():
+    import pydantic
+    for bad in ("Cheers!", "Have a great week.", "Thanks for reading, Jordan",
+                "Hope this helps."):
+        with pytest.raises(pydantic.ValidationError, match="stop these emails"):
+            ComplianceConfig(opt_out_line=bad)
+    for good in ("If this isn't for you, tell me and I'll stop reaching out.",
+                 "Wrong person? Let me know and you won't hear from me again.",
+                 "Not interested? Just say so and I won't follow up.",
+                 "Say the word and I'll take you off my list.",
+                 "Happy to never email you again, just reply.",
+                 'Responda "no, gracias" y no le escribiré más.',
+                 "Si no le interesa, dígamelo y dejaré de escribirle.",
+                 'השיבו "הסר" ולא אפנה אליכם שוב.'):
+        assert ComplianceConfig(opt_out_line=good).opt_out_line == good
+    # Leaving the line off is still the operator's choice.
+    assert ComplianceConfig(opt_out_line="").opt_out_line == ""
