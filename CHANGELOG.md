@@ -9,6 +9,14 @@ minor versions can still change behaviour.
 
 ### Added
 
+- **An MCP server for your coding agent.** `sellbird mcp install` adds
+  Sellbird to Claude Code (or Codex), showing the change first. The agent
+  reads everything Sellbird knows, estimates discovery costs and can pause
+  sending, through the running dashboard with its own token
+  (`data/agent-token`). Every approval, setting, key, purchase and resume
+  stays yours: the agent's token reaches only a short allowlist of routes.
+  An extension can add tools and open its own routes to the agent. See
+  "Your coding agent (MCP)" in [docs/configuration.md](docs/configuration.md).
 - **Suppressions.** Addresses and whole domains Sellbird never emails,
   kept in the database: an opt-out or a bounce adds the address, and
   `sellbird suppressions` lists, adds and removes them. A suppressed domain
@@ -65,6 +73,10 @@ minor versions can still change behaviour.
 
 ### Changed
 
+- **`Referrer-Policy: same-origin`** on the dashboard, instead of
+  `no-referrer`: under `no-referrer` Firefox sends `Origin: null` on POSTs,
+  which the dashboard's provenance check refuses. Other sites still never
+  get a Referer.
 - **Microsoft 365: a send that may have gone out keeps its draft.** A 5xx or
   a dropped connection on the final send no longer deletes the draft, and
   the Outbox marks the email as possibly sent (never retried). A 4xx refusal

@@ -32,6 +32,7 @@ dependencies = [
     "pytz>=2024.1",
     "fastapi>=0.115,<1",
     "uvicorn>=0.34,<1",
+    "mcp>=2.3,<3",
 ]
 
 [project.optional-dependencies]

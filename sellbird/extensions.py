@@ -61,6 +61,8 @@ class Registry:
     cli_commands: dict[str, tuple[str, ConfigureCommand]] = field(default_factory=dict)
     send_rules: dict[str, Any] = field(default_factory=dict)
     send_headers: dict[str, Any] = field(default_factory=dict)
+    agent_routes: list[tuple[str, str]] = field(default_factory=list)
+    mcp_tools: dict[str, Any] = field(default_factory=dict)
 
     def add_router(self, router) -> None:
         """A FastAPI ``APIRouter`` served by the dashboard, behind its guard,
@@ -105,6 +107,28 @@ class Registry:
         if name in self.send_headers:
             raise ExtensionError(f"header hook {name!r} is already registered")
         self.send_headers[name] = hook
+
+
+    def add_agent_route(self, method: str, pattern: str) -> None:
+        """Let the coding agent call one of your routes (sellbird.agent_policy).
+        ``pattern`` is a full-match regex on the path. Everything not added is
+        the user's alone."""
+        import re
+        if method.upper() not in ("GET", "POST", "PUT", "PATCH", "DELETE"):
+            raise ExtensionError(f"agent route method {method!r} isn't an HTTP method")
+        try:
+            re.compile(pattern)
+        except re.error as e:
+            raise ExtensionError(f"agent route pattern {pattern!r} doesn't compile: {e}") from e
+        self.agent_routes.append((method.upper(), pattern))
+
+    def add_mcp_tools(self, name: str, register) -> None:
+        """``register(server, client_factory, guarded)`` adds tools to the MCP
+        server (sellbird.mcp_server), after the built-in ones."""
+        _check_name(name, "MCP tool set")
+        if name in self.mcp_tools:
+            raise ExtensionError(f"MCP tool set {name!r} is already registered")
+        self.mcp_tools[name] = register
 
 
 def _check_name(name: str, what: str) -> None:

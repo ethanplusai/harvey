@@ -75,7 +75,7 @@ def _protected_requests():
     for route in dash.app.routes:
         if not isinstance(route, Route):
             continue
-        if route.path in ("/", "/static/{path:path}"):
+        if route.path in ("/", "/static/{path:path}", "/api/instance"):  # public by design
             continue
         path = re.sub(r"\{[^}]+\}", "x", route.path)
         for method in sorted(route.methods - {"HEAD"}):
@@ -160,7 +160,7 @@ def test_shell_is_public_but_carries_no_data_or_token(anon, env, path):
     assert r.status_code == 200
     assert env["token"] not in r.text
     assert r.headers["cache-control"] == "no-store"
-    assert r.headers["referrer-policy"] == "no-referrer"
+    assert r.headers["referrer-policy"] == "same-origin"
     assert r.headers["x-frame-options"] == "DENY"
     assert r.headers["x-content-type-options"] == "nosniff"
     csp = r.headers["content-security-policy"]
@@ -172,7 +172,7 @@ def test_shell_has_no_token_bearing_links(anon):
     assert 'href="/api/' not in html
     assert "/static/auth.js" in html
     assert html.index("/static/auth.js") < html.index("/static/app.js")
-    assert '<meta name="referrer" content="no-referrer">' in html
+    assert '<meta name="referrer" content="same-origin">' in html
 
 
 def test_only_get_and_head_of_the_shell_are_public(anon):
