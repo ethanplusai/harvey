@@ -1300,6 +1300,9 @@ def main():
     sub.add_argument("--yes", action="store_true", help="Apply without asking")
     sub.set_defaults(func=cmd_mcp)
 
+    from sellbird.inbox_cli import register as register_inboxes
+    register_inboxes(subparsers)
+
     sub = subparsers.add_parser("suppressions", help="Addresses and domains Sellbird never emails")
     sub.add_argument("suppression_action", nargs="?", default="list", choices=["list", "add", "remove"])
     sub.add_argument("value", nargs="?", default="", help="add: an address or domain; remove: its id")

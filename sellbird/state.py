@@ -532,6 +532,26 @@ MIGRATIONS: list[str] = [
       created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP);
     CREATE UNIQUE INDEX IF NOT EXISTS uq_suppressions_kind_value ON suppressions(kind, value);
     """,
+    # ── v16: several sending inboxes ──
+    # Inboxes the user already owns, besides the main mailbox (channels.email
+    # .provider). The main mailbox is never a row: an outbox row or
+    # conversation with mailbox_id '' is the main mailbox's, so an install
+    # with one inbox is unchanged. Sign-ins and passwords live in the system
+    # keychain; credential_ref names the entry and settings_json keeps only
+    # public server settings. A campaign with rows in campaign_mailboxes
+    # sends from those inboxes only ('' = the main mailbox).
+    """
+    CREATE TABLE IF NOT EXISTS mailboxes (id TEXT PRIMARY KEY, address TEXT NOT NULL UNIQUE,
+      display_name TEXT DEFAULT '', provider TEXT NOT NULL, connection TEXT NOT NULL,
+      state TEXT DEFAULT 'active', paused_reason TEXT DEFAULT '', cap_override INTEGER,
+      credential_ref TEXT DEFAULT '', settings_json TEXT DEFAULT '{}',
+      warmup_started_at TIMESTAMP, created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP);
+    CREATE TABLE IF NOT EXISTS campaign_mailboxes (campaign_id TEXT NOT NULL,
+      mailbox_id TEXT NOT NULL, PRIMARY KEY (campaign_id, mailbox_id));
+    ALTER TABLE outbox ADD COLUMN mailbox_id TEXT DEFAULT '';
+    ALTER TABLE conversations ADD COLUMN mailbox_id TEXT DEFAULT '';
+    CREATE INDEX IF NOT EXISTS idx_outbox_mailbox_sent ON outbox(mailbox_id, status, sent_at);
+    """,
 ]
 
 BRAIN_PROVIDERS = ("claude", "codex")
@@ -557,7 +577,7 @@ _CAMPAIGN_COLUMNS = frozenset({
 })
 _CONVERSATION_COLUMNS = frozenset({
     "prospect_id", "campaign_id", "channel",
-    "thread_json", "intent", "stage", "status",
+    "thread_json", "intent", "stage", "status", "mailbox_id",
 })
 
 
@@ -1040,22 +1060,24 @@ class StateManager:
         thread_ref: str = "",
         in_reply_to: str = "",
         approved_by: str = "",
+        mailbox_id: str = "",
     ) -> str | None:
         """Queue one outgoing email. Returns its id, or None when the
         (campaign, prospect, step) slot already exists — the double-send guard.
-        ``approved_by="autopilot"`` when it's queued approved on autopilot."""
+        ``approved_by="autopilot"`` when it's queued approved on autopilot.
+        ``mailbox_id`` is the inbox it leaves from ('' = the main mailbox)."""
         item_id = _new_id()
         async with self._connect() as db:
             cursor = await db.execute(
                 """INSERT OR IGNORE INTO outbox
                    (id, campaign_id, prospect_id, conversation_id, step, kind,
                     to_email, subject, body, status, send_at, provider,
-                    thread_ref, in_reply_to)
-                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                    thread_ref, in_reply_to, mailbox_id)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
                 (
                     item_id, campaign_id, prospect_id, conversation_id,
                     int(step), kind, _norm(to_email), subject, body,
-                    status, send_at, provider, thread_ref, in_reply_to,
+                    status, send_at, provider, thread_ref, in_reply_to, mailbox_id or "",
                 ),
             )
             if cursor.rowcount > 0 and approved_by:
@@ -1208,7 +1230,7 @@ class StateManager:
 
     _OUTBOX_COLUMNS = frozenset({
         "status", "error", "message_id", "thread_ref", "sent_at",
-        "subject", "body", "send_at", "provider",
+        "subject", "body", "send_at", "provider", "mailbox_id",
     })
 
     async def update_outbox_item(self, item_id: str, **kwargs):
@@ -1547,9 +1569,11 @@ class StateManager:
                 return (await cursor.fetchone())[0]
 
     async def count_outbox_sent_today(self, kind: str | None = None,
-                                      since: str | None = None) -> int:
+                                      since: str | None = None,
+                                      mailbox_id: str | None = None) -> int:
         """Emails sent today (the UTC day, or since `since`, a naive UTC
-        ISO time); only one kind ("sequence", "reply") if given."""
+        ISO time); only one kind ("sequence", "reply") if given, and only
+        from one inbox if `mailbox_id` is given ('' = the main mailbox)."""
         if since:
             sql = "SELECT COUNT(*) FROM outbox WHERE status = 'sent' AND sent_at >= ?"
             params: tuple = (since,)
@@ -1560,6 +1584,9 @@ class StateManager:
         if kind:
             sql += " AND kind = ?"
             params += (kind,)
+        if mailbox_id is not None:
+            sql += " AND COALESCE(mailbox_id, '') = ?"
+            params += (mailbox_id,)
         async with self._connect() as db:
             async with db.execute(sql, params) as cursor:
                 return (await cursor.fetchone())[0]

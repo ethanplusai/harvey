@@ -255,6 +255,11 @@ class EmailChannelConfig(BaseModel):
     # SMTP+IMAP mailbox: AgentMail, Fastmail, ...)
     provider: str = "instantly"
     max_daily_sends: int = 50
+    # Each extra sending inbox's daily cold-email cap (sellbird inboxes),
+    # under the warmup ramp from the day that inbox started warming. The
+    # main mailbox keeps max_daily_sends and warmup.start_date, and
+    # max_daily_sends stays the ceiling on everything sent in a day.
+    per_inbox_daily_cap: int = 30
     # When True, also send to catch-all ("risky") domains, not just verified
     # mailboxes. Off by default — catch-alls accept everything, so a bad
     # guess still bounces.
@@ -300,6 +305,13 @@ class EmailChannelConfig(BaseModel):
     def _sends_non_negative(cls, v: int) -> int:
         if v < 0:
             raise ValueError("max_daily_sends must be >= 0")
+        return v
+
+    @field_validator("per_inbox_daily_cap")
+    @classmethod
+    def _per_inbox_cap_range(cls, v: int) -> int:
+        if not 1 <= v <= 500:
+            raise ValueError("per_inbox_daily_cap must be between 1 and 500")
         return v
 
     def cold_daily_cap(self, today: _date | None = None) -> int:

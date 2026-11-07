@@ -9,6 +9,16 @@ minor versions can still change behaviour.
 
 ### Added
 
+- **Several sending inboxes.** Besides the main mailbox, connect Gmail,
+  Microsoft 365 or SMTP inboxes you already own with
+  `sellbird inboxes connect`. Their sign-ins and passwords live in the
+  system keychain. Each new thread goes to the inbox with the most room;
+  follow-ups and replies leave from the thread's own inbox. Each inbox has
+  its own daily cold cap (`channels.email.per_inbox_daily_cap`, or your own
+  number) and warmup ramp, and can be paused, renamed, removed or limited
+  to some campaigns. Replies are read from every inbox. With one inbox
+  nothing changes. See "Several sending inboxes" in
+  [docs/configuration.md](docs/configuration.md).
 - **An MCP server for your coding agent.** `sellbird mcp install` adds
   Sellbird to Claude Code (or Codex), showing the change first. The agent
   reads everything Sellbird knows, estimates discovery costs and can pause

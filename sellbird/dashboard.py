@@ -1305,10 +1305,24 @@ def _sellbird_can_send() -> bool:
             return False
         if (email.provider or "").strip().lower() in NATIVE_PROVIDERS:
             provider = get_mail_provider(config, env)
-            return bool(provider and provider.is_configured())
+            return bool(provider and provider.is_configured()) or _extra_inboxes_connected()
         return bool(env.instantly_api_key)
     except Exception:
         return True
+
+
+def _extra_inboxes_connected() -> bool:
+    """Whether an inbox besides the main one is connected (sellbird inboxes):
+    Sellbird sends from it even while the main mailbox isn't signed in."""
+    import sqlite3
+    if not Path(DB_PATH).exists():
+        return False
+    try:
+        with sqlite3.connect(f"file:{DB_PATH}?mode=ro", uri=True) as db:
+            row = db.execute("SELECT 1 FROM mailboxes WHERE state != 'retired' LIMIT 1").fetchone()
+    except sqlite3.Error:
+        return False   # no table yet: no extra inbox
+    return row is not None
 
 
 def _send_as() -> str:
