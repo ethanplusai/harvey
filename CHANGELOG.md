@@ -25,6 +25,16 @@ minor versions can still change behaviour.
   a day) runs out, the Today page, `sellbird status` and the Outbox reason point
   to the command. Free keys now give 100 checks a day for their first 14 days,
   then 25, and the docs say so.
+- **Indonesian opt-outs are caught without the model.** "Tidak, terima
+  kasih", a bare "STOP" or "BERHENTI", "jangan kirim email lagi", "berhenti
+  mengirim email ke saya", "hapus saya dari daftar", "berhenti berlangganan"
+  and "tidak tertarik" as a whole answer are honored by rule. Each needs the
+  verb aimed at the sender, so "jangan kirim dulu" (not yet), "hapus saya dari
+  CC", "tidak tertarik dengan paket tahunan, tapi..." and anything narrowed to
+  a time, another channel or another person go to the model instead. An
+  Indonesian `compliance.opt_out_line` (`Balas "STOP"`, `Balas BERHENTI`,
+  `Balas "tidak, terima kasih"`) now passes validation, and "Dikirim dari
+  iPhone saya" no longer hides a bare "STOP".
 
 ### Fixed
 
