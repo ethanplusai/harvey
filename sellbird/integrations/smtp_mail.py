@@ -18,27 +18,71 @@ import email
 import email.policy
 import imaplib
 import logging
+from dataclasses import asdict, dataclass, field
 from email.message import EmailMessage
-from email.utils import make_msgid, parseaddr
+from email.utils import formataddr, make_msgid, parseaddr
 
 import aiosmtplib
 
 from sellbird.integrations.mail_provider import (
     InboundMessage,
+    MailIdentity,
     MailProvider,
     SendResult,
+    identity_from_config,
     looks_like_bounce,
 )
 from sellbird.integrations.signature import SignatureError, load_signature, set_body
 
+_AUTO_REPLY_HEADERS = ("Auto-Submitted", "X-Autoreply", "X-Autorespond", "X-Autoresponse",
+                       "Precedence")
 logger = logging.getLogger("sellbird.smtp")
+
+
+# Refused or never connected: the server definitely has no copy. Anything else
+# (a drop or timeout mid-conversation, an unknown error) might have come after
+# DATA was accepted, so the outcome is uncertain.
+_DEFINITE_SMTP_ERRORS = (
+    aiosmtplib.SMTPConnectError, aiosmtplib.SMTPConnectTimeoutError,
+    aiosmtplib.SMTPAuthenticationError, aiosmtplib.SMTPHeloError,
+    aiosmtplib.SMTPNotSupported, aiosmtplib.SMTPRecipientsRefused,
+    aiosmtplib.SMTPSenderRefused, aiosmtplib.SMTPDataError,
+)
+
+
+@dataclass
+class SmtpSettings:
+    """Another inbox's server settings, for a caller that keeps them itself.
+    Store the password somewhere safe; only public() is fit for a database."""
+
+    host: str
+    username: str
+    password: str = field(repr=False)
+    port: int = 587
+    imap_host: str = ""
+    imap_port: int = 993
+
+    def public(self) -> dict:
+        data = asdict(self)
+        data.pop("password")
+        return data
 
 
 class SmtpImapProvider(MailProvider):
     name = "smtp"
 
-    def __init__(self, config, env):
+    def __init__(self, config, env, *, identity: MailIdentity | None = None,
+                 smtp: SmtpSettings | None = None):
         self.config = config
+        # Settable: a mailbox transport points it at the inbox it sends from.
+        self.identity = identity or identity_from_config(config)
+        if smtp is not None:  # another inbox: its own settings, not the .env's
+            self.smtp_host, self.smtp_port = smtp.host, int(smtp.port or 587)
+            self.smtp_user, self.smtp_pass = smtp.username, smtp.password
+            self.imap_host = smtp.imap_host or smtp.host
+            self.imap_port = int(smtp.imap_port or 993)
+            self.imap_user, self.imap_pass = smtp.username, smtp.password
+            return
         self.smtp_host = getattr(env, "smtp_host", "")
         self.smtp_port = int(getattr(env, "smtp_port", 587) or 587)
         self.smtp_user = getattr(env, "smtp_username", "")
@@ -63,12 +107,12 @@ class SmtpImapProvider(MailProvider):
             sig = load_signature(self.config)
         except SignatureError as e:
             return SendResult(ok=False, error=f"signature: {e}"[:300])
-        persona = self.config.persona
+        address = self.identity.address or self.smtp_user
         msg = EmailMessage()
         msg["To"] = to_email
-        msg["From"] = f"{persona.name} <{persona.email or self.smtp_user}>"
+        msg["From"] = formataddr((self.identity.display_name, address))
         msg["Subject"] = subject
-        message_id = make_msgid(domain=(persona.email or self.smtp_user).split("@")[-1])
+        message_id = make_msgid(domain=address.split("@")[-1])
         msg["Message-ID"] = message_id
         if in_reply_to:
             msg["In-Reply-To"] = in_reply_to
@@ -88,7 +132,8 @@ class SmtpImapProvider(MailProvider):
             )
         except Exception as e:
             logger.error(f"SMTP send failed to {to_email}: {e}")
-            return SendResult(ok=False, error=str(e)[:300])
+            return SendResult(ok=False, error=str(e)[:300],
+                              uncertain=not isinstance(e, _DEFINITE_SMTP_ERRORS))
         return SendResult(ok=True, message_id=message_id, thread_ref=message_id)
 
     async def get_replies(self, limit: int = 50) -> list[InboundMessage]:
@@ -156,6 +201,9 @@ class SmtpImapProvider(MailProvider):
             thread_ref=str(msg.get("In-Reply-To", "")).strip(),
             date=str(msg.get("Date", "")),
             is_bounce=looks_like_bounce(from_email, subject),
+            # Hosted H7: what tells an automatic reply from a person's.
+            headers={name.lower(): str(msg.get(name, "")) for name in _AUTO_REPLY_HEADERS
+                     if msg.get(name)},
         )
 
     async def test_connection(self) -> tuple[bool, str]:

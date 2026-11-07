@@ -31,16 +31,23 @@ import secrets
 import socket
 import time
 import webbrowser
+from collections.abc import Callable
 from datetime import datetime, timedelta, timezone
 
 import httpx
 
 from sellbird.paths import PROJECT_ROOT
+from sellbird.workspace_home import current_home
 from sellbird.integrations.mail_provider import (
     InboundMessage,
+    MailIdentity,
     MailProvider,
     SendResult,
+    TokenSource,
+    identity_from_config,
     looks_like_bounce,
+    missing_token_text,
+    save_if_signed_in_as,
 )
 from sellbird.integrations.signature import SignatureError, load_signature, render_html
 
@@ -79,13 +86,20 @@ _SELECT = ",".join((
 
 
 class GraphError(RuntimeError):
-    pass
+    """`uncertain`: the request may have been processed (read/write timeout,
+    dropped connection, 5xx), so a caller that must not repeat it can't assume
+    it failed."""
+
+    def __init__(self, message: str = "", uncertain: bool = False):
+        super().__init__(message)
+        self.uncertain = uncertain
 
 
 def _load_token() -> dict | None:
+    token_file = current_home().m365_token_file
     try:
-        if TOKEN_FILE.is_file():
-            data = json.loads(TOKEN_FILE.read_text(encoding="utf-8"))
+        if token_file.is_file():
+            data = json.loads(token_file.read_text(encoding="utf-8"))
             if isinstance(data, dict) and data.get("refresh_token"):
                 return data
     except (OSError, json.JSONDecodeError) as e:
@@ -94,10 +108,11 @@ def _load_token() -> dict | None:
 
 
 def _save_token(data: dict):
-    TOKEN_FILE.parent.mkdir(parents=True, exist_ok=True)
-    TOKEN_FILE.write_text(json.dumps(data, indent=2), encoding="utf-8")
+    token_file = current_home().m365_token_file
+    token_file.parent.mkdir(parents=True, exist_ok=True)
+    token_file.write_text(json.dumps(data, indent=2), encoding="utf-8")
     try:
-        TOKEN_FILE.chmod(0o600)
+        token_file.chmod(0o600)
     except OSError:
         pass
 
@@ -109,7 +124,9 @@ def _token_url(tenant: str) -> str:
 class MicrosoftProvider(MailProvider):
     name = "microsoft"
 
-    def __init__(self, config, env, transport=None):
+    def __init__(self, config, env, transport=None, *,
+                 identity: MailIdentity | None = None,
+                 tokens: TokenSource | None = None):
         self.config = config
         self.client_id = getattr(env, "m365_client_id", "")
         self.tenant = getattr(env, "m365_tenant_id", "") or "organizations"
@@ -117,21 +134,34 @@ class MicrosoftProvider(MailProvider):
         self._access_token = ""
         self._access_expires = 0.0
         self._me = ""
+        # Settable: the signed-in account must be this address.
+        self._main_mailbox = identity is None
+        self.identity = identity or identity_from_config(config)
+        # None = the main mailbox's token file; another inbox brings its own source.
+        self._tokens = tokens
+
+    def _load(self) -> dict | None:
+        return self._tokens.load() if self._tokens else _load_token()
+
+    def _save(self, data: dict) -> None:
+        (self._tokens.save if self._tokens else _save_token)(data)
 
     def is_configured(self) -> bool:
-        return bool(self.client_id and _load_token())
+        return bool(self.client_id and self._load())
 
     def _client(self) -> httpx.AsyncClient:
-        return httpx.AsyncClient(timeout=TIMEOUT, transport=self._transport)
+        extra = {"transport": self._transport} if self._transport is not None else {}
+        return httpx.AsyncClient(timeout=TIMEOUT, **extra)
 
     async def _token(self) -> str:
         """Valid access token. Microsoft rotates the refresh token on every
         use, so the new one is saved each time."""
         if self._access_token and time.time() < self._access_expires - 60:
             return self._access_token
-        stored = _load_token()
+        stored = self._load()
         if not stored:
-            raise GraphError("not authorized. Run 'sellbird microsoft auth'.")
+            raise GraphError(missing_token_text(
+                self._tokens, "not authorized. Run 'sellbird microsoft auth'."))
         try:
             async with self._client() as client:
                 resp = await client.post(_token_url(self.tenant), data={
@@ -145,12 +175,13 @@ class MicrosoftProvider(MailProvider):
         if resp.status_code != 200:
             raise GraphError(
                 f"token refresh rejected ({resp.status_code}): {resp.text[:200]}. "
-                "Re-run 'sellbird microsoft auth'."
+                + ("Connect this inbox again." if self._tokens
+                   else "Re-run 'sellbird microsoft auth'.")
             )
         data = resp.json()
         if data.get("refresh_token"):
-            _save_token({**stored, "refresh_token": data["refresh_token"],
-                         "refreshed_at": int(time.time())})
+            self._save({**stored, "refresh_token": data["refresh_token"],
+                        "refreshed_at": int(time.time())})
         self._access_token = data.get("access_token", "")
         self._access_expires = time.time() + float(data.get("expires_in", 3600))
         if not self._access_token:
@@ -160,11 +191,16 @@ class MicrosoftProvider(MailProvider):
     async def _request(self, method: str, path: str, **kwargs) -> dict:
         return await self._request_url(method, f"{GRAPH}{path}", **kwargs)
 
-    async def _request_url(self, method: str, url: str, *, headers=None, **kwargs) -> dict:
+    async def _request_url(self, method: str, url: str, *, headers=None,
+                           retry_503: bool = True, any_2xx_ok: bool = False,
+                           **kwargs) -> dict:
         """One Graph call. Raises GraphError on failure; retries once when
         Graph asks to slow down (429/503 with a short Retry-After). The
         result is always a JSON object; only 202/204 may be empty (send,
-        delete), and come back as {}."""
+        delete), and come back as {}. The final send passes retry_503=False
+        (a 503 may already have been processed, so repeating it could email
+        twice; a 429 never was) and any_2xx_ok=True (any 2xx means Graph
+        accepted the message, whatever the body)."""
         path = url[len(GRAPH):] if url.startswith(GRAPH) else url
         token = await self._token()
         all_headers = {"Authorization": f"Bearer {token}", **(headers or {})}
@@ -175,8 +211,10 @@ class MicrosoftProvider(MailProvider):
                         method, url, headers=all_headers, **kwargs
                     )
             except httpx.HTTPError as e:
-                raise GraphError(f"{method} {path} failed: {e}") from e
-            if resp.status_code in (429, 503) and attempt == 1:
+                never_left = isinstance(e, (httpx.ConnectError, httpx.ConnectTimeout))
+                raise GraphError(f"{method} {path} failed: {e}",
+                                 uncertain=not never_left) from e
+            if attempt == 1 and (resp.status_code == 429 or (resp.status_code == 503 and retry_503)):
                 try:
                     wait = float(resp.headers.get("Retry-After", "5"))
                 except ValueError:
@@ -186,7 +224,10 @@ class MicrosoftProvider(MailProvider):
                     continue
             break
         if resp.status_code >= 400:
-            raise GraphError(f"Graph {resp.status_code} on {method} {path}: {resp.text[:200]}")
+            raise GraphError(f"Graph {resp.status_code} on {method} {path}: {resp.text[:200]}",
+                             uncertain=resp.status_code >= 500)
+        if any_2xx_ok:
+            return {}
         if not resp.content:
             if resp.status_code in (202, 204):
                 return {}
@@ -209,15 +250,20 @@ class MicrosoftProvider(MailProvider):
         return self._me
 
     async def _check_identity(self) -> str:
-        """The signed-in mailbox must be persona.email: a token for the wrong
-        account (say, the admin who approved the app) would otherwise send
-        cold email from that account."""
+        """The signed-in mailbox must be this inbox's address (persona.email
+        for the main mailbox): a token for the wrong account (say, the admin
+        who approved the app) would otherwise send cold email from it."""
         me = await self._my_address()
-        expected = (getattr(getattr(self.config, "persona", None), "email", "") or "").strip().lower()
+        expected = (self.identity.address or "").strip().lower()
         if expected and me != expected:
+            if self._main_mailbox:
+                raise GraphError(
+                    f"signed in as {me}, but persona.email is {expected}. Run "
+                    f"'sellbird microsoft auth' again and sign in as {expected}."
+                )
             raise GraphError(
-                f"signed in as {me}, but persona.email is {expected}. Run "
-                f"'sellbird microsoft auth' again and sign in as {expected}."
+                f"signed in as {me}, but this inbox is {expected}. "
+                f"Connect it again and sign in as {expected}."
             )
         return me
 
@@ -269,7 +315,16 @@ class MicrosoftProvider(MailProvider):
                     "isInline": True,
                     "contentId": sig.content_id,
                 })
-            await self._request("POST", f"/me/messages/{draft['id']}/send")
+            try:
+                await self._request("POST", f"/me/messages/{draft['id']}/send",
+                                        retry_503=False, any_2xx_ok=True)
+            except GraphError as e:
+                if e.uncertain:
+                    # The send may have gone through: keep the draft so the
+                    # user can check Drafts and Sent Items.
+                    logger.error(f"Microsoft send to {to_email} may have gone out: {e}")
+                    return SendResult(ok=False, error=str(e)[:300], uncertain=True)
+                raise
         except (GraphError, KeyError) as e:
             if draft and draft.get("id"):
                 await self._delete_draft(draft["id"])
@@ -382,8 +437,9 @@ class MicrosoftProvider(MailProvider):
     async def test_connection(self) -> tuple[bool, str]:
         if not self.client_id:
             return False, "M365_CLIENT_ID missing from .env"
-        if not _load_token():
-            return False, "Not authorized yet — run 'sellbird microsoft auth'"
+        if not self._load():
+            return False, missing_token_text(
+                self._tokens, "Not authorized yet — run 'sellbird microsoft auth'")
         try:
             me = await self._check_identity()
             await self._request(
@@ -438,9 +494,35 @@ class _LoopbackServerV6(_LoopbackServer):
     address_family = socket.AF_INET6
 
 
-def run_auth_flow(client_id: str, tenant: str = "") -> bool:
+def authorized_address(access_token: str, transport=None) -> str:
+    """The address a fresh access token belongs to (Graph /me), lowercased."""
+    with httpx.Client(timeout=TIMEOUT, transport=transport) as client:
+        resp = client.get(f"{GRAPH}/me", params={"$select": "mail,userPrincipalName"},
+                          headers={"Authorization": f"Bearer {access_token}"})
+    resp.raise_for_status()
+    me = resp.json()
+    return (me.get("mail") or me.get("userPrincipalName") or "").strip().lower()
+
+
+def _store_authorized(record: dict, access_token: str, *,
+                      save: Callable[[dict], None] | None,
+                      expected_address: str | None, transport=None) -> bool:
+    return save_if_signed_in_as(
+        record, expected_address,
+        lambda: authorized_address(access_token, transport), save or _save_token)
+
+
+def run_auth_flow(client_id: str, tenant: str = "", *,
+                  save: Callable[[dict], None] | None = None,
+                  expected_address: str | None = None,
+                  scope: str | None = None) -> bool:
     """One-time sign-in (authorization code + PKCE, loopback redirect).
-    Blocks until the browser round-trip completes."""
+    Blocks until the browser round-trip completes.
+
+    `save` takes the token dict instead of the main mailbox's token file;
+    with `expected_address`, a sign-in as any other account saves nothing.
+    `scope` narrows what is asked for (a seed inbox only reads)."""
+    scope = scope or SCOPE
     import threading
     import urllib.parse
 
@@ -458,7 +540,7 @@ def run_auth_flow(client_id: str, tenant: str = "") -> bool:
         "response_type": "code",
         "redirect_uri": redirect_uri,
         "response_mode": "query",
-        "scope": SCOPE,
+        "scope": scope,
         "state": state,
         "code_challenge": challenge,
         "code_challenge_method": "S256",
@@ -517,7 +599,7 @@ def run_auth_flow(client_id: str, tenant: str = "") -> bool:
         "code": result["code"],
         "redirect_uri": redirect_uri,
         "code_verifier": verifier,
-        "scope": SCOPE,
+        "scope": scope,
     }, timeout=30)
     if resp.status_code != 200:
         print(f"  Token exchange failed ({resp.status_code}): {resp.text[:300]}")
@@ -526,11 +608,15 @@ def run_auth_flow(client_id: str, tenant: str = "") -> bool:
     if not data.get("refresh_token"):
         print("  Microsoft returned no refresh token (offline_access missing?).")
         return False
-    _save_token({
+    record = {
         "refresh_token": data["refresh_token"],
         "tenant": tenant,
-        "scope": data.get("scope", SCOPE),
+        "scope": data.get("scope", scope),
         "obtained_at": int(time.time()),
-    })
-    print(f"  ✓ Microsoft 365 authorized. Token stored at {TOKEN_FILE}")
+    }
+    if not _store_authorized(record, data.get("access_token", ""), save=save,
+                             expected_address=expected_address):
+        return False
+    print("  ✓ Microsoft 365 authorized." if save else
+          f"  ✓ Microsoft 365 authorized. Token stored at {current_home().m365_token_file}")
     return True
