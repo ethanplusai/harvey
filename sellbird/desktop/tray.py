@@ -275,13 +275,89 @@ def menu_items(status: TrayStatus, autostart_on: bool) -> list[MenuRow]:
     return rows
 
 
-def make_icon(state: str):
-    """A 64×64 filled circle in the state's color."""
+# The Sellbird swallow, from sellbird/web/sellbird-mark.svg (viewBox 0 0 1040 640).
+BIRD_PATH = ("M83 0C246 47 417 91 562 157C676 209 759 258 744 314C813 257 896 239 954 301"
+             "L1034 324L944 359C837 473 731 548 563 524C506 516 464 513 427 519L0 631L407 406"
+             "L224 213L555 300L420 428L663 315L630 281C407 229 264 237 83 0Z")
+BIRD_BOX = (1040, 640)
+
+
+def bird_points(width: float, height: float, x0: float = 0, y0: float = 0,
+                steps: int = 16) -> list[tuple[float, float]]:
+    """BIRD_PATH as a polygon scaled into a width x height box at (x0, y0).
+
+    The path only uses absolute M, L, C and Z, so curves are sampled here
+    instead of pulling in an SVG renderer."""
+    import re
+
+    tokens = re.findall(r"[MLCZ]|-?\d+(?:\.\d+)?", BIRD_PATH)
+    sx, sy = width / BIRD_BOX[0], height / BIRD_BOX[1]
+    pts: list[tuple[float, float]] = []
+    cur = (0.0, 0.0)
+    i, cmd = 0, ""
+    while i < len(tokens):
+        if tokens[i] in "MLCZ":
+            cmd = tokens[i]
+            i += 1
+            if cmd == "Z":
+                continue
+        nums = lambda n: [float(t) for t in tokens[i:i + n]]  # noqa: E731
+        if cmd in "ML":
+            cur = tuple(nums(2))
+            pts.append(cur)
+            i += 2
+        elif cmd == "C":
+            x1, y1, x2, y2, x3, y3 = nums(6)
+            x0_, y0_ = cur
+            for k in range(1, steps + 1):
+                t = k / steps
+                u = 1 - t
+                pts.append((u**3 * x0_ + 3 * u * u * t * x1 + 3 * u * t * t * x2 + t**3 * x3,
+                            u**3 * y0_ + 3 * u * u * t * y1 + 3 * u * t * t * y2 + t**3 * y3))
+            cur = (x3, y3)
+            i += 6
+        else:
+            i += 1
+    return [(x0 + x * sx, y0 + y * sy) for x, y in pts]
+
+
+def _dark_bar() -> bool:
+    """Whether the bar behind the icon is dark: macOS dark mode, and Windows' taskbar."""
+    if sys.platform != "darwin":
+        return True
+    try:
+        out = subprocess.run(["defaults", "read", "-g", "AppleInterfaceStyle"],
+                             capture_output=True, text=True, timeout=2).stdout
+    except (OSError, subprocess.SubprocessError):
+        return False
+    return out.strip().lower() == "dark"
+
+
+def make_icon(state: str, dark: bool | None = None):
+    """64×64: the Sellbird swallow, with a dot in the state's color at the bottom right."""
     from PIL import Image, ImageDraw
 
-    image = Image.new("RGBA", (64, 64), (0, 0, 0, 0))
-    ImageDraw.Draw(image).ellipse((4, 4, 59, 59), fill=COLORS.get(state, COLORS["stopped"]))
-    return image
+    if dark is None:
+        dark = _dark_bar()
+    scale = 4  # drawn large, then shrunk, for smooth edges
+    size = 64 * scale
+    image = Image.new("RGBA", (size, size), (0, 0, 0, 0))
+    draw = ImageDraw.Draw(image)
+    bird_w = 62 * scale
+    bird_h = bird_w * BIRD_BOX[1] / BIRD_BOX[0]
+    top = (size - bird_h) / 2
+    bird = "#ffffff" if dark else "#1d1d1f"
+    draw.polygon(bird_points(bird_w, bird_h, 1 * scale, top), fill=bird)
+    r = 8 * scale
+    cx, cy = size - r - 2 * scale, size - r - 8 * scale
+    ring = 3 * scale
+    # clear a ring around the dot so it reads on top of the wing
+    hole = Image.new("L", (size, size), 0)
+    ImageDraw.Draw(hole).ellipse((cx - r - ring, cy - r - ring, cx + r + ring, cy + r + ring), fill=255)
+    image.paste((0, 0, 0, 0), mask=hole)
+    draw = ImageDraw.Draw(image)
+    draw.ellipse((cx - r, cy - r, cx + r, cy + r), fill=COLORS.get(state, COLORS["stopped"]))
+    return image.resize((64, 64), Image.LANCZOS)
 
 
 # ── The tray app ──
@@ -331,6 +407,7 @@ class TrayApp:
         self.status = TrayStatus("stopped", "unknown")
         self.autostart_on = False
         self.icon = None
+        self._drawn: tuple[str, bool] | None = None
         self._lock = threading.Lock()
 
     def refresh(self, *, autostart: bool = False) -> None:
@@ -344,7 +421,10 @@ class TrayApp:
 
     def _apply(self, status: TrayStatus) -> None:
         if self.icon is not None:
-            self.icon.icon = make_icon(icon_state(status))
+            look = (icon_state(status), _dark_bar())
+            if look != self._drawn:  # redraw only when the state or the bar's color changes
+                self.icon.icon = make_icon(*look)
+                self._drawn = look
             self.icon.update_menu()
 
     def _notify(self, message: str) -> None:

@@ -194,3 +194,20 @@ def test_the_start_log_is_owner_only(tmp_path, monkeypatch):
     log = tmp_path / "data" / tray.START_LOG
     tray.default_launcher(["true"], log)
     assert os.stat(log).st_mode & 0o777 == 0o600
+
+
+def test_icon_is_the_bird_with_a_state_dot():
+    pytest.importorskip("PIL")
+    from sellbird.desktop.tray import COLORS, make_icon
+
+    for dark, bird in ((True, (255, 255, 255)), (False, (29, 29, 31))):
+        image = make_icon("running", dark)
+        assert image.size == (64, 64)
+        pixels = [image.getpixel((x, y)) for x in range(64) for y in range(64)]
+        # the swallow is drawn in the bar's contrasting color, not one flat circle
+        assert sum(1 for p in pixels if p[3] > 200 and p[:3] == bird) > 300
+        assert image.getpixel((0, 0))[3] == 0
+    for state, hex_ in COLORS.items():
+        dot = make_icon(state, True).getpixel((54, 46))
+        want = tuple(int(hex_[i:i + 2], 16) for i in (1, 3, 5))
+        assert all(abs(a - b) < 12 for a, b in zip(dot[:3], want)), state
