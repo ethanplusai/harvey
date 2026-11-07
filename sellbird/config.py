@@ -277,6 +277,9 @@ class EmailChannelConfig(BaseModel):
     # (e.g. your main site when you send from a secondary domain). On
     # autopilot, an email linking anywhere else waits in the Outbox.
     link_domains: list[str] = []
+    # Your own phone numbers. On autopilot, an email giving any other number
+    # waits in the Outbox (a planted "call this number instead" can't go out).
+    phone_numbers: list[str] = []
     # Kill switch: pause all sending when bounces exceed this fraction of
     # sent mail (measured over the trailing sends). 0 disables the switch.
     max_bounce_rate: float = 0.05

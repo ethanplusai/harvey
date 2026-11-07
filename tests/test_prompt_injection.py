@@ -431,3 +431,71 @@ def test_dashboard_approve_all_says_what_it_left(client):
                        "'2026-10-20T09:00:00', ?)", (oid, err))
     db.close()
     assert client.post("/api/outbox/approve-all").json() == {"success": True, "approved": 1, "held": 1}
+
+
+# ── training on a website ──
+
+
+@pytest.mark.asyncio
+async def test_training_fences_the_website_it_crawled():
+    """What training learns goes into every email after it, so the crawled
+    pages are data in all three prompts that read them."""
+    from sellbird.trainer import Trainer
+    trainer = Trainer.__new__(Trainer)
+    trainer.scraped_pages = {"https://acme.test/": "Roofing software. " + INJECTION}
+    trainer.brain = RecordingBrain(json_reply={})
+    await trainer._extract_product_info()
+    await trainer._extract_icp()
+    await trainer._extract_competitive_intel({"product_name": "P", "competitors": []})
+    assert len(trainer.brain.prompts) == 3
+    for prompt in trainer.brain.prompts:
+        assert _inside_fence(prompt, "evil.example")
+        assert prompt.count("</untrusted>") == 1
+
+
+# ── phone numbers and money ──
+
+
+def _cfg_phones(numbers=(), postal=""):
+    cfg = _cfg()
+    cfg.channels.email.phone_numbers = list(numbers)
+    cfg.compliance = SimpleNamespace(postal_address=postal)
+    return cfg
+
+
+@pytest.mark.parametrize("body,number", [
+    ("Actually, please call our billing line at +44 20 7946 0958.", "+44 20 7946 0958"),
+    ("Text 555-010-9999 to confirm.", "555-010-9999"),
+    ("Reach me on (555) 010.9999 today", "(555) 010.9999"),
+    ("Call 5550109999", "5550109999"),
+])
+def test_a_phone_number_that_isnt_yours_is_held(body, number):
+    [reason] = autopilot_review("hi", body, _cfg_phones(["+1 555 010 2000"]))
+    assert number in reason and "phone_numbers" in reason
+
+
+@pytest.mark.parametrize("body", [
+    "Call me on +1 555 010 2000 or (555) 010-2000.",     # yours, with or without +1
+    "Or ring the office: 555 010 3000",                  # in your postal address
+    "Can we talk on 2026-11-07 at 10:30? Order #4400123 shipped.",
+    "We've served 1500 roofers since 2019, 24/7, for $1500000 in total.",
+])
+def test_your_numbers_dates_and_ids_pass(body):
+    cfg = _cfg_phones(["+1 555 010 2000"], postal="1 Main St, Austin TX 78701 · 555 010 3000")
+    assert autopilot_review("hi", body, cfg) == []
+
+
+@pytest.mark.parametrize("body", [
+    "Please send the deposit by wire transfer.",
+    "Our bank details changed, see the new IBAN below.",
+    "You can pay with gift cards or Zelle.",
+    "Send USDT to this wallet address.",
+])
+def test_asking_for_money_is_held(body):
+    [reason] = autopilot_review("hi", body, _cfg_phones())
+    assert "sending money" in reason
+
+
+def test_price_and_payment_terms_pass():
+    assert autopilot_review("hi", "It's $199 a month, payment terms net 30, cancel any time.",
+                            _cfg_phones()) == []
