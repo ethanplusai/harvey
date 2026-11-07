@@ -85,13 +85,18 @@ NO_THANKS_RE = re.compile(
 BARE_OPT_OUTS = {"stop", "unsubscribe", "remove", "remove me", "opt out",
                  "no thanks", "no thank you", "baja", "no gracias", "de baja", "dar de baja",
                  "darme de baja",
-                 "הסר", "הסירו", "הסירי", "תסיר", "תסירו", "להסיר", "הסרה", "להסרה"}
-# Said around a bare opt-out without changing it ("הסר בבקשה", "הסר, תודה").
-_BARE_COURTESIES = {"בבקשה", "נא", "תודה", "רבה", "por", "favor", "gracias", "saludos"}
+                 "הסר", "הסירו", "הסירי", "תסיר", "תסירו", "להסיר", "הסרה", "להסרה",
+                 "berhenti", "setop", "hapus", "unsub"}
+# Said around a bare opt-out without changing it ("הסר בבקשה", "הסר, תודה",
+# "STOP ya pak, terima kasih").
+_BARE_COURTESIES = {"בבקשה", "נא", "תודה", "רבה", "por", "favor", "gracias", "saludos",
+                    "tolong", "mohon", "terima", "kasih", "makasih", "trims", "ya", "saja",
+                    "aja", "pak", "bu", "bapak", "ibu"}
 _MOBILE_SIGNATURE_RE = re.compile(
     r"^[ \t\u200e\u200f]*(?:sent from my \w[^\n]*|get outlook for \w[^\n]*"
     r"|sent from \w+ mail[^\n]*|נשלח מ[^\n]*|קבל(?:ו)? את outlook[^\n]*"
-    r"|enviado desde mi \w[^\n]*|obt[eé]n outlook para \w[^\n]*)$",
+    r"|enviado desde mi \w[^\n]*|obt[eé]n outlook para \w[^\n]*"
+    r"|dikirim dari \w[^\n]*)$",
     re.IGNORECASE | re.MULTILINE)
 
 # Hebrew opt-outs. Each needs a verb aimed at the sender and its object
@@ -257,6 +262,82 @@ def _spanish_opt_out(text: str):
     return None
 
 
+# Indonesian opt-outs, matched on _spanish_lines text (lowercased, a line at a
+# time). Each names what to stop and who: "jangan kirim email lagi", "hapus
+# saya dari daftar", "tidak tertarik." as a whole thought. Ordinary business
+# shares the words: "jangan kirim dulu" is "not yet", "hapus saya dari CC"
+# hands over, "tidak tertarik dengan paket tahunan, tapi..." negotiates. Those
+# are left to the model, as with Spanish.
+_ID_NEG = (r"(?:jangan|(?:tidak|tak|nggak|ngga|gak|ga|enggak|engga)\s+(?:usah|perlu))")
+_ID_US = r"(?:saya|kami|aku|gue|gw)"
+_ID_MAIL = r"(?:email|e-mail|surel|pesan|penawaran|promosi|newsletter|iklan)\w*"
+_ID_SEND = r"(?:kirim|kirimi|kirimkan|mengirim|mengirimi|mengirimkan)"
+_ID_CONTACT = (r"(?:hubungi|menghubungi|kontak|kontaki|mengontak|email|e-mail|mengemail"
+               r"|ganggu|mengganggu|spam)")
+_ID_LIST = r"(?:daftar|list|mailing\s+list|milis|database|basis\s+data|pengiriman|kontak)\w*"
+_ID_REMOVE = r"(?:hapus|hapuskan|keluarkan|coret|delete|remove)(?:lah)?"
+_ID_MY_ADDRESS = r"(?:" + _ID_US + r"|(?:email|e-mail|alamat(?:\s+email)?|data|kontak)\s+" + _ID_US + ")"
+# The thought ends here: punctuation, the end of the line, or a comma that
+# doesn't go on to "but", "unless" or "if". Not "?": "Tidak tertarik?" asks.
+_ID_SAY_END = (r"(?=[ \t]*(?:[.!;]|$|,(?![ \t]*(?:tapi|tetapi|namun|kecuali|kalau|kalo|jika"
+               r"|asal|selama)(?!\w))))")
+INDONESIAN_OPT_OUT_PATTERNS = (
+    # Don't send me email (again).
+    _ID_NEG + r"\s+(?:lagi\s+)?" + _ID_SEND + r"(?:\s+" + _ID_US + r")?(?:\s+lagi)?\s+" + _ID_MAIL,
+    # Don't contact / email / bother me.
+    _ID_NEG + r"\s+(?:lagi\s+)?" + _ID_CONTACT + r"\s+" + _ID_US,
+    # "Jangan kirim lagi."
+    _ID_NEG + r"\s+(?:" + _ID_SEND + "|" + _ID_CONTACT + r")\s+lagi" + _ID_SAY_END,
+    # Stop sending (me email).
+    r"(?:berhenti|stop|setop)\s+(?:" + _ID_SEND + "|" + _ID_CONTACT + r")(?:\s+(?:" + _ID_US
+    + "|" + _ID_MAIL + r"))*(?:\s+(?:ke|kepada|pada)\s+" + _ID_US + r")?(?:\s+lagi)?" + _ID_SAY_END,
+    # Take me off the list.
+    _ID_REMOVE + r"\s+" + _ID_MY_ADDRESS + r"\s+dari\s+(?:\w+\s+)?" + _ID_LIST,
+    _ID_REMOVE + r"\s+" + _ID_MY_ADDRESS + _ID_SAY_END,
+    r"berhenti\s+(?:ber)?langganan",
+    # Not interested, as the whole thought: not "tidak tertarik dengan paket tahunan".
+    r"(?:" + _ID_US + r"\s+)?(?:tidak|tak|nggak|ngga|gak|ga|enggak|engga|belum|kurang)\s+"
+    r"(?:begitu\s+)?(?:tertarik|berminat|butuh|perlu|membutuhkan|memerlukan)"
+    r"(?:\s+(?:dulu|untuk\s+saat\s+ini|saat\s+ini|sekarang|ya|pak|bu|bapak|ibu))*" + _ID_SAY_END,
+)
+INDONESIAN_OPT_OUT_RE = re.compile(
+    r"(?<!\w)(?:" + "|".join(INDONESIAN_OPT_OUT_PATTERNS) + r")(?!\w)", re.MULTILINE)
+# The word before it makes it a condition, a question or someone else's news
+# ("kalau tidak tertarik", "kapan berhenti mengirim", "jangan berhenti
+# mengirim"), or the rest of its sentence narrows it to a time, another
+# channel or another person. The model reads those instead.
+_ID_NOT_FINAL_BEFORE = {"kalau", "kalo", "jika", "bila", "apabila", "kapan", "kenapa", "mengapa",
+                        "apakah", "apa", "seandainya", "andai", "misal", "misalnya", "bagaimana",
+                        "gimana", "yang", "jangan", "bukan", "belum", "sudah", "udah"}
+_ID_NOT_FINAL_AFTER_RE = re.compile(
+    r"(?<!\w)(?:sampai|hingga|sebelum|setelah|sesudah|dulu|nanti|lewat|via|melalui|whatsapp|wa"
+    r"|telepon|telpon|telp|hp|langsung|pic|besok|lusa|ke\s+[^\s@]+@\S*"
+    r"|(?:ke|kepada|dengan|sama)\s+(?:pak|bu|bapak|ibu|mas|mbak|tim|bagian|divisi|departemen|rekan)"
+    r"|(?:bulan|minggu|tahun)\s+depan|januari|februari|maret|april|mei|juni|juli|agustus"
+    r"|september|oktober|november|desember|senin|selasa|rabu|kamis|jumat|jum'at|sabtu)(?!\w)")
+# "Tidak, terima kasih": as with "no thanks". Not "ya atau tidak, terima kasih",
+# "belum, terima kasih" (not yet) or "tidak, terima kasih kembali" (you're welcome).
+INDONESIAN_NO_THANKS_RE = re.compile(
+    r"(?<!atau )(?<!kenapa )(?<!kalau )(?<!apa )(?<!bukan )"
+    r"\b(?:tidak|tak|nggak|ngga|gak|ga|enggak|engga),?[ \t]+"
+    r"(?:terima[ \t]+kasih|makasih|makasi|trims|thanks|thank[ \t]+you)\b(?![ \t]+kembali)")
+
+
+def _indonesian_opt_out(text: str):
+    """The first Indonesian opt-out phrase in _spanish_lines text that means it."""
+    for m in INDONESIAN_OPT_OUT_RE.finditer(text):
+        line_start = text.rfind("\n", 0, m.start()) + 1
+        last = _ES_LAST_WORD_RE.search(text[max(line_start, m.start() - 40):m.start()])
+        if last and last.group(1) in _ID_NOT_FINAL_BEFORE:
+            continue
+        sentence_end = re.search(r"[.!?;\n]", text[m.end():])
+        after = text[m.end():m.end() + sentence_end.start()] if sentence_end else text[m.end():]
+        if _ID_NOT_FINAL_AFTER_RE.search(after):
+            continue
+        return m
+    return None
+
+
 # Direction marks a mail client puts around Hebrew, and Hebrew vowel points:
 # they change no word, so they mustn't hide one.
 _INVISIBLE_RE = re.compile(
@@ -338,7 +419,8 @@ def _opt_out_reason(their_text: str, own_words: str) -> dict | None:
     if m:
         return {"rule": "phrase", "matched": m.group(0),
                 "why": f'Their reply contains "{m.group(0)}".'}
-    m = _spanish_opt_out(_spanish_lines(their_text))
+    lines = _spanish_lines(their_text)
+    m = _spanish_opt_out(lines) or _indonesian_opt_out(lines)
     if m:
         return {"rule": "phrase", "matched": m.group(0),
                 "why": f'Their reply contains "{m.group(0)}".'}
@@ -352,7 +434,7 @@ def _opt_out_reason(their_text: str, own_words: str) -> dict | None:
         if m:
             return {"rule": "no_thanks", "matched": m.group(0),
                     "why": f'Their reply says "{m.group(0)}", what the opt-out line asks for.'}
-        m = HEBREW_NO_THANKS_RE.search(line)
+        m = HEBREW_NO_THANKS_RE.search(line) or INDONESIAN_NO_THANKS_RE.search(line)
         if m:
             return {"rule": "no_thanks", "matched": m.group(0),
                     "why": f'Their reply says "{m.group(0)}" (no thanks).'}
