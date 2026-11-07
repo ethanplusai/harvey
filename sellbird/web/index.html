@@ -323,7 +323,7 @@
     <div class="settings-row">
       <div>
         <h3>Gmail / Google Workspace <span class="tag accent">Recommended</span> <span id="gmail-status" class="email-tag"></span></h3>
-        <p class="desc">Use a mailbox on a dedicated secondary domain. Create an OAuth client (type "Desktop app") in Google Cloud Console → Gmail API, paste the id and secret, save, then run <code>sellbird gmail auth</code>.</p>
+        <p class="desc">Use a mailbox on a dedicated secondary domain. Create an OAuth client (type "Desktop app") in Google Cloud Console → Gmail API, paste the id and secret, save, then sign in on the Inboxes tab (or run <code>sellbird gmail auth</code>).</p>
       </div>
       <div class="fields">
         <div class="form-group"><label class="form-label" for="gmail-id">Client ID</label>
@@ -374,7 +374,7 @@
     <div class="settings-row">
       <div>
         <h3>Microsoft 365 / Outlook <span id="m365-status" class="email-tag"></span></h3>
-        <p class="desc">Microsoft turned off password sign-in for IMAP, so Outlook mailboxes connect with OAuth. In <a href="https://entra.microsoft.com" target="_blank" rel="noopener noreferrer">Entra</a> → App registrations, register an app for your organization only and add the redirect URI <code>http://localhost:8766</code> as "Public client/native". Paste both IDs here, save, then run <code>sellbird microsoft auth</code>. No client secret is needed.</p>
+        <p class="desc">Microsoft turned off password sign-in for IMAP, so Outlook mailboxes connect with OAuth. In <a href="https://entra.microsoft.com" target="_blank" rel="noopener noreferrer">Entra</a> → App registrations, register an app for your organization only and add the redirect URI <code>http://localhost:8766</code> as "Public client/native". Paste both IDs here, save, then sign in on the Inboxes tab (or run <code>sellbird microsoft auth</code>). No client secret is needed.</p>
       </div>
       <div class="fields">
         <div class="form-group"><label class="form-label" for="m365-client">Application (client) ID</label>

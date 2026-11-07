@@ -1130,6 +1130,8 @@ dialog.modal::backdrop { background: rgb(0 0 0 / 0.45); }
 .cmd-copy code { flex: 1; min-width: 0; padding: 8px 10px; border-radius: var(--r-sm); background: var(--surface-2); font: 400 var(--fs-caption)/1.5 var(--mono, ui-monospace, monospace); overflow-wrap: anywhere; }
 .form-hint { font-size: var(--fs-caption); color: var(--text-3); margin-top: 4px; }
 .notice { padding: var(--sp-3) var(--sp-4); border-radius: var(--r-md); font-size: var(--fs-ui); line-height: 1.55; margin-bottom: var(--sp-4); }
+.notice .setup-steps { margin: var(--sp-2) 0 var(--sp-3); padding-left: 1.3em; display: grid; gap: 4px; }
+.notice .setup-steps a { color: inherit; text-decoration: underline; }
 .notice.wait { background: var(--wait-bg); color: var(--wait); }
 .notice.good { background: var(--good-bg); color: var(--good); }
 .notice.bad { background: var(--bad-bg); color: var(--bad); }

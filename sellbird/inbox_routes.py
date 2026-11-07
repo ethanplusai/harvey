@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import re
 
 from fastapi import APIRouter, Request
 from fastapi.responses import JSONResponse
@@ -47,8 +48,8 @@ def _secrets() -> SecretStore:
 
 # How to connect the main mailbox, by provider, when it isn't connected.
 MAIN_CONNECT_HINTS = {
-    "gmail": "Run `sellbird gmail auth` in your terminal and sign in as this address.",
-    "microsoft": "Run `sellbird microsoft auth` in your terminal and sign in as this address.",
+    "gmail": "Sign in with Google below as this address (or run `sellbird gmail auth`).",
+    "microsoft": "Sign in with Microsoft below as this address (or run `sellbird microsoft auth`).",
     "smtp": "Fill in the SMTP settings under channels.email in sellbird.yaml and the "
             "password in .env, then run `sellbird doctor`.",
 }
@@ -124,6 +125,7 @@ async def list_inboxes():
         "sending_paused": paused,
         "connect_command": "sellbird inboxes connect gmail|microsoft|smtp --address you@domain",
         "can_connect": _can_connect(env),
+        "connect_problems": _connect_problems(env),
         "connecting": _connect_job_view(),
     }
 
@@ -238,10 +240,42 @@ _connect_job: dict = {"state": "idle"}
 _connect_task: asyncio.Task | None = None
 
 
+# A real Google OAuth client id: digits, a dash, then .apps.googleusercontent.com.
+_GOOGLE_CLIENT_ID = re.compile(r"^\d+-[0-9a-z]+\.apps\.googleusercontent\.com$")
+_GUID = re.compile(r"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$", re.I)
+
+
+def _connect_problem(kind: str, env) -> str:
+    """Why a browser sign-in can't start yet, or "" when it can. Checked
+    before the browser opens, so a missing or mistyped client never sends the
+    user to a provider error page."""
+    if kind == "gmail":
+        client_id = (getattr(env, "gmail_client_id", "") or "").strip()
+        if not client_id or not (getattr(env, "gmail_client_secret", "") or "").strip():
+            return ("Google sign-in isn't set up yet. Sellbird signs in to Gmail through "
+                    "your own Google OAuth client, so it needs its Client ID and secret first.")
+        if not _GOOGLE_CLIENT_ID.match(client_id):
+            return ("The Google Client ID in Settings isn't a real one. It looks like "
+                    "123456789-abc123.apps.googleusercontent.com.")
+        return ""
+    if kind == "microsoft":
+        client_id = (getattr(env, "m365_client_id", "") or "").strip()
+        if not client_id:
+            return ("Microsoft sign-in isn't set up yet. Sellbird signs in through your own "
+                    "Microsoft app registration, so it needs its Application (client) ID first.")
+        if not _GUID.match(client_id):
+            return ("The Microsoft Application (client) ID in Settings isn't a real one. It "
+                    "looks like 1b2c3d4e-5f60-7182-93a4-b5c6d7e8f901.")
+        return ""
+    return ""
+
+
 def _can_connect(env) -> dict:
-    return {"gmail": bool(getattr(env, "gmail_client_id", "")
-                          and getattr(env, "gmail_client_secret", "")),
-            "microsoft": bool(getattr(env, "m365_client_id", ""))}
+    return {k: not _connect_problem(k, env) for k in ("gmail", "microsoft")}
+
+
+def _connect_problems(env) -> dict:
+    return {k: _connect_problem(k, env) for k in ("gmail", "microsoft")}
 
 
 def _connect_job_view() -> dict:
@@ -258,18 +292,43 @@ async def _test(row: dict, config, env, secrets) -> tuple[bool, str]:
         return False, f"Couldn't check the connection ({type(e).__name__})."
 
 
-def _sign_in(kind: str, address: str, env) -> dict | None:
-    """The browser sign-in, in a worker thread. The token stays in memory."""
+def _sign_in(kind: str, address: str, env, main: bool = False) -> dict | None:
+    """The browser sign-in, in a worker thread. An extra inbox's token stays in
+    memory for the keychain; the main mailbox's goes to its usual token file,
+    exactly as `sellbird gmail auth` / `sellbird microsoft auth` store it."""
     captured: dict = {}
+    save = None if main else captured.update
+    expected = address or None
     if kind == "gmail":
         from sellbird.integrations.gmail import run_auth_flow
         ok = run_auth_flow(env.gmail_client_id, env.gmail_client_secret,
-                           save=captured.update, expected_address=address)
+                           save=save, expected_address=expected)
     else:
         from sellbird.integrations.microsoft import run_auth_flow
         ok = run_auth_flow(env.m365_client_id, env.m365_tenant_id,
-                           save=captured.update, expected_address=address)
+                           save=save, expected_address=expected)
+    if main:
+        return {"main": True} if ok else None
     return captured if ok and captured else None
+
+
+async def _run_main_connect(kind: str, address: str) -> None:
+    config, env = _config_env()
+    try:
+        done = await asyncio.to_thread(_sign_in, kind, address, env, True)
+        if done is None:
+            _connect_job.update(state="failed", message=(
+                "The sign-in didn't finish, or you signed in as a different address. "
+                "Nothing changed."))
+            return
+        store = _store()
+        await store.init_db()
+        await store.log_action(action_type="inbox_connected", agent="you",
+                               details={"inbox": address or "main mailbox", "provider": kind})
+        _connect_job.update(state="connected", message="")
+    except Exception:
+        logger.exception("Connecting the main mailbox failed")
+        _connect_job.update(state="failed", message="Connecting failed. See the dashboard log.")
 
 
 async def _run_oauth_connect(kind: str, address: str, name: str, warmup: str) -> None:
@@ -310,6 +369,29 @@ def _connect_fields(body: dict) -> tuple[str, str, str]:
     return address.strip().lower(), name.strip(), warmup.strip()
 
 
+@router.post("/api/inboxes/main/connect")
+async def connect_main_mailbox():
+    """Sign the main mailbox in from the dashboard: the same browser sign-in
+    as `sellbird gmail auth` / `sellbird microsoft auth`."""
+    global _connect_task
+    config, env = _config_env()
+    provider = (config.channels.email.provider or "").strip().lower()
+    if provider not in ("gmail", "microsoft"):
+        return _refuse("The main mailbox signs in with a browser only for Gmail or "
+                       "Microsoft 365. Set channels.email.provider in sellbird.yaml.")
+    problem = _connect_problem(provider, env)
+    if problem:
+        return _refuse(problem)
+    if _connect_task is not None and not _connect_task.done():
+        return _refuse("A sign-in is already open. Finish it in your browser, or wait "
+                       "five minutes for it to time out.", 409)
+    address = (getattr(config.persona, "email", "") or "").strip().lower()
+    _connect_job.clear()
+    _connect_job.update(state="waiting", kind=provider, address=address, message="")
+    _connect_task = asyncio.create_task(_run_main_connect(provider, address))
+    return {"success": True, "started": True, "kind": provider}
+
+
 @router.post("/api/inboxes/connect/{kind}")
 async def connect_inbox(kind: str, request: Request):
     global _connect_task
@@ -326,12 +408,9 @@ async def connect_inbox(kind: str, request: Request):
     if kind == "smtp":
         return await _connect_smtp(body, address, name, warmup, config, env)
 
-    if kind == "gmail" and not _can_connect(env)["gmail"]:
-        return _refuse("Set GMAIL_CLIENT_ID and GMAIL_CLIENT_SECRET in .env first "
-                       "(Google Cloud Console, Credentials, OAuth client, Desktop app).")
-    if kind == "microsoft" and not _can_connect(env)["microsoft"]:
-        return _refuse("Set M365_CLIENT_ID (and M365_TENANT_ID) in .env first "
-                       "(entra.microsoft.com, App registrations).")
+    problem = _connect_problem(kind, env)
+    if problem:
+        return _refuse(problem)
     if _connect_task is not None and not _connect_task.done():
         return _refuse("A sign-in is already open. Finish it in your browser, or wait "
                        "five minutes for it to time out.", 409)
