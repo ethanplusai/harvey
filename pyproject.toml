@@ -29,6 +29,9 @@ dependencies = [
     "aiosmtplib>=5.1.3,<6",
     "aiosqlite>=0.19,<1",
     "keyring>=25,<26",
+    # The menu-bar app (sellbird tray): macOS and Windows only.
+    'pystray>=0.19.5,<0.20; sys_platform == "darwin" or sys_platform == "win32"',
+    'Pillow>=10,<12; sys_platform == "darwin" or sys_platform == "win32"',
     "pydantic>=2.5,<3",
     "pytz>=2024.1",
     "fastapi>=0.115,<1",
