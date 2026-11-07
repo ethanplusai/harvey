@@ -333,31 +333,74 @@ def _dark_bar() -> bool:
     return out.strip().lower() == "dark"
 
 
-def make_icon(state: str, dark: bool | None = None):
-    """64×64: the Sellbird swallow, with a dot in the state's color at the bottom right."""
+# The menu-bar icon in points (macOS draws it at 2x on Retina screens).
+MENUBAR_PT = (31, 18)
+
+
+def draw_icon(state: str, dark: bool, width: int, height: int):
+    """The Sellbird swallow filling a width x height pixel image, with a dot
+    in the state's color tucked under the wing. Drawn at 4x and shrunk, so
+    edges stay smooth at any size."""
     from PIL import Image, ImageDraw
 
-    if dark is None:
-        dark = _dark_bar()
-    scale = 4  # drawn large, then shrunk, for smooth edges
-    size = 64 * scale
-    image = Image.new("RGBA", (size, size), (0, 0, 0, 0))
+    ss = 4
+    w, h = width * ss, height * ss
+    image = Image.new("RGBA", (w, h), (0, 0, 0, 0))
     draw = ImageDraw.Draw(image)
-    bird_w = 62 * scale
-    bird_h = bird_w * BIRD_BOX[1] / BIRD_BOX[0]
-    top = (size - bird_h) / 2
-    bird = "#ffffff" if dark else "#1d1d1f"
-    draw.polygon(bird_points(bird_w, bird_h, 1 * scale, top), fill=bird)
-    r = 8 * scale
-    cx, cy = size - r - 2 * scale, size - r - 8 * scale
-    ring = 3 * scale
-    # clear a ring around the dot so it reads on top of the wing
-    hole = Image.new("L", (size, size), 0)
-    ImageDraw.Draw(hole).ellipse((cx - r - ring, cy - r - ring, cx + r + ring, cy + r + ring), fill=255)
+    r, ring = h * 0.14, h * 0.05
+    # the bird fills the height; a wide image keeps the dot clear of it on the right
+    unit = min((w - (r if w > h * 1.4 else 0)) / BIRD_BOX[0], h * 0.94 / BIRD_BOX[1])
+    bird_w, bird_h = BIRD_BOX[0] * unit, BIRD_BOX[1] * unit
+    left, top = 0 if w > h * 1.4 else (w - bird_w) / 2, (h - bird_h) / 2
+    draw.polygon(bird_points(bird_w, bird_h, left, top),
+                 fill="#ffffff" if dark else "#1d1d1f")
+    cx, cy = w - r - ring, h - r - ring
+    hole = Image.new("L", (w, h), 0)  # a clear ring so the dot reads over the wing
+    ImageDraw.Draw(hole).ellipse((cx - r - ring, cy - r - ring, cx + r + ring, cy + r + ring),
+                                 fill=255)
     image.paste((0, 0, 0, 0), mask=hole)
-    draw = ImageDraw.Draw(image)
-    draw.ellipse((cx - r, cy - r, cx + r, cy + r), fill=COLORS.get(state, COLORS["stopped"]))
-    return image.resize((64, 64), Image.LANCZOS)
+    ImageDraw.Draw(image).ellipse((cx - r, cy - r, cx + r, cy + r),
+                                  fill=COLORS.get(state, COLORS["stopped"]))
+    return image.resize((width, height), Image.LANCZOS)
+
+
+def make_icon(state: str, dark: bool | None = None):
+    """64x64, for the Windows tray (pystray scales it to the tray's size)."""
+    return draw_icon(state, _dark_bar() if dark is None else dark, 64, 64)
+
+
+def menubar_png(state: str, dark: bool, scale: int = 2) -> bytes:
+    """The macOS menu-bar icon as PNG bytes, MENUBAR_PT points at `scale`x."""
+    import io
+
+    image = draw_icon(state, dark, MENUBAR_PT[0] * scale, MENUBAR_PT[1] * scale)
+    out = io.BytesIO()
+    image.save(out, "png")
+    return out.getvalue()
+
+
+def _sharp_on_retina(icon) -> None:
+    """pystray's macOS backend shrinks the icon to the bar's thickness in
+    pixels (22), so a Retina screen shows it blurry and square. Hand AppKit a
+    2x PNG with its size set in points instead."""
+    if sys.platform != "darwin":
+        return
+
+    def assert_image():
+        import AppKit
+        import Foundation
+
+        look = getattr(icon, "_sellbird_look", ("stopped", _dark_bar()))
+        if getattr(icon, "_sellbird_drawn", None) == look and icon._icon_image:
+            return
+        image = AppKit.NSImage.alloc().initWithData_(
+            Foundation.NSData(menubar_png(*look)))
+        image.setSize_(MENUBAR_PT)
+        icon._icon_image = image
+        icon._sellbird_drawn = look
+        icon._status_item.button().setImage_(image)
+
+    icon._assert_image = assert_image
 
 
 # ── The tray app ──
@@ -423,6 +466,7 @@ class TrayApp:
         if self.icon is not None:
             look = (icon_state(status), _dark_bar())
             if look != self._drawn:  # redraw only when the state or the bar's color changes
+                self.icon._sellbird_look = look
                 self.icon.icon = make_icon(*look)
                 self._drawn = look
             self.icon.update_menu()
@@ -548,6 +592,7 @@ def run_tray(data_dir: Path, port: int | None = None, *,
 
         icon = pystray.Icon("sellbird", icon=make_icon("stopped"), title="Sellbird",
                             menu=pystray.Menu(app.menu_items))
+        _sharp_on_retina(icon)
         app.icon = icon
         try:
             icon.run(setup=setup)

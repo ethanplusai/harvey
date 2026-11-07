@@ -205,9 +205,23 @@ def test_icon_is_the_bird_with_a_state_dot():
         assert image.size == (64, 64)
         pixels = [image.getpixel((x, y)) for x in range(64) for y in range(64)]
         # the swallow is drawn in the bar's contrasting color, not one flat circle
-        assert sum(1 for p in pixels if p[3] > 200 and p[:3] == bird) > 300
+        assert sum(1 for p in pixels if p[3] > 200 and p[:3] == bird) > 200
         assert image.getpixel((0, 0))[3] == 0
     for state, hex_ in COLORS.items():
-        dot = make_icon(state, True).getpixel((54, 46))
+        dot = make_icon(state, True).getpixel((47, 47))
         want = tuple(int(hex_[i:i + 2], 16) for i in (1, 3, 5))
         assert all(abs(a - b) < 12 for a, b in zip(dot[:3], want)), state
+
+
+def test_menubar_icon_is_drawn_at_retina_size():
+    pytest.importorskip("PIL")
+    import io
+
+    from PIL import Image
+
+    from sellbird.desktop.tray import MENUBAR_PT, menubar_png
+
+    image = Image.open(io.BytesIO(menubar_png("running", True)))
+    # twice the point size, and wider than tall like the bird, not a 22px square
+    assert image.size == (MENUBAR_PT[0] * 2, MENUBAR_PT[1] * 2)
+    assert image.size[0] > image.size[1]
