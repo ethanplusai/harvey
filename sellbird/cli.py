@@ -1053,6 +1053,41 @@ def _carry_over_from_harvey():
         print(f"Sellbird (formerly Harvey): {note}", file=sys.stderr)
 
 
+def cmd_suppressions(args):
+    """See, add or remove suppressed addresses and domains. Removing is yours alone."""
+    from sellbird.state import StateManager
+
+    async def _run():
+        state = StateManager()
+        await state.init_db()
+        if args.suppression_action == "add":
+            kind = "domain" if "@" not in args.value else "address"
+            try:
+                added = await state.add_suppression(kind, args.value, "manual", source="cli")
+            except ValueError:
+                print(f"\n  That isn't an email address or a domain: {args.value}\n")
+                return 1
+            key = state.suppression_key(kind, args.value)
+            print(f"\n  {'Suppressed' if added else 'Already suppressed'}: {key} ({kind}).\n")
+        elif args.suppression_action == "remove":
+            if await state.remove_suppression(args.value):
+                print("\n  Removed. Sellbird may email them again.\n")
+            else:
+                print(f"\n  No suppression with id {args.value}. Run `sellbird suppressions` to see ids.\n")
+                return 1
+        else:
+            rows = await state.list_suppressions(limit=1000)
+            if not rows:
+                print("\n  Nobody is suppressed.\n")
+            for r in rows:
+                print(f"  {r['id']}  {r['kind']:<7} {r['value']:<40} {r['reason']:<10} {r['created_at']}")
+        return 0
+
+    code = asyncio.run(_run())
+    if code:
+        sys.exit(code)
+
+
 def main():
     from sellbird.textio import utf8_stdio
     utf8_stdio()
@@ -1237,6 +1272,11 @@ def main():
     sub = subparsers.add_parser("usage", help="Show brain usage and quota (Claude or Codex)")
     sub.add_argument("--days", type=int, default=30, help="Breakdown window (default: 30)")
     sub.set_defaults(func=cmd_usage)
+
+    sub = subparsers.add_parser("suppressions", help="Addresses and domains Sellbird never emails")
+    sub.add_argument("suppression_action", nargs="?", default="list", choices=["list", "add", "remove"])
+    sub.add_argument("value", nargs="?", default="", help="add: an address or domain; remove: its id")
+    sub.set_defaults(func=cmd_suppressions)
 
     # Commands that installed extensions add (sellbird.extensions). A name the
     # built-in CLI already uses is refused, so an extension never hides one.

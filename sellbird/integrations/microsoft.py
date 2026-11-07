@@ -274,11 +274,14 @@ class MicrosoftProvider(MailProvider):
         body: str,
         thread_ref: str = "",
         in_reply_to: str = "",
+        headers=(),
     ) -> SendResult:
         """Draft, then send, so the RFC Message-ID is known (bounces and
         replies are matched on it). A reply is drafted with createReply on
         the prospect's message, which sets In-Reply-To/References. With a
         signature, the body is HTML and the logo is attached inline."""
+        if headers:  # Graph sets its own; carries_headers is False
+            return SendResult(ok=False, error="Microsoft 365 can't add custom headers")
         try:
             sig = load_signature(self.config)
         except SignatureError as e:

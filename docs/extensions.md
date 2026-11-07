@@ -7,7 +7,15 @@ patching it. It can add:
   built-in route, so an extension can add paths but never replace one;
 - **tick steps**: async functions run once at the end of each heartbeat cycle;
 - **commands**: `sellbird <name>` subcommands. A name the built-in CLI
-  already uses is refused.
+  already uses is refused;
+- **send rules**: asked before each email, after Sellbird's own checks. A
+  rule returns `send_hooks.Hold(reason)` (the email waits for the next
+  cycle), `send_hooks.Cancel(reason)`, or None. It can stop an email, never
+  let one through, and a rule that raises holds the email;
+- **send headers**: extra headers for an email, such as `List-Unsubscribe`.
+  Headers Sellbird owns (From, To, Subject, Message-ID and the like) are
+  refused. An email that needs headers its inbox can't carry (Microsoft 365
+  can't) waits instead of going out without them.
 
 A plain install has no extensions and behaves exactly as without them.
 
@@ -43,10 +51,18 @@ def configure(parser):            # add arguments, return the function to run
     return lambda args: print("ran", args.dry_run)
 
 
+async def warm_enough(check):     # check.item, check.prospect, check.config, check.state
+    from sellbird.send_hooks import Hold
+    return Hold("still warming") if check.cold and not await is_warm(check) else None
+
+
 def install(registry):
     registry.add_router(router)
     registry.add_tick_step("myext.sync", sync)
     registry.add_cli_command("myext", configure, help="Run myext")
+    registry.add_send_rule("myext.warm", warm_enough)
+    registry.add_send_headers("myext.unsubscribe",
+                              lambda item: [("List-Unsubscribe", "<mailto:stop@example.org>")])
 ```
 
 ## The rules

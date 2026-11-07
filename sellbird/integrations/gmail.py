@@ -99,6 +99,7 @@ def _save_token(data: dict):
 
 class GmailProvider(MailProvider):
     name = "gmail"
+    carries_headers = True
 
     def __init__(self, config, env, transport=None, *,
                  identity: MailIdentity | None = None,
@@ -240,6 +241,7 @@ class GmailProvider(MailProvider):
         body: str,
         thread_ref: str = "",
         in_reply_to: str = "",
+        headers=(),
     ) -> SendResult:
         try:
             sig = load_signature(self.config)
@@ -250,6 +252,8 @@ class GmailProvider(MailProvider):
         msg["To"] = to_email
         msg["From"] = formataddr((me.display_name, me.address)) if me.address else me.display_name
         msg["Subject"] = subject
+        for name, value in headers:
+            msg[name] = value
         if in_reply_to:
             msg["In-Reply-To"] = in_reply_to
             msg["References"] = in_reply_to

@@ -59,6 +59,8 @@ class Registry:
     routers: list[Any] = field(default_factory=list)
     tick_steps: dict[str, TickStep] = field(default_factory=dict)
     cli_commands: dict[str, tuple[str, ConfigureCommand]] = field(default_factory=dict)
+    send_rules: dict[str, Any] = field(default_factory=dict)
+    send_headers: dict[str, Any] = field(default_factory=dict)
 
     def add_router(self, router) -> None:
         """A FastAPI ``APIRouter`` served by the dashboard, behind its guard,
@@ -84,6 +86,25 @@ class Registry:
         if name in self.cli_commands:
             raise ExtensionError(f"command {name!r} is already registered")
         self.cli_commands[name] = (help, configure)
+
+
+    def add_send_rule(self, name: str, rule) -> None:
+        """An async ``rule(SendCheck)`` asked before each email, after the
+        built-in checks: return ``send_hooks.Hold`` or ``send_hooks.Cancel``
+        to stop it, None to let it through (sellbird.send_hooks)."""
+        _check_name(name, "send rule")
+        if name in self.send_rules:
+            raise ExtensionError(f"send rule {name!r} is already registered")
+        if not asyncio.iscoroutinefunction(rule):
+            raise ExtensionError(f"send rule {name!r} must be an async function")
+        self.send_rules[name] = rule
+
+    def add_send_headers(self, name: str, hook) -> None:
+        """``hook(outbox_item)`` returns extra (header, value) pairs for an email."""
+        _check_name(name, "header hook")
+        if name in self.send_headers:
+            raise ExtensionError(f"header hook {name!r} is already registered")
+        self.send_headers[name] = hook
 
 
 def _check_name(name: str, what: str) -> None:

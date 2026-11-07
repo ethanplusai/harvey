@@ -18,7 +18,7 @@ it isn't a MailProvider because Instantly owns sequencing/sending itself.
 import logging
 import re
 from abc import ABC, abstractmethod
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
 from dataclasses import dataclass, field
 from typing import Protocol
 
@@ -185,6 +185,9 @@ def looks_like_bounce(from_email: str, subject: str) -> bool:
 class MailProvider(ABC):
     """A mailbox Sellbird can send from and read replies out of."""
 
+    # Whether send_email can add custom headers (List-Unsubscribe and such).
+    carries_headers = False
+
     name: str = "base"
 
     @abstractmethod
@@ -199,8 +202,10 @@ class MailProvider(ABC):
         body: str,
         thread_ref: str = "",
         in_reply_to: str = "",
+        headers: Sequence[tuple[str, str]] = (),
     ) -> SendResult:
-        """Send one plain-text email. Reply threading when refs are given."""
+        """Send one plain-text email. Reply threading when refs are given.
+        ``headers`` are extra headers (only passed when ``carries_headers``)."""
 
     @abstractmethod
     async def get_replies(self, limit: int = 50) -> list[InboundMessage]:

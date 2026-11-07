@@ -70,6 +70,7 @@ class SmtpSettings:
 
 class SmtpImapProvider(MailProvider):
     name = "smtp"
+    carries_headers = True
 
     def __init__(self, config, env, *, identity: MailIdentity | None = None,
                  smtp: SmtpSettings | None = None):
@@ -102,6 +103,7 @@ class SmtpImapProvider(MailProvider):
         body: str,
         thread_ref: str = "",
         in_reply_to: str = "",
+        headers=(),
     ) -> SendResult:
         try:
             sig = load_signature(self.config)
@@ -112,6 +114,8 @@ class SmtpImapProvider(MailProvider):
         msg["To"] = to_email
         msg["From"] = formataddr((self.identity.display_name, address))
         msg["Subject"] = subject
+        for name, value in headers:
+            msg[name] = value
         message_id = make_msgid(domain=address.split("@")[-1])
         msg["Message-ID"] = message_id
         if in_reply_to:
