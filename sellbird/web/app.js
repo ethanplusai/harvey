@@ -1294,14 +1294,18 @@ async function loadSettings() {
   // Gmail auth status chip
   const g = document.getElementById('gmail-status');
   if (g) {
-    if (data.gmail_authorized) { g.className = 'email-tag verified'; g.textContent = 'authorized'; }
-    else if (data.gmail_client_secret_set) { g.className = 'email-tag risky'; g.textContent = 'run: sellbird gmail auth'; }
+    const realId = /^\d+-[0-9a-z]+\.apps\.googleusercontent\.com$/.test((data.gmail_client_id || '').trim());
+    if (data.gmail_client_id && !realId) { g.className = 'email-tag invalid'; g.textContent = 'client ID isn\'t real'; }
+    else if (data.gmail_authorized) { g.className = 'email-tag verified'; g.textContent = 'authorized'; }
+    else if (data.gmail_client_secret_set) { g.className = 'email-tag risky'; g.textContent = 'sign in on Inboxes'; }
     else { g.className = 'email-tag guess'; g.textContent = 'not set up'; }
   }
   const m = document.getElementById('m365-status');
   if (m) {
-    if (data.m365_authorized) { m.className = 'email-tag verified'; m.textContent = 'authorized'; }
-    else if (data.m365_client_id) { m.className = 'email-tag risky'; m.textContent = 'run: sellbird microsoft auth'; }
+    const realM = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test((data.m365_client_id || '').trim());
+    if (data.m365_client_id && !realM) { m.className = 'email-tag invalid'; m.textContent = 'client ID isn\'t real'; }
+    else if (data.m365_authorized) { m.className = 'email-tag verified'; m.textContent = 'authorized'; }
+    else if (data.m365_client_id) { m.className = 'email-tag risky'; m.textContent = 'sign in on Inboxes'; }
     else { m.className = 'email-tag guess'; m.textContent = 'not set up'; }
   }
   tag('reoon-status', data.reoon_api_key_set, 'set');
@@ -1313,7 +1317,7 @@ function saveGmail() {
   const payload = {GMAIL_CLIENT_ID: document.getElementById('gmail-id').value.trim()};
   const sec = document.getElementById('gmail-secret').value;
   if (sec) payload.GMAIL_CLIENT_SECRET = sec;
-  saveEnv(payload, 'Gmail OAuth saved. Now run "sellbird gmail auth" in your terminal.').then(loadSettings);
+  saveEnv(payload, 'Saved. Now sign in on the Inboxes tab.').then(loadSettings);
 }
 
 function saveSmtp() {
@@ -1340,7 +1344,7 @@ function saveMicrosoft() {
   const client = document.getElementById('m365-client').value.trim();
   if (!client) { showToast('Paste the Application (client) ID first.', 'error'); return; }
   saveEnv({M365_CLIENT_ID: client, M365_TENANT_ID: document.getElementById('m365-tenant').value.trim()},
-          'Saved. Now run "sellbird microsoft auth" in your terminal.').then(loadSettings);
+          'Saved. Now sign in on the Inboxes tab.').then(loadSettings);
 }
 
 function saveVerifiers() {
@@ -2803,6 +2807,15 @@ function openInbox(i) {
   body += '</div>';
 
   if (ib.main) {
+    const kind = ib.provider === 'gmail' || ib.provider === 'microsoft' ? ib.provider : '';
+    if (ib.state === 'not_connected' && kind) {
+      const can = (_inboxes.can_connect || {})[kind];
+      body = '<div id="main-status"></div>' + (can
+        ? '<div class="notice bad"><b>Not connected.</b> Sign in to the mailbox Sellbird sends from.</div>' +
+          '<button class="btn btn-primary" id="main-go" onclick="connectMainMailbox(\'' + kind + '\')">Sign in with ' +
+          (kind === 'gmail' ? 'Google' : 'Microsoft') + '</button><div style="height:16px"></div>'
+        : connectSetupNotice(kind)) + body.replace(/<div class="notice bad"><b>Not connected.<\/b>[\s\S]*?<\/div>/, '');
+    }
     body += '<div class="modal-section"><h4>Settings</h4><p>Your main mailbox comes from sellbird.yaml: ' +
       'its address is persona.email, its daily cap is channels.email.per_inbox_daily_cap, and pausing it pauses ' +
       'all sending, on the Outbox tab.</p></div>';
@@ -2901,9 +2914,7 @@ function openAddInbox(kind) {
       '<div class="form-group" style="max-width:110px"><label class="form-label" for="add-imap-port">Port</label><input class="form-input" id="add-imap-port" type="number" value="993"></div></div></details>';
     note = '<p class="form-hint">The password goes straight to your system keychain. Sellbird never shows it again.</p>';
   } else if (!can[_addKind]) {
-    note = '<div class="notice info">' + (_addKind === 'gmail'
-      ? 'Signing in with Google needs your Google OAuth client first: set GMAIL_CLIENT_ID and GMAIL_CLIENT_SECRET in .env (Google Cloud Console, Credentials, OAuth client ID, Desktop app), then restart Sellbird.'
-      : 'Signing in with Microsoft needs your app registration first: set M365_CLIENT_ID (and M365_TENANT_ID) in .env (entra.microsoft.com, App registrations), then restart Sellbird.') + '</div>';
+    note = connectSetupNotice(_addKind);
   } else {
     note = '<p class="form-hint">A ' + INBOX_KINDS[_addKind][0] + ' sign-in opens in the browser on the computer running Sellbird. Sign in as the address above.</p>';
   }
@@ -2936,6 +2947,79 @@ function copyAddCommand() {
 function addStatus(cls, html) {
   const el = document.getElementById('add-status');
   if (el) el.innerHTML = html ? '<div class="notice ' + cls + '">' + html + '</div>' : '';
+}
+
+// Where the browser sign-in's own app (Google OAuth client / Microsoft app
+// registration) is set up, when it isn't yet or doesn't look real.
+const CONNECT_SETUP = {
+  gmail: {
+    field: 'gmail-id',
+    steps: [
+      'In <a href="https://console.cloud.google.com/apis/library/gmail.googleapis.com" target="_blank" rel="noopener noreferrer">Google Cloud Console</a>, pick or create a project and enable the Gmail API.',
+      'Under <a href="https://console.cloud.google.com/apis/credentials" target="_blank" rel="noopener noreferrer">Credentials</a>, create an OAuth client ID of type <b>Desktop app</b>.',
+      'Paste its Client ID and Client secret in Settings, under Gmail, and save.',
+      'Come back here and sign in.',
+    ],
+  },
+  microsoft: {
+    field: 'm365-client',
+    steps: [
+      'In <a href="https://entra.microsoft.com" target="_blank" rel="noopener noreferrer">Entra</a>, go to App registrations and register an app for your organization only.',
+      'Add the redirect URI <code>http://localhost:8766</code> as "Public client/native".',
+      'Paste the Application (client) ID and tenant ID in Settings, under Microsoft 365, and save.',
+      'Come back here and sign in.',
+    ],
+  },
+};
+
+function connectSetupNotice(kind) {
+  const setup = CONNECT_SETUP[kind];
+  const problem = ((_inboxes && _inboxes.connect_problems) || {})[kind] || '';
+  return '<div class="notice info"><b>' + escHtml(problem) + '</b>' +
+    '<ol class="setup-steps">' + setup.steps.map(t => '<li>' + t + '</li>').join('') + '</ol>' +
+    '<button class="btn btn-secondary btn-sm" onclick="openSettingsAt(\'' + setup.field + '\')">Open Settings</button></div>';
+}
+
+function openSettingsAt(fieldId) {
+  closeInboxDialog();
+  const btn = Array.from(document.querySelectorAll('nav button'))
+    .find(b => (b.getAttribute('onclick') || '').includes("'settings'"));
+  showTab('settings', btn);
+  setTimeout(() => {
+    const el = document.getElementById(fieldId);
+    if (!el) return;
+    el.scrollIntoView({behavior: 'smooth', block: 'center'});
+    el.focus({preventScroll: true});
+  }, 300);
+}
+
+async function connectMainMailbox(kind) {
+  const go = document.getElementById('main-go');
+  if (go) go.disabled = true;
+  const status = document.getElementById('main-status');
+  const say = (cls, html) => { if (status) status.innerHTML = '<div class="notice ' + cls + '">' + html + '</div>'; };
+  say('info', 'Opening the sign-in...');
+  const r = await api('/api/inboxes/main/connect', {method: 'POST'});
+  if (!r || !r.success) {
+    if (go) go.disabled = false;
+    say('bad', escHtml((r && r.message) || 'That didn\'t work.'));
+    return;
+  }
+  say('wait', 'A ' + (kind === 'gmail' ? 'Google' : 'Microsoft') + ' sign-in opened in your browser. ' +
+    'Sign in as your sending address and allow access. This page updates when you\'re done.');
+  if (_inboxPoll) clearInterval(_inboxPoll);
+  _inboxPoll = setInterval(async () => {
+    const s = await api('/api/inboxes/connect/status');
+    if (!s || s.state === 'waiting') return;
+    clearInterval(_inboxPoll); _inboxPoll = null;
+    if (s.state === 'connected') {
+      showToast('Main mailbox connected', 'success');
+      closeInboxDialog(); loadInboxes();
+    } else {
+      if (go) go.disabled = false;
+      say('bad', escHtml(s.message || 'The sign-in didn\'t finish.'));
+    }
+  }, 1500);
 }
 
 async function submitAddInbox() {

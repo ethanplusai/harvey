@@ -183,17 +183,17 @@ def test_the_agent_can_never_connect_or_test_an_inbox(env, keychain):
 def test_gmail_needs_its_client_first(env, keychain):
     with _client(env["user"]) as c:
         r = c.post("/api/inboxes/connect/gmail", json={"address": "g@side.co"})
-    assert r.status_code == 400 and "GMAIL_CLIENT_ID" in r.json()["message"]
+    assert r.status_code == 400 and "isn't set up yet" in r.json()["message"]
 
 
 def test_a_gmail_sign_in_runs_in_the_background_and_connects(env, keychain, monkeypatch):
     class GEnv(Env):
-        gmail_client_id = "id"
+        gmail_client_id = "123456789-abc123.apps.googleusercontent.com"
         gmail_client_secret = "secret"
     monkeypatch.setattr(inbox_routes, "_config_env", lambda: (Cfg(), GEnv()))
     seen = {}
 
-    def fake_sign_in(kind, address, env_):
+    def fake_sign_in(kind, address, env_, main=False):
         seen["args"] = (kind, address)
         return {"refresh_token": "rt-secret", "scope": "x", "obtained_at": 1}
     monkeypatch.setattr(inbox_routes, "_sign_in", fake_sign_in)
@@ -218,3 +218,64 @@ def test_main_mailbox_not_connected_says_how(env):
     main = next(i for i in data["inboxes"] if i["main"])
     if main["state"] == "not_connected":
         assert main["connect_hint"]
+
+
+@pytest.mark.parametrize("client_id", [
+    "demo-not-a-real-client.apps.googleusercontent.test",
+    "xxxx.apps.googleusercontent.com",
+    "paste-your-id-here",
+])
+def test_a_client_id_that_isnt_real_never_opens_google(env, keychain, monkeypatch, client_id):
+    class GEnv(Env):
+        gmail_client_secret = "secret"
+    GEnv.gmail_client_id = client_id
+    monkeypatch.setattr(inbox_routes, "_config_env", lambda: (Cfg(), GEnv()))
+    monkeypatch.setattr(inbox_routes, "_sign_in", lambda *a, **k: pytest.fail("opened a sign-in"))
+    with _client(env["user"]) as c:
+        listed = c.get("/api/inboxes").json()
+        r = c.post("/api/inboxes/connect/gmail", json={"address": "g@side.co"})
+        main = c.post("/api/inboxes/main/connect")
+    assert listed["can_connect"]["gmail"] is False
+    assert "isn't a real one" in listed["connect_problems"]["gmail"]
+    assert r.status_code == 400 and "isn't a real one" in r.json()["message"]
+    assert main.status_code == 400
+
+
+def test_a_microsoft_client_id_must_be_a_guid(env, monkeypatch):
+    class MEnv(Env):
+        m365_client_id = "not-a-guid"
+    monkeypatch.setattr(inbox_routes, "_config_env", lambda: (Cfg(), MEnv()))
+    with _client(env["user"]) as c:
+        data = c.get("/api/inboxes").json()
+    assert data["can_connect"]["microsoft"] is False
+    MEnv.m365_client_id = "1b2c3d4e-5f60-7182-93a4-b5c6d7e8f901"
+    with _client(env["user"]) as c:
+        assert c.get("/api/inboxes").json()["can_connect"]["microsoft"] is True
+
+
+def test_the_main_mailbox_signs_in_from_the_dashboard(env, monkeypatch):
+    class GEnv(Env):
+        gmail_client_id = "123456789-abc123.apps.googleusercontent.com"
+        gmail_client_secret = "secret"
+    cfg = Cfg()
+    monkeypatch.setattr(Cfg.channels.email, "provider", "gmail")
+    monkeypatch.setattr(inbox_routes, "_config_env", lambda: (cfg, GEnv()))
+    seen = {}
+
+    def fake_sign_in(kind, address, env_, main=False):
+        seen["args"] = (kind, main)
+        return {"main": True}
+    monkeypatch.setattr(inbox_routes, "_sign_in", fake_sign_in)
+    with _client(env["agent"]) as c:
+        assert c.post("/api/inboxes/main/connect").status_code == 403
+    with _client(env["user"]) as c:
+        assert c.post("/api/inboxes/main/connect").json()["started"]
+        import time
+        for _ in range(100):
+            status = c.get("/api/inboxes/connect/status").json()
+            if status["state"] != "waiting":
+                break
+            time.sleep(0.02)
+    assert status["state"] == "connected", status
+    # the main mailbox's token goes to its usual file, never to the keychain
+    assert seen["args"] == ("gmail", True)
