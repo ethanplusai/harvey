@@ -9,6 +9,11 @@ minor versions can still change behaviour.
 
 ### Added
 
+- **A menu-bar app.** `sellbird tray` (macOS menu bar, Windows tray)
+  starts the dashboard when needed, starts and stops Sellbird, pauses and
+  resumes sending and opens the dashboard unlocked. `sellbird autostart
+  install` starts it at login. See "The menu-bar app" in
+  [docs/configuration.md](docs/configuration.md).
 - **Several sending inboxes.** Besides the main mailbox, connect Gmail,
   Microsoft 365 or SMTP inboxes you already own with
   `sellbird inboxes connect`. Their sign-ins and passwords live in the

@@ -718,7 +718,14 @@ async def get_sellbird_status():
     """Check if Sellbird is currently running."""
     pid = _check_sellbird_pid()
     started = _sellbird_started_at.isoformat() if _sellbird_started_at else None
-    return {"running": pid is not None, "pid": pid, "started_at": started}
+    try:
+        state = _state()
+        await state.init_db()
+        paused = await state.get_setting("sending_paused") or ""
+    except Exception:
+        paused = ""
+    return {"running": pid is not None, "pid": pid, "started_at": started,
+            "sending_paused": paused}
 
 
 @app.post("/api/sellbird/start")

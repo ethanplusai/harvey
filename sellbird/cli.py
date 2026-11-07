@@ -1303,6 +1303,10 @@ def main():
     from sellbird.inbox_cli import register as register_inboxes
     register_inboxes(subparsers)
 
+    from sellbird import desktop_cli
+    desktop_cli.register_desktop_commands(subparsers)
+    desktop_cli.register(subparsers)
+
     sub = subparsers.add_parser("suppressions", help="Addresses and domains Sellbird never emails")
     sub.add_argument("suppression_action", nargs="?", default="list", choices=["list", "add", "remove"])
     sub.add_argument("value", nargs="?", default="", help="add: an address or domain; remove: its id")
