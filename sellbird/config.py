@@ -3,8 +3,11 @@
 import logging
 import os
 import re
+from contextlib import contextmanager
+from contextvars import ContextVar
 from datetime import date as _date, time as _time
 from pathlib import Path
+from typing import Iterator
 
 import yaml
 
@@ -774,12 +777,40 @@ def _format_validation_error(e: ValidationError) -> str:
     return "\n".join(lines)
 
 
+_CURRENT_CONFIG: ContextVar["SellbirdConfig | None"] = ContextVar("sellbird_config", default=None)
+
+
+@contextmanager
+def use_config(config: "SellbirdConfig") -> Iterator["SellbirdConfig"]:
+    """Make ``config`` what ``load_config()`` returns, for this task and the
+    threads it starts. A server keeping each workspace's settings somewhere
+    other than a sellbird.yaml loads them and runs the work inside this."""
+    token = _CURRENT_CONFIG.set(config)
+    try:
+        yield config
+    finally:
+        _CURRENT_CONFIG.reset(token)
+
+
+def current_config() -> "SellbirdConfig | None":
+    """The config set with ``use_config``, or None when the file decides."""
+    return _CURRENT_CONFIG.get()
+
+
 def load_config(config_path: str | None = None) -> SellbirdConfig:
     """Load Sellbird configuration from YAML file.
 
     Raises ConfigError with a clear, actionable message on any problem.
     """
     if config_path is None:
+        given = _CURRENT_CONFIG.get()
+        if given is not None:
+            return given
+        from sellbird.workspace_home import current_home
+        if current_home().hosted:
+            # A hosted home has no file to fall back to: its settings must have
+            # been loaded with use_config for this request or tick.
+            raise ConfigFileNotFoundError("This workspace's settings weren't loaded.")
         config_path = _find_config_file()
 
     try:

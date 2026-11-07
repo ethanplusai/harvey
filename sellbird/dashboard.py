@@ -27,6 +27,7 @@ logger = logging.getLogger("sellbird.dashboard")
 
 from sellbird import dashboard_auth as auth  # noqa: E402
 from sellbird.paths import PACKAGE_ROOT, PROJECT_ROOT, is_checkout  # noqa: E402
+from sellbird import storage  # noqa: E402
 from sellbird.pidfile import LOCK_FILE, loop_lock_held, pid_alive  # noqa: E402
 from sellbird.textio import read_user_text  # noqa: E402
 DB_PATH = PROJECT_ROOT / "data" / "sellbird.db"
@@ -72,7 +73,7 @@ async def query_db(sql: str, params: tuple = ()) -> list[dict]:
     if not DB_PATH.exists():
         return []
     try:
-        async with aiosqlite.connect(str(DB_PATH)) as db:
+        async with storage.connect(str(DB_PATH)) as db:
             db.row_factory = aiosqlite.Row
             async with db.execute(sql, params) as cursor:
                 rows = await cursor.fetchall()
@@ -632,7 +633,7 @@ async def add_feedback(request: Request):
     feedback_id = uuid.uuid4().hex[:12]
     try:
         DB_PATH.parent.mkdir(parents=True, exist_ok=True)
-        async with aiosqlite.connect(str(DB_PATH)) as db:
+        async with storage.connect(str(DB_PATH)) as db:
             # Ensure the table exists so feedback works even on a fresh install
             await db.execute(
                 """CREATE TABLE IF NOT EXISTS feedback (

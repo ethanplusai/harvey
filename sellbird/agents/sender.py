@@ -548,9 +548,11 @@ class Sender:
         against the local date would shift the day by the UTC offset.
         """
         import aiosqlite
+
+        from sellbird import storage
         midnight = _local_now().replace(hour=0, minute=0, second=0, microsecond=0)
         since = midnight.astimezone(timezone.utc).replace(tzinfo=None).isoformat()
-        async with aiosqlite.connect(self.state.db_path) as db:
+        async with storage.connect(self.state.db_path) as db:
             async with db.execute(
                 "SELECT COUNT(*) FROM prospects "
                 "WHERE status = 'contacted' AND datetime(updated_at) >= datetime(?)",

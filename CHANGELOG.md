@@ -9,6 +9,13 @@ minor versions can still change behaviour.
 
 ### Added
 
+- **Storage and settings seams.** Every database open goes through
+  `sellbird.storage`: SQLite paths as before, or `<prefix>:<name>` for a
+  backend an extension registers (in code or through the `sellbird.storage`
+  entry point), which owns and checks its own schema. `sellbird.config.use_config`
+  sets the config `load_config()` returns for a task and its threads, for
+  settings kept somewhere other than `sellbird.yaml`. A self-hosted install
+  behaves exactly as before.
 - **Runs from a home folder, not only from a checkout.** Installed with `pip`
   or `pipx`, Sellbird used to look for its config, prompts and skills inside
   site-packages. Now one home folder holds them: `SELLBIRD_HOME` if set, else
