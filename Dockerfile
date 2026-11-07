@@ -3,7 +3,8 @@ FROM python:3.12-slim
 ENV PYTHONUNBUFFERED=1 \
     PYTHONDONTWRITEBYTECODE=1 \
     PIP_NO_CACHE_DIR=1 \
-    PLAYWRIGHT_BROWSERS_PATH=/ms-playwright
+    PLAYWRIGHT_BROWSERS_PATH=/ms-playwright \
+    SELLBIRD_HOME=/app
 
 # System deps (curl needed for the Claude CLI installer)
 RUN apt-get update && apt-get install -y --no-install-recommends \

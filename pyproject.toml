@@ -53,6 +53,11 @@ harvey = "harvey.cli:main"
 [tool.setuptools.packages.find]
 include = ["sellbird*", "harvey*"]
 
+# The editable defaults an installed app seeds its home folder from
+# (sellbird/home.py). They land in <prefix>/share/sellbird.
+[tool.setuptools]
+data-files = {"share/sellbird" = ["sellbird.yaml", ".env.example"], "share/sellbird/prompts" = ["prompts/*.md"], "share/sellbird/skills" = ["skills/*.md"]}
+
 # The dashboard's HTML/CSS/JS are real files served from disk, and its fonts
 # are vendored so a local tool renders correctly with the network off.
 [tool.setuptools.package-data]

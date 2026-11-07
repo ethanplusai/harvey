@@ -41,24 +41,27 @@ def cmd_install(args):
     _check_python_version()
     print("\n  Installing Sellbird dependencies...\n")
 
-    # Install Python packages
-    print("  [1/2] Installing Python packages...")
-    requirements = Path(args._project_root) / "requirements.txt"
-    if requirements.exists():
-        pip_args = ["-r", "requirements.txt"]
-    else:
+    # An installed app (pipx, pip) already has its packages; only a checkout
+    # installs them, from the checkout (not the home folder).
+    from sellbird.paths import PACKAGE_ROOT, is_checkout
+    checkout = is_checkout(PACKAGE_ROOT)
+    if checkout:
+        print("  [1/2] Installing Python packages...")
+        requirements = PACKAGE_ROOT / "requirements.txt"
         # Fall back to an editable install from pyproject.toml
-        pip_args = ["-e", "."]
-    result = subprocess.run(
-        [sys.executable, "-m", "pip", "install", *pip_args],
-        cwd=args._project_root,
-    )
-    if result.returncode != 0:
-        print("\n  Failed to install Python packages.")
-        print("  Tip: make sure you're inside a virtualenv "
-              "(python3 -m venv .venv && source .venv/bin/activate).")
-        sys.exit(1)
-    print("  ✓ Python packages installed.\n")
+        pip_args = ["-r", "requirements.txt"] if requirements.exists() else ["-e", "."]
+        result = subprocess.run(
+            [sys.executable, "-m", "pip", "install", *pip_args],
+            cwd=str(PACKAGE_ROOT),
+        )
+        if result.returncode != 0:
+            print("\n  Failed to install Python packages.")
+            print("  Tip: make sure you're inside a virtualenv "
+                  "(python3 -m venv .venv && source .venv/bin/activate).")
+            sys.exit(1)
+        print("  ✓ Python packages installed.\n")
+    else:
+        print("  [1/2] Python packages: already part of this install.")
 
     # Install Playwright browsers
     print("  [2/2] Installing Playwright browsers...")
@@ -75,7 +78,8 @@ def cmd_install(args):
     else:
         print("  ✓ Playwright browsers installed.\n")
 
-    _ensure_importable(args._project_root)
+    if checkout:
+        _ensure_importable(str(PACKAGE_ROOT))
     print("  Sellbird is installed. Run 'sellbird setup' next.\n")
 
 
@@ -1237,6 +1241,17 @@ def main():
     args = parser.parse_args()
     _carry_over_from_harvey()
     args._project_root = project_root
+
+    # Fill the home folder before any command. Silent: a command's stdout may
+    # be a protocol or a file. A failure is one stderr line, and the command
+    # still runs where it can.
+    from sellbird import home
+    from sellbird.paths import PROJECT_ROOT as home_root
+    try:
+        home.seed_home(home_root, home.bundled_defaults())
+    except Exception as e:
+        reason = (e.strerror if isinstance(e, OSError) else None) or type(e).__name__
+        print(f"  Could not prepare the home folder {home_root}: {reason}", file=sys.stderr)
 
     if args.command is None:
         parser.print_help()
