@@ -28,6 +28,7 @@ from starlette.routing import Mount
 
 logger = logging.getLogger("sellbird.dashboard")
 
+from sellbird import agent_policy  # noqa: E402
 from sellbird import dashboard_auth as auth  # noqa: E402
 from sellbird.paths import PACKAGE_ROOT, PROJECT_ROOT, is_checkout  # noqa: E402
 from sellbird import storage  # noqa: E402
@@ -40,6 +41,7 @@ CONFIG_FILE = PROJECT_ROOT / "sellbird.yaml"
 PID_FILE = PROJECT_ROOT / "data" / "sellbird.pid"
 LOG_FILE = PROJECT_ROOT / "data" / "sellbird.log"
 TOKEN_FILE = PROJECT_ROOT / "data" / "dashboard-token"
+AGENT_TOKEN_FILE = PROJECT_ROOT / "data" / "agent-token"
 
 
 def _resolve_config_file() -> Path:
@@ -57,7 +59,10 @@ def _resolve_config_file() -> Path:
 # route except the static shell needs the token (see dashboard_auth).
 app = FastAPI(title="Sellbird Dashboard", docs_url=None, redoc_url=None, openapi_url=None)
 token_store = auth.TokenStore(TOKEN_FILE)
-app.add_middleware(auth.DashboardGuard, store=token_store)
+agent_token_store = auth.TokenStore(AGENT_TOKEN_FILE)
+# Innermost first: the guard (added next) sets the principal before this runs.
+app.add_middleware(agent_policy.AgentPolicy)
+app.add_middleware(auth.DashboardGuard, store=token_store, agent_store=agent_token_store)
 
 
 class home_middleware:
@@ -2723,6 +2728,17 @@ def dashboard_url(host: str = "127.0.0.1", port: int = 5555) -> str:
     return f"http://{name}:{port}/#token={token_store.get()}"
 
 
+# Which dashboard answers on this port: a random id per process, never the
+# token. The MCP server checks it against data/dashboard.json before it sends
+# the agent token anywhere (dashboard_auth lets it through unauthenticated).
+INSTANCE_ID = uuid.uuid4().hex
+
+
+@app.get("/api/instance")
+async def get_instance():
+    return {"instance": INSTANCE_ID}
+
+
 # ── Extensions (sellbird.extensions): their routes, after every built-in one,
 # so an extension can add paths but never replace one. ──
 from sellbird import extensions as _extensions  # noqa: E402
@@ -2767,5 +2783,10 @@ def start_dashboard(host: str = "127.0.0.1", port: int = 5555):
     if os.name == "nt":
         print("  Windows: the token file is protected by your folder's permissions,")
         print("  not POSIX file modes.\n")
-    uvicorn.run(app, host=bind, port=port, log_level="warning",
-                proxy_headers=False, server_header=False, date_header=False)
+    from sellbird import dashboard_instance
+    dashboard_instance.write(DB_PATH.parent, host=bind, port=port, instance=INSTANCE_ID)
+    try:
+        uvicorn.run(app, host=bind, port=port, log_level="warning",
+                    proxy_headers=False, server_header=False, date_header=False)
+    finally:
+        dashboard_instance.remove(DB_PATH.parent, instance=INSTANCE_ID)

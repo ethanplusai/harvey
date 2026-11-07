@@ -175,6 +175,22 @@ def cmd_train(args):
     asyncio.run(trainer.train(url, max_pages=args.max_pages))
 
 
+def cmd_mcp(args):
+    """Serve MCP over stdio for the user's coding agent. Prints nothing else."""
+    # `sellbird mcp install|uninstall [claude|codex]` and --print.
+    if getattr(args, "mcp_action", None):
+        from sellbird import mcp_install
+        sys.exit(mcp_install.run_command(args.mcp_action, args.client,
+                                         print_only=args.print_config, yes=args.yes))
+    if getattr(args, "print_config", False) or getattr(args, "yes", False):
+        print("  --print and --yes go with install or uninstall, "
+              "e.g. sellbird mcp install --print", file=sys.stderr)
+        sys.exit(2)
+    from sellbird.mcp_server import run_stdio
+
+    run_stdio()
+
+
 def cmd_dashboard(args):
     """Launch the local web dashboard."""
     from sellbird.dashboard import DashboardSetupError, dashboard_url, start_dashboard
@@ -1272,6 +1288,17 @@ def main():
     sub = subparsers.add_parser("usage", help="Show brain usage and quota (Claude or Codex)")
     sub.add_argument("--days", type=int, default=30, help="Breakdown window (default: 30)")
     sub.set_defaults(func=cmd_usage)
+
+    sub = subparsers.add_parser(
+        "mcp", help="MCP server for your coding agent (launched by it, over stdio)")
+    sub.add_argument("mcp_action", nargs="?", choices=["install", "uninstall"],
+                     help="Add or remove the server in your coding agent's config")
+    sub.add_argument("client", nargs="?", choices=["claude", "codex"],
+                     help="Which agent (default: Claude Code only)")
+    sub.add_argument("--print", dest="print_config", action="store_true",
+                     help="Print the config to add by hand; change nothing")
+    sub.add_argument("--yes", action="store_true", help="Apply without asking")
+    sub.set_defaults(func=cmd_mcp)
 
     sub = subparsers.add_parser("suppressions", help="Addresses and domains Sellbird never emails")
     sub.add_argument("suppression_action", nargs="?", default="list", choices=["list", "add", "remove"])

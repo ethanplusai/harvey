@@ -46,6 +46,7 @@ sellbird precleared-key        # free key for the cold-email check, saved to .en
 sellbird companies             # company register → CSV: every company, fit, and why it wasn't contacted
 sellbird sending pause|resume  # kill switch
 sellbird suppressions [add|remove <value>]  # addresses and domains never emailed
+sellbird mcp install [claude|codex]  # let your coding agent read Sellbird and pause sending
 sellbird warmup [domain]       # is the sending domain ready? (SPF/DKIM/DMARC, age, blocklists, warmup)
 sellbird trulyinbox connect    # connect TrulyInbox so Sellbird reads the mailbox's warmup
 sellbird retry-writes          # retry prospects the Writer gave up on
@@ -58,3 +59,21 @@ Prospect CSV exports exclude opted-out contacts, including when using
 raw-data export for inspection: it includes opted-out and unverified contacts
 and should not be imported as an outreach list. The dashboard's prospect CSV
 download follows the same policy; `?all=true` selects its raw export.
+
+## Your coding agent (MCP)
+
+`sellbird mcp install` adds Sellbird to Claude Code (`sellbird mcp install codex`
+for Codex). It shows the exact change to your agent's config first and applies it
+only on a yes, touches only its own entry, and refuses if a Sellbird entry it
+didn't write is already there. `--print` shows the entry to add by hand to any
+other MCP client; `sellbird mcp uninstall` takes it out again.
+
+Your agent then talks to the running dashboard (`sellbird dashboard`) with its
+own token, `data/agent-token`, never yours. With it the agent can read
+everything Sellbird knows (Today, campaigns, prospects, companies,
+conversations, the Outbox, signals, usage, setup), estimate what a discovery
+run would cost, and pause sending. It can't approve or send email, resume
+sending, confirm signals, start discovery, change settings or keys, or delete
+anything: the dashboard answers 403 to the agent's token for every route that
+isn't on its short allowlist (`sellbird/agent_policy.py`).
+
