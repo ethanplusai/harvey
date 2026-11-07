@@ -19,6 +19,11 @@ minor versions can still change behaviour.
   to the command. Free keys now give 100 checks a day for their first 14 days,
   then 25, and the docs say so.
 
+### Fixed
+
+- **Instantly's daily cap counts your local day, not UTC** (from #177 by
+  @solvejet-team), so the cap resets at your midnight.
+
 ## [0.4.0] - 2026-11-06
 
 ### Changed
