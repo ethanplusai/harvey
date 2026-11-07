@@ -40,7 +40,8 @@ from sellbird.brain import Brain
 from sellbird.collectors import people as people_mod
 from sellbird.collectors.discover import site_name_from_html
 from sellbird.collectors.profile import _reads_like_title, looks_like_challenge
-from sellbird.config import SellbirdConfig, EnvConfig
+from sellbird.config import SellbirdConfig, EnvConfig, live_do_not_contact
+from sellbird.gate import do_not_contact_domain_match
 from sellbird.integrations.email_finder import (
     DEFAULT_PATTERN, SMALL_BUSINESS_PATTERN, find_email, site_email_evidence,
     verify_published_address,
@@ -203,6 +204,38 @@ class Scout:
             details={"prospects_found": prospects_found},
         )
         logger.info(f"Scout: Found {prospects_found} new prospects this cycle.")
+
+    # ── Do-not-contact ──
+
+    def _do_not_contact_entry(self, domain: str) -> str:
+        """The compliance.do_not_contact entry covering ``domain``, or "".
+
+        The send gate is the last word, but it is the wrong place to learn
+        a company is off limits: by then Scout has read its site, found a
+        person and spent a verification credit on their address. Every
+        strategy asks this before touching a company, with the same matcher
+        the gate uses, and the list as the config file says it is now.
+        """
+        try:
+            entries = live_do_not_contact(self.config)
+        except Exception as e:
+            logger.debug(f"do_not_contact list unavailable: {e}")
+            return ""
+        return do_not_contact_domain_match(domain, entries)
+
+    async def _skip_listed_company(self, company: dict, domain: str) -> bool:
+        """True when a known company is on the do-not-contact list. It is
+        marked checked so the backfill rotation moves on instead of
+        offering it again every cycle."""
+        entry = self._do_not_contact_entry(domain)
+        if not entry:
+            return False
+        logger.info(f"Scout: {domain} is on compliance.do_not_contact ({entry}); skipping.")
+        try:
+            await self.state.mark_prospects_checked(company["id"])
+        except Exception as e:
+            logger.debug(f"mark_prospects_checked failed for {domain}: {e}")
+        return True
 
     # ── Prospect dedup helpers ──
 
@@ -597,6 +630,8 @@ class Scout:
             if not domain:
                 continue
 
+            if await self._skip_listed_company(company, domain):
+                continue
             if await hunter_searches_remaining(self.state) <= 0:
                 break
             await record_hunter_search(self.state)
@@ -683,6 +718,9 @@ class Scout:
         for company in companies:
             domain = (company.get("domain") or "").strip()
             if not domain:
+                continue
+
+            if await self._skip_listed_company(company, domain):
                 continue
 
             contacts = await self._contacts_from_company(
@@ -898,6 +936,10 @@ class Scout:
             if not domain or domain in seen:
                 continue
             seen.add(domain)
+            if entry := self._do_not_contact_entry(domain):
+                logger.info(
+                    f"Scout: {domain} is on compliance.do_not_contact ({entry}); skipping.")
+                continue
             unique.append(c)
         companies = unique[:MAX_COMPANIES_PER_CYCLE]
 
@@ -1869,6 +1911,10 @@ Respond ONLY with the JSON array."""
             except Exception:
                 domain = ""
             if not self._is_candidate_domain(domain):
+                continue
+            if entry := self._do_not_contact_entry(domain):
+                logger.info(
+                    f"Scout: {domain} is on compliance.do_not_contact ({entry}); skipping.")
                 continue
             if await self.state.company_exists(domain):
                 self._seen_domains.add(domain)

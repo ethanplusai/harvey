@@ -299,6 +299,28 @@ def site_email_evidence(
     return known, "", 0.0
 
 
+# ── Keys stay out of the terminal ──
+#
+# httpx logs every request at INFO with its full URL, so a key passed as a
+# query parameter ends up in `sellbird run`'s output. Hunter accepts the key in
+# a header, so it never enters a URL. Reoon and ZeroBounce only take it as a
+# query parameter: there the httpx/httpcore loggers are held at WARNING
+# (sellbird.main) and anything Sellbird logs itself goes through _redact().
+
+def _hunter_headers(api_key: str) -> dict:
+    """Hunter reads the key from X-API-KEY (documented alternative to the
+    api_key query parameter), so it never appears in a request URL."""
+    return {"X-API-KEY": api_key}
+
+
+def _redact(error, api_key: str) -> str:
+    """str(error) with the key blanked: an httpx error can carry the URL."""
+    text = str(error)
+    if api_key:
+        text = text.replace(api_key, "***")
+    return text
+
+
 async def _hunter_domain_pattern(domain: str, api_key: str) -> Optional[tuple[str, float]]:
     """Hunter's free domain-search returns the org's dominant email pattern.
 
@@ -310,11 +332,12 @@ async def _hunter_domain_pattern(domain: str, api_key: str) -> Optional[tuple[st
         async with httpx.AsyncClient(timeout=API_TIMEOUT) as client:
             resp = await client.get(
                 "https://api.hunter.io/v2/domain-search",
-                params={"domain": domain, "api_key": api_key, "limit": 1},
+                params={"domain": domain, "limit": 1},
+                headers=_hunter_headers(api_key),
             )
     except httpx.HTTPError as e:
-        logger.debug(f"Hunter domain-search failed for {domain}: {e}")
-        raise HunterUnavailable(str(e)) from e
+        logger.debug(f"Hunter domain-search failed for {domain}: {_redact(e, api_key)}")
+        raise HunterUnavailable(_redact(e, api_key)) from e
     if resp.status_code == 429 or resp.status_code >= 500:
         raise HunterUnavailable(f"HTTP {resp.status_code}")
     if resp.status_code != 200:
@@ -424,10 +447,11 @@ async def hunter_domain_people(
         async with httpx.AsyncClient(timeout=API_TIMEOUT) as client:
             resp = await client.get(
                 "https://api.hunter.io/v2/domain-search",
-                params={"domain": domain, "api_key": api_key, "limit": limit},
+                params={"domain": domain, "limit": limit},
+                headers=_hunter_headers(api_key),
             )
     except httpx.HTTPError as e:
-        logger.debug(f"Hunter domain-search failed for {domain}: {e}")
+        logger.debug(f"Hunter domain-search failed for {domain}: {_redact(e, api_key)}")
         return None
     if resp.status_code != 200:
         return None
@@ -517,7 +541,7 @@ async def verify_reoon(email: str, api_key: str) -> Optional[dict]:
                 params={"email": email, "key": api_key, "mode": "power"},
             )
     except httpx.HTTPError as e:
-        logger.debug(f"Reoon request failed for {email}: {e}")
+        logger.debug(f"Reoon request failed for {email}: {_redact(e, api_key)}")
         return None
     if resp.status_code != 200:
         return None
@@ -543,7 +567,7 @@ async def verify_zerobounce(email: str, api_key: str) -> Optional[dict]:
                 params={"email": email, "api_key": api_key},
             )
     except httpx.HTTPError as e:
-        logger.debug(f"ZeroBounce request failed for {email}: {e}")
+        logger.debug(f"ZeroBounce request failed for {email}: {_redact(e, api_key)}")
         return None
     if resp.status_code != 200:
         return None
@@ -563,10 +587,11 @@ async def verify_hunter(email: str, api_key: str) -> Optional[dict]:
         async with httpx.AsyncClient(timeout=API_TIMEOUT) as client:
             resp = await client.get(
                 "https://api.hunter.io/v2/email-verifier",
-                params={"email": email, "api_key": api_key},
+                params={"email": email},
+                headers=_hunter_headers(api_key),
             )
     except httpx.HTTPError as e:
-        logger.debug(f"Hunter verify failed for {email}: {e}")
+        logger.debug(f"Hunter verify failed for {email}: {_redact(e, api_key)}")
         return None
     if resp.status_code != 200:
         return None

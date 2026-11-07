@@ -9,6 +9,13 @@ minor versions can still change behaviour.
 
 ### Added
 
+- **Verifier API keys stay out of logs** (from #185 by @techity-mushtaque).
+  Hunter's key now goes in the `X-API-KEY` header; Reoon and ZeroBounce only
+  take it in the URL, so the `httpx` and `httpcore` loggers stay at WARNING and
+  Sellbird's own debug lines blank the key out of error text.
+- **`channels.email.min_write_score`** (default 0): the writer skips prospects
+  scored below it. Scout also checks `compliance.do_not_contact` before
+  reading a listed company's site or spending verification credits on it.
 - **A free Precleared key in one step** (from #121 by @gabrielaoimevbore-beep).
   `sellbird setup` now offers to get a free key for the cold-email check with
   just an email address, instead of sending people to a web page and back, and
