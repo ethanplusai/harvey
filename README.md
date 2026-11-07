@@ -172,6 +172,7 @@ database, the logs and the dashboard token.
 | [Approval and sending](docs/approval-and-sending.md) | The Outbox, autopilot, office hours and email signatures |
 | [The dashboard and the data](docs/dashboard.md) | Every screen, how sign-in works, and how the data is stored |
 | [Configuration and commands](docs/configuration.md) | `.env`, `sellbird.yaml` and every command |
+| [Extensions](docs/extensions.md) | Adding routes, heartbeat steps and commands from a separate package |
 | [Using a ChatGPT plan (Codex)](docs/codex.md) | Running on Codex instead of Claude |
 | [Legal and deliverability](docs/deliverability.md) | The rules you're sending under, and warmup |
 | [Microsoft 365](docs/microsoft365.md) · [Precleared](docs/precleared.md) | Provider setup guides |

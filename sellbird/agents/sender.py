@@ -1061,8 +1061,11 @@ class Sender:
                 logger.warning(f"Sender: {result.error} — outbox is holding.")
                 break
             if not result.ok:
+                # The provider says it may have accepted it: never retry, and
+                # say so, as for a send that raised.
+                prefix = MAYBE_SENT_PREFIX if getattr(result, "uncertain", False) else ""
                 await self.state.update_outbox_item(
-                    item["id"], status="failed", error=result.error[:300]
+                    item["id"], status="failed", error=f"{prefix}{result.error}"[:300]
                 )
                 continue
 

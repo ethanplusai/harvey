@@ -9,6 +9,19 @@ minor versions can still change behaviour.
 
 ### Added
 
+- **Mail providers take who they send as, and where their sign-in lives.**
+  Gmail, Microsoft 365 and SMTP accept an identity (address and name; the
+  persona by default), Gmail and Microsoft a token source (the token file by
+  default) and an httpx transport, and SMTP its own server settings, so a
+  caller can connect more than one inbox. Signing in as a different account
+  than the inbox being connected saves nothing.
+- **Extensions.** A separate package can add dashboard routes, steps that
+  run each heartbeat cycle and `sellbird` subcommands through the
+  `sellbird.extensions` entry point, without patching Sellbird. A failing
+  extension stops Sellbird with its name; a failing step is logged and
+  skipped. `sellbird.dashboard.build_app(guard=, routers=)` serves the
+  dashboard for someone else, with its own sign-in and a per-request home.
+  See [docs/extensions.md](docs/extensions.md).
 - **Storage and settings seams.** Every database open goes through
   `sellbird.storage`: SQLite paths as before, or `<prefix>:<name>` for a
   backend an extension registers (in code or through the `sellbird.storage`
@@ -39,6 +52,14 @@ minor versions can still change behaviour.
   a day) runs out, the Today page, `sellbird status` and the Outbox reason point
   to the command. Free keys now give 100 checks a day for their first 14 days,
   then 25, and the docs say so.
+
+### Changed
+
+- **Microsoft 365: a send that may have gone out keeps its draft.** A 5xx or
+  a dropped connection on the final send no longer deletes the draft, and
+  the Outbox marks the email as possibly sent (never retried). A 4xx refusal
+  still deletes it. Any provider that reports a possible send is marked the
+  same way.
 
 ### Fixed
 

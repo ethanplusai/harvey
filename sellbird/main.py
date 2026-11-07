@@ -9,6 +9,7 @@ from datetime import datetime, time, timedelta
 import pytz
 
 from sellbird.brain import Brain
+from sellbird.extensions import run_tick_steps
 from sellbird.sending_mode import sync_sending_mode
 from sellbird.config import (
     ConfigError, load_config, load_env, SellbirdConfig, legacy_sending_held, sending_notice,
@@ -470,9 +471,13 @@ async def heartbeat(stop_event: asyncio.Event | None = None):
             except Exception as e:
                 logger.warning(f"Failed to log action '{action}': {e}")
 
+            # 7. Extensions' tick steps (sellbird.extensions). Each is
+            # isolated: a failing step is logged and never stops the loop.
+            await run_tick_steps(config, state)
+
             consecutive_errors = 0
 
-            # 7. Sleep until next heartbeat
+            # 8. Sleep until next heartbeat
             logger.info(
                 f"Cycle complete. Sleeping for {config.usage.heartbeat_interval_minutes} minutes."
             )

@@ -18,7 +18,9 @@ it isn't a MailProvider because Instantly owns sequencing/sending itself.
 import logging
 import re
 from abc import ABC, abstractmethod
+from collections.abc import Callable
 from dataclasses import dataclass, field
+from typing import Protocol
 
 logger = logging.getLogger("sellbird.mail")
 
@@ -31,6 +33,73 @@ class SendResult:
     message_id: str = ""     # RFC Message-ID (or provider id) of the sent mail
     thread_ref: str = ""     # provider thread handle (Gmail threadId, etc.)
     error: str = ""
+    # The provider may have accepted the message (timeout, dropped connection,
+    # 5xx after the request went out). Never retry: the Sender marks it unknown.
+    uncertain: bool = False
+
+
+@dataclass(frozen=True)
+class MailIdentity:
+    """Who a mailbox sends as. With several inboxes this comes from the
+    mailbox row, not persona: one install, many From addresses."""
+
+    address: str
+    display_name: str
+
+
+def identity_from_config(config) -> MailIdentity:
+    """The install's main mailbox: persona email and name (blank when the
+    config has no persona, as in some tests)."""
+    persona = getattr(config, "persona", None)
+    return MailIdentity(
+        address=(getattr(persona, "email", "") or "").strip(),
+        display_name=getattr(persona, "name", "") or "",
+    )
+
+
+class TokenSource(Protocol):
+    """Where an OAuth provider keeps its token dict. The main mailbox uses its
+    file under data/; an inbox connected some other way brings its own source."""
+
+    def load(self) -> dict | None: ...
+
+    def save(self, data: dict) -> None: ...
+
+
+INBOX_NOT_CONNECTED = (
+    "This inbox isn't connected, or its saved sign-in can't be read. Connect it again."
+)
+
+
+def missing_token_text(tokens, main_mailbox_text: str) -> str:
+    """What to tell the user when no token loads. The `sellbird ... auth`
+    commands fix only the main mailbox, so an extra inbox (one with its own
+    token source) gets inbox-specific text, more precise when it can say why."""
+    if tokens is None:
+        return main_mailbox_text
+    reason = getattr(tokens, "missing_reason", None)
+    return reason() if reason else INBOX_NOT_CONNECTED
+
+
+def save_if_signed_in_as(record: dict, expected_address: str | None,
+                         read_address: Callable[[], str],
+                         save: Callable[[dict], None]) -> bool:
+    """End of an OAuth sign-in: save the token dict, unless it belongs to a
+    different account than the inbox being connected (say, the admin who
+    happened to be signed in). Nothing is saved on a mismatch."""
+    if expected_address:
+        expected = expected_address.strip().lower()
+        try:
+            got = read_address()
+        except Exception as e:  # network or a malformed response
+            print(f"  Could not read which account signed in: {type(e).__name__}")
+            return False
+        if got != expected:
+            print(f"  Signed in as {got}, but this inbox is {expected}. "
+                  f"Run it again and sign in as {expected}.")
+            return False
+    save(record)
+    return True
 
 
 @dataclass

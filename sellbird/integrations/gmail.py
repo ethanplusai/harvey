@@ -20,17 +20,24 @@ import json
 import logging
 import time
 import webbrowser
+from collections.abc import Callable
 from email.message import EmailMessage, Message
-from email.utils import parseaddr
+from email.utils import formataddr, parseaddr
 
 import httpx
 
 from sellbird.paths import PROJECT_ROOT
+from sellbird.workspace_home import current_home
 from sellbird.integrations.mail_provider import (
     InboundMessage,
+    MailIdentity,
     MailProvider,
     SendResult,
+    TokenSource,
+    identity_from_config,
     looks_like_bounce,
+    missing_token_text,
+    save_if_signed_in_as,
 )
 from sellbird.integrations.signature import SignatureError, load_signature, set_body
 
@@ -69,9 +76,10 @@ TIMEOUT = httpx.Timeout(connect=10.0, read=30.0, write=30.0, pool=10.0)
 
 
 def _load_token() -> dict | None:
+    token_file = current_home().gmail_token_file
     try:
-        if TOKEN_FILE.is_file():
-            data = json.loads(TOKEN_FILE.read_text(encoding="utf-8"))
+        if token_file.is_file():
+            data = json.loads(token_file.read_text(encoding="utf-8"))
             if isinstance(data, dict) and data.get("refresh_token"):
                 return data
     except (OSError, json.JSONDecodeError) as e:
@@ -80,10 +88,11 @@ def _load_token() -> dict | None:
 
 
 def _save_token(data: dict):
-    TOKEN_FILE.parent.mkdir(parents=True, exist_ok=True)
-    TOKEN_FILE.write_text(json.dumps(data, indent=2), encoding="utf-8")
+    token_file = current_home().gmail_token_file
+    token_file.parent.mkdir(parents=True, exist_ok=True)
+    token_file.write_text(json.dumps(data, indent=2), encoding="utf-8")
     try:
-        TOKEN_FILE.chmod(0o600)
+        token_file.chmod(0o600)
     except OSError:
         pass
 
@@ -91,10 +100,13 @@ def _save_token(data: dict):
 class GmailProvider(MailProvider):
     name = "gmail"
 
-    def __init__(self, config, env):
+    def __init__(self, config, env, transport=None, *,
+                 identity: MailIdentity | None = None,
+                 tokens: TokenSource | None = None):
         self.config = config
         self.client_id = getattr(env, "gmail_client_id", "")
         self.client_secret = getattr(env, "gmail_client_secret", "")
+        self._transport = transport  # httpx.MockTransport in tests
         self._access_token = ""
         self._access_expires = 0.0
         # Messages already read, by Gmail id (None: not a reply we use).
@@ -110,24 +122,37 @@ class GmailProvider(MailProvider):
         self._last_full_read = 0.0
         self._verify_week = False      # list the week once more after a full read
         self._pending: tuple | None = None
+        # Settable: a mailbox transport points it at the inbox it sends from.
+        self.identity = identity or identity_from_config(config)
+        # None = the main mailbox's token file; another inbox brings its own source.
+        self._tokens = tokens
+
+    def _load(self) -> dict | None:
+        return self._tokens.load() if self._tokens else _load_token()
+
+    def _client(self) -> httpx.AsyncClient:
+        # Only an injected transport is passed, so the default stays httpx's own.
+        extra = {"transport": self._transport} if self._transport is not None else {}
+        return httpx.AsyncClient(timeout=TIMEOUT, **extra)
 
     def is_configured(self) -> bool:
-        return bool(self.client_id and self.client_secret and _load_token())
+        return bool(self.client_id and self.client_secret and self._load())
 
     async def _token(self) -> str | None:
         """Valid access token, refreshing via the stored refresh token."""
         if self._access_token and time.time() < self._access_expires - 60:
             return self._access_token
-        stored = _load_token()
+        stored = self._load()
         if not stored:
-            self._token_problem = "not signed in to Gmail. Run 'sellbird gmail auth'."
+            self._token_problem = missing_token_text(
+                self._tokens, "not signed in to Gmail. Run 'sellbird gmail auth'.")
             logger.error("Gmail: " + self._token_problem)
             return None
         # Why there's no token, for whoever asked (get_replies says it).
         unreachable = ("couldn't reach Google to refresh the Gmail sign-in{}; "
                        "Sellbird tries again next cycle.")
         try:
-            async with httpx.AsyncClient(timeout=TIMEOUT) as client:
+            async with self._client() as client:
                 resp = await client.post(TOKEN_URL, data={
                     "client_id": self.client_id,
                     "client_secret": self.client_secret,
@@ -139,10 +164,11 @@ class GmailProvider(MailProvider):
             self._token_problem = unreachable.format(f" ({type(e).__name__})")
             return None
         if resp.status_code in (400, 401, 403):
+            fix = ("Connect this inbox again." if self._tokens
+                   else "Run 'sellbird gmail auth'.")
             self._token_problem = (f"Google rejected the saved Gmail sign-in ({resp.status_code}). "
-                                   "Run 'sellbird gmail auth'.")
-            logger.error(f"Gmail token refresh rejected ({resp.status_code}). "
-                         "Re-run 'sellbird gmail auth'.")
+                                   + fix)
+            logger.error(f"Gmail token refresh rejected ({resp.status_code}). " + fix)
             return None
         if resp.status_code != 200:
             self._token_problem = unreachable.format(f" (HTTP {resp.status_code})")
@@ -176,7 +202,7 @@ class GmailProvider(MailProvider):
             return None
         headers = {"Authorization": f"Bearer {token}"}
         try:
-            async with httpx.AsyncClient(timeout=TIMEOUT) as client:
+            async with self._client() as client:
                 resp = await client.request(
                     method, f"{API_BASE}{path}", headers=headers, **kwargs
                 )
@@ -220,9 +246,9 @@ class GmailProvider(MailProvider):
         except SignatureError as e:
             return SendResult(ok=False, error=f"signature: {e}"[:300])
         msg = EmailMessage()
-        persona = self.config.persona
+        me = self.identity
         msg["To"] = to_email
-        msg["From"] = f"{persona.name} <{persona.email}>" if persona.email else persona.name
+        msg["From"] = formataddr((me.display_name, me.address)) if me.address else me.display_name
         msg["Subject"] = subject
         if in_reply_to:
             msg["In-Reply-To"] = in_reply_to
@@ -540,17 +566,40 @@ class GmailProvider(MailProvider):
     async def test_connection(self) -> tuple[bool, str]:
         if not self.client_id or not self.client_secret:
             return False, "GMAIL_CLIENT_ID / GMAIL_CLIENT_SECRET missing from .env"
-        if not _load_token():
-            return False, "Not authorized yet — run 'sellbird gmail auth'"
+        if not self._load():
+            return False, missing_token_text(
+                self._tokens, "Not authorized yet — run 'sellbird gmail auth'")
         data = await self._request("GET", "/profile")
         if data and data.get("emailAddress"):
             return True, f"Connected as {data['emailAddress']}"
         return False, "Token refresh or profile fetch failed"
 
 
-def run_auth_flow(client_id: str, client_secret: str) -> bool:
+def authorized_address(access_token: str, transport=None) -> str:
+    """The address a fresh access token belongs to (Gmail /profile), lowercased."""
+    with httpx.Client(timeout=TIMEOUT, transport=transport) as client:
+        resp = client.get(f"{API_BASE}/profile",
+                          headers={"Authorization": f"Bearer {access_token}"})
+    resp.raise_for_status()
+    return (resp.json().get("emailAddress") or "").strip().lower()
+
+
+def _store_authorized(record: dict, access_token: str, *,
+                      save: Callable[[dict], None] | None,
+                      expected_address: str | None, transport=None) -> bool:
+    return save_if_signed_in_as(
+        record, expected_address,
+        lambda: authorized_address(access_token, transport), save or _save_token)
+
+
+def run_auth_flow(client_id: str, client_secret: str, *,
+                  save: Callable[[dict], None] | None = None,
+                  expected_address: str | None = None) -> bool:
     """One-time OAuth (installed-app loopback). Blocks until the browser
-    round-trip completes; stores the refresh token for GmailProvider."""
+    round-trip completes; stores the refresh token for GmailProvider.
+
+    `save` takes the token dict instead of the main mailbox's token file;
+    with `expected_address`, a sign-in as any other account saves nothing."""
     import http.server
     import secrets
     import threading
@@ -625,10 +674,14 @@ def run_auth_flow(client_id: str, client_secret: str) -> bool:
         print("  Google returned no refresh token. Remove Sellbird from your"
               " account's third-party access list and retry.")
         return False
-    _save_token({
+    record = {
         "refresh_token": data["refresh_token"],
         "scope": data.get("scope", SCOPE),
         "obtained_at": int(time.time()),
-    })
-    print(f"  ✓ Gmail authorized. Token stored at {TOKEN_FILE}")
+    }
+    if not _store_authorized(record, data.get("access_token", ""), save=save,
+                             expected_address=expected_address):
+        return False
+    print("  ✓ Gmail authorized." if save else
+          f"  ✓ Gmail authorized. Token stored at {current_home().gmail_token_file}")
     return True

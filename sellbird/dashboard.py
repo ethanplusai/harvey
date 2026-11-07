@@ -12,16 +12,19 @@ import subprocess
 import sys
 import tempfile
 import uuid
+from collections.abc import Sequence
 from datetime import date, datetime, timezone
 from pathlib import Path
 
 import aiosqlite
 import yaml
 from dotenv import load_dotenv
-from fastapi import FastAPI, Request
+from fastapi import APIRouter, FastAPI, Request
 from fastapi.responses import (
     HTMLResponse, JSONResponse, PlainTextResponse, Response,
 )
+from starlette.middleware import Middleware
+from starlette.routing import Mount
 
 logger = logging.getLogger("sellbird.dashboard")
 
@@ -30,6 +33,7 @@ from sellbird.paths import PACKAGE_ROOT, PROJECT_ROOT, is_checkout  # noqa: E402
 from sellbird import storage  # noqa: E402
 from sellbird.pidfile import LOCK_FILE, loop_lock_held, pid_alive  # noqa: E402
 from sellbird.textio import read_user_text  # noqa: E402
+from sellbird.workspace_home import NotOnHosted, use_home  # noqa: E402
 DB_PATH = PROJECT_ROOT / "data" / "sellbird.db"
 ENV_FILE = PROJECT_ROOT / ".env"
 CONFIG_FILE = PROJECT_ROOT / "sellbird.yaml"
@@ -54,6 +58,37 @@ def _resolve_config_file() -> Path:
 app = FastAPI(title="Sellbird Dashboard", docs_url=None, redoc_url=None, openapi_url=None)
 token_store = auth.TokenStore(TOKEN_FILE)
 app.add_middleware(auth.DashboardGuard, store=token_store)
+
+
+class home_middleware:
+    """A request runs in its app's home (``app.state.home``, see build_app).
+
+    Pure ASGI, so the ContextVar set here is seen by everything inside it:
+    the guard, async handlers and the sync handlers Starlette runs in its
+    threadpool. An app with no ``state.home`` sets nothing, and the default
+    home (the module globals) applies, which is every self-hosted install."""
+
+    def __init__(self, app):
+        self.app = app
+
+    async def __call__(self, scope, receive, send):
+        home = None
+        if scope["type"] in ("http", "websocket"):
+            home = getattr(getattr(scope.get("app"), "state", None), "home", None)
+        if home is None:
+            await self.app(scope, receive, send)
+            return
+        with use_home(home):
+            await self.app(scope, receive, send)
+
+
+# Added last, so it is the outermost middleware.
+app.add_middleware(home_middleware)
+
+
+@app.exception_handler(NotOnHosted)
+async def _not_on_hosted(request: Request, exc: NotOnHosted):
+    return JSONResponse(exc.payload, status_code=409)
 
 # Sellbird process tracking
 _sellbird_process: subprocess.Popen | None = None
@@ -2686,6 +2721,34 @@ def dashboard_url(host: str = "127.0.0.1", port: int = 5555) -> str:
     except ValueError:
         pass
     return f"http://{name}:{port}/#token={token_store.get()}"
+
+
+# ── Extensions (sellbird.extensions): their routes, after every built-in one,
+# so an extension can add paths but never replace one. ──
+from sellbird import extensions as _extensions  # noqa: E402
+
+for _router in _extensions.registry().routers:
+    app.include_router(_router)
+
+
+def build_app(*, guard: Middleware | None = None, routers: Sequence[APIRouter] = ()) -> FastAPI:
+    """A fresh app serving the module-level ``app``'s routes, middleware and
+    exception handlers, for a server that runs Sellbird for someone else.
+
+    ``routers`` come first, so they win over a built-in route on the same
+    path. The built-in routes are mounted live, not copied: a route added to
+    ``app`` later still reaches every built app. ``guard`` takes
+    ``auth.DashboardGuard``'s place in the middleware stack (a server's own
+    sign-in instead of the dashboard token). Set ``state.home`` on the result
+    to run its requests in that home."""
+    new = FastAPI(title=app.title, docs_url=None, redoc_url=None, openapi_url=None)
+    for router in routers:
+        new.include_router(router)
+    new.router.routes.append(Mount("", app=app.router))
+    new.user_middleware = [guard if guard is not None and m.cls is auth.DashboardGuard else m
+                           for m in app.user_middleware]
+    new.exception_handlers.update(app.exception_handlers)
+    return new
 
 
 def start_dashboard(host: str = "127.0.0.1", port: int = 5555):
