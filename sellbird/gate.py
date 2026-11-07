@@ -439,11 +439,61 @@ def _instruction_runs(root) -> dict[tuple, str]:
     return _leak_cache["runs"]
 
 
+# A phone number as a reader would dial it: 7 to 15 digits, with the usual
+# separators. ISO dates ("2026-11-07") and times aren't numbers to call.
+_PHONE_RE = re.compile(r"(?<![\w+#$€£])(?:\+|00)?\(?\d[\d \t().\-\u2010-\u2015/]{5,22}\d(?![\w])")
+_ISO_DATE_RE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
+# Ways to be told where to send money. Sales email talks about price and
+# payment terms; it never asks the reader to wire money or buy gift cards.
+_PAYMENT_RE = re.compile(
+    r"\b(?:wire\s+transfer|bank\s+(?:account|details|transfer|wire)|routing\s+number|"
+    r"account\s+number|sort\s+code|iban|swift\s+code|bitcoin|btc\s+address|ethereum|"
+    r"usdt|crypto(?:currency)?\s+(?:wallet|address|payment)|wallet\s+address|"
+    r"gift\s+cards?|western\s+union|moneygram|zelle|venmo|cash\s*app|paypal\.me)\b",
+    re.IGNORECASE)
+
+
+def _digits(value: str) -> str:
+    digits = re.sub(r"\D", "", value or "")
+    return digits[2:] if digits.startswith("00") else digits
+
+
+def find_phone_numbers(text: str) -> list[str]:
+    """Every phone number in ``text``, as written."""
+    text = _normalize(text)
+    found = []
+    for m in _PHONE_RE.finditer(text):
+        raw = m.group(0).strip()
+        digits = _digits(raw)
+        # A bare run of digits is an order or ID number unless it's phone-long.
+        if (_ISO_DATE_RE.match(raw) or not 7 <= len(digits) <= 15
+                or (raw.isdigit() and len(digits) < 10)):
+            continue
+        found.append(raw)
+    return found
+
+
+def _is_our_number(number: str, ours: set[str]) -> bool:
+    """``number`` is one of ``ours``, with or without its country code."""
+    d = _digits(number)
+    return any(d == o or (len(d) >= 7 and (o.endswith(d) or d.endswith(o))) for o in ours)
+
+
+def own_phone_numbers(config) -> set[str]:
+    """Your numbers: channels.email.phone_numbers, and any in your postal address."""
+    email_cfg = getattr(getattr(config, "channels", None), "email", None)
+    compliance = getattr(config, "compliance", None)
+    out = {_digits(str(n)) for n in (getattr(email_cfg, "phone_numbers", None) or [])}
+    out.update(_digits(n) for n in find_phone_numbers(str(getattr(compliance, "postal_address", "") or "")))
+    return {d for d in out if len(d) >= 7}
+
+
 def autopilot_review(subject: str, body: str, config, root=None, recipient: str = "") -> list[str]:
     """Why an email nobody approved must wait for a human, or [] to send.
 
-    Two things a planted instruction would try: point the reader somewhere
-    that isn't yours, or get Sellbird to quote its own instructions back.
+    What a planted instruction would try: point the reader somewhere that
+    isn't yours (a link, an address, a phone number), ask them to send money,
+    or get Sellbird to quote its own instructions back.
     ``recipient``'s own domain is fine to mention to them ("saw
     joesroofing.com"): it's theirs."""
     from sellbird.paths import PROJECT_ROOT
@@ -460,6 +510,15 @@ def autopilot_review(subject: str, body: str, config, root=None, recipient: str 
         reasons.append(
             f"links to {', '.join(foreign[:3])}, not one of your domains "
             "(add it to channels.email.link_domains if it's yours)")
+    ours = own_phone_numbers(config)
+    numbers = list(dict.fromkeys(n for n in find_phone_numbers(text) if not _is_our_number(n, ours)))
+    if numbers:
+        reasons.append(
+            f"gives the phone number {', '.join(numbers[:3])}, not one of yours "
+            "(add it to channels.email.phone_numbers if it's yours)")
+    payment = _PAYMENT_RE.search(_normalize(text))
+    if payment:
+        reasons.append(f"asks about sending money (\"{payment.group(0)}\")")
     words = _words(text)
     runs = _instruction_runs(root or PROJECT_ROOT)
     for i in range(len(words) - LEAK_RUN_WORDS + 1):

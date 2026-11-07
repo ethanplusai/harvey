@@ -53,6 +53,8 @@ channels:
     # link_domains: ["mainsite.com"]   # your own sites besides the sending
     #                                  # domain and booking link; on autopilot,
     #                                  # an email linking elsewhere waits for you
+    # phone_numbers: ["+1 555 010 2000"]  # your own numbers; on autopilot, an
+    #                                  # email giving any other number waits for you
     send_to_risky: false        # also send to catch-all domains (off = safest)
     # min_write_score: 60       # only write for prospects Scout scored at
     #                           # least this (0-100); 0 or unset = everyone

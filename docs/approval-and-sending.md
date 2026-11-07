@@ -71,6 +71,12 @@ reason, instead of out, when it:
   everyone's), and any you list: `channels.email.link_domains:
   ["mainsite.com"]`. Links are read the way a browser opens them, and bare
   `evil.com/x`, `www.`, IP addresses and "evil dot com" all count;
+- gives a phone number that isn't yours. Yours are the numbers you list,
+  `channels.email.phone_numbers: ["+1 555 010 2000"]`, and any in
+  `compliance.postal_address`. Dates and short order numbers don't count;
+- asks the reader to send money: a wire or bank transfer, account or routing
+  numbers, IBAN, crypto wallets, gift cards, Zelle, Venmo and the like. Talk
+  of price and payment terms is fine;
 - quotes a passage of Sellbird's own instructions (`prompts/`, `skills/`), which
   is what a reply trying to extract your playbook would get back. Scripts the
   playbooks quote to be said, and the email frameworks and product knowledge,
