@@ -2660,59 +2660,187 @@ async function setConvoStatus(id, status) {
 
 // ── Inboxes: the main mailbox and the extra ones you connected ──
 
-const INBOX_STATE = {sending: 'Sending', paused: 'Paused', not_connected: 'Not connected'};
+const INBOX_STATE = {
+  sending: ['Sending', 't-good'],
+  paused: ['Paused', 't-waiting'],
+  not_connected: ['Not connected', 't-bad'],
+};
+const INBOX_KINDS = {
+  gmail: ['Gmail', 'Google Workspace or Gmail. Sign in with Google in your browser.'],
+  microsoft: ['Microsoft 365', 'Outlook or Microsoft 365. Sign in with Microsoft in your browser.'],
+  smtp: ['Other (SMTP)', 'Any other email host, with its SMTP server and password.'],
+};
+let _inboxes = null;
+let _inboxPoll = null;
+
+function inboxBadge(ib) {
+  const [label, tone] = INBOX_STATE[ib.state] || [ib.state, 't-idle'];
+  return '<span class="badge ' + tone + '">' + escHtml(label) + '</span>';
+}
+
+function inboxMeter(ib) {
+  const cap = Math.max(1, Number(ib.cold_cap) || 0);
+  const sent = Number(ib.cold_sent_today) || 0;
+  const pct = Math.min(100, Math.round(sent / cap * 100));
+  return '<div class="inbox-meter"><div class="line"><span>Cold emails today</span><span>' +
+    sent + ' / ' + Number(ib.cold_cap) + '</span></div>' +
+    '<div class="progress-bar"><div class="progress-fill ' + (pct >= 100 ? 'yellow' : 'green') +
+    '" style="width:' + pct + '%"></div></div></div>';
+}
+
+function inboxDate(iso) {
+  if (!iso) return '';
+  const d = new Date(iso.length === 10 ? iso + 'T00:00:00' : iso);
+  return isNaN(d) ? iso : d.toLocaleDateString(undefined, {month: 'short', day: 'numeric', year: 'numeric'});
+}
 
 async function loadInboxes() {
   const el = document.getElementById('inboxes-list');
+  const actions = document.getElementById('inboxes-actions');
   const data = await api('/api/inboxes');
   if (!data) { el.innerHTML = offlineState(); return; }
+  _inboxes = data;
   if (!data.native) {
+    actions.innerHTML = '';
     el.innerHTML = emptyState(icon('inboxes'), 'Instantly sends for you',
-      'Several inboxes work with Gmail, Microsoft 365 or SMTP. Set channels.email.provider in sellbird.yaml to one of those to use them.');
+      'Sending through several of your own inboxes works with Gmail, Microsoft 365 or SMTP. ' +
+      'Set channels.email.provider in sellbird.yaml to one of those to use it.');
     return;
   }
+  actions.innerHTML = '<button class="btn btn-primary" onclick="openAddInbox()">' + icon('plus') +
+    'Add inbox</button>';
+
   let html = '';
   if (data.sending_paused) {
-    html += '<div class="card"><b>All sending is paused:</b> ' + escHtml(data.sending_paused) +
+    html += '<div class="notice wait"><b>All sending is paused:</b> ' + escHtml(data.sending_paused) +
       '. Resume it on the Outbox tab.</div>';
   }
-  html += '<div class="table-card"><table><thead><tr><th>Inbox</th><th>State</th>' +
-    '<th>Cold today</th><th>First emails waiting</th><th></th></tr></thead><tbody>';
-  for (const ib of data.inboxes) {
-    const who = '<b>' + escHtml(ib.address || '(main mailbox)') + '</b>' +
-      (ib.main ? ' <span class="chip">main</span>' : '') +
-      '<div class="muted">' + escHtml(ib.name || '') + '</div>';
-    const state = escHtml(INBOX_STATE[ib.state] || ib.state) +
-      (ib.paused_reason ? '<div class="muted">' + escHtml(ib.paused_reason) + '</div>' : '');
-    const cap = Number(ib.cold_sent_today) + ' / ' + Number(ib.cold_cap) +
-      (ib.cap_is_yours ? ' <span class="chip">your cap</span>' : '');
-    let actions = '';
-    if (!ib.main) {
-      const id = jsq(ib.id);
-      actions = (ib.state === 'paused'
-          ? '<button class="btn btn-secondary btn-sm" onclick="inboxAction(' + id + ',\'resume\')">Resume</button>'
-          : '<button class="btn btn-secondary btn-sm" onclick="inboxAction(' + id + ',\'pause\')">Pause</button>') +
-        ' <button class="btn btn-ghost btn-sm" onclick="inboxCap(' + id + ')">Cap</button>' +
-        ' <button class="btn btn-ghost btn-sm" onclick="inboxName(' + id + ')">Name</button>' +
-        ' <button class="btn btn-ghost btn-sm" onclick="inboxRemove(' + id + ',' + jsq(ib.address) + ')">Remove</button>';
-    }
-    html += '<tr><td>' + who + '</td><td>' + state + '</td><td>' + cap + '</td><td>' +
-      Number(ib.first_emails_waiting) + '</td><td>' + actions + '</td></tr>';
+  const list = data.inboxes || [];
+  const sending = list.filter(i => i.state === 'sending');
+  const capToday = sending.reduce((n, i) => n + (Number(i.cold_cap) || 0), 0);
+  const sentToday = list.reduce((n, i) => n + (Number(i.cold_sent_today) || 0), 0);
+  const waiting = list.reduce((n, i) => n + (Number(i.first_emails_waiting) || 0), 0);
+  html += '<div class="inbox-summary">' +
+    '<span><b>' + list.length + '</b> ' + (list.length === 1 ? 'inbox' : 'inboxes') + ', <b>' + sending.length + '</b> sending</span>' +
+    '<span><b>' + sentToday + '</b>' + (capToday ? ' of <b>' + Math.min(capToday, Number(data.max_daily_sends)) + '</b>' : '') + ' cold emails sent today</span>' +
+    '<span><b>' + waiting + '</b> first emails waiting to go</span></div>';
+
+  html += '<div class="inbox-list">';
+  list.forEach((ib, i) => {
+    const letter = (ib.address || '?').charAt(0).toUpperCase();
+    const sub = [ib.name, ib.main ? 'Main mailbox' : (INBOX_KINDS[ib.provider === 'google' ? 'gmail' : ib.provider] || [ib.provider])[0]]
+      .filter(Boolean).join(' · ');
+    html += '<button class="inbox-row" onclick="openInbox(' + i + ')" aria-label="Open ' + escHtml(ib.address || 'main mailbox') + '">' +
+      '<span class="inbox-avatar" aria-hidden="true">' + escHtml(letter) + '</span>' +
+      '<span class="inbox-who"><div class="addr">' + escHtml(ib.address || '(main mailbox)') + '</div>' +
+      '<div class="sub">' + escHtml(sub) + '</div></span>' +
+      inboxBadge(ib) + inboxMeter(ib) +
+      '<span class="inbox-waiting"><b>' + Number(ib.first_emails_waiting) + '</b>waiting</span>' +
+      icon('chevron', 'chev') + '</button>';
+  });
+  html += '</div>';
+
+  if (!data.several) {
+    html += '<div class="card"><div class="card-title">Why add another inbox?</div><div class="inbox-help">' +
+      '<div class="inset"><h4>Send more each day</h4><p>Each inbox sends up to ' + Number(data.per_inbox_daily_cap) +
+      ' cold emails a day. Two inboxes, twice as many, all under your daily total of ' + Number(data.max_daily_sends) + '.</p></div>' +
+      '<div class="inset"><h4>Protect your main address</h4><p>Send cold email from a second domain, so a bad week never touches your everyday mail.</p></div>' +
+      '<div class="inset"><h4>Pick per campaign</h4><p>Choose which inboxes each campaign sends from. Replies always come back to the inbox that started the thread.</p></div>' +
+      '</div><div class="btn-group"><button class="btn btn-secondary" onclick="openAddInbox()">' + icon('plus') + 'Add inbox</button></div></div>';
   }
-  html += '</tbody></table></div>';
-  html += '<div class="card"><h3>Add an inbox</h3><p>Connect another inbox you own from your terminal ' +
-    '(a browser sign-in, or your SMTP password at a prompt; it is kept in your system keychain):</p>' +
-    '<pre>' + escHtml(data.connect_command) + '</pre><p class="muted">Each inbox sends up to ' +
-    Number(data.per_inbox_daily_cap) + ' cold emails a day unless you set its cap. Everything sent in a day stays under max_daily_sends (' +
-    Number(data.max_daily_sends) + ').</p></div>';
   el.innerHTML = html;
 }
 
-async function inboxPost(path, body, done) {
+// The dialog: one inbox's detail, or adding one.
+
+function inboxDialog(html) {
+  const d = document.getElementById('inbox-dialog');
+  d.innerHTML = html;
+  if (!d.open) d.showModal();
+  return d;
+}
+
+function closeInboxDialog() {
+  if (_inboxPoll) { clearInterval(_inboxPoll); _inboxPoll = null; }
+  const d = document.getElementById('inbox-dialog');
+  if (d.open) d.close();
+}
+
+function inboxDialogHead(title, sub, extra) {
+  return '<div class="modal-head"><div><h3 id="inbox-dialog-title">' + title + '</h3>' +
+    (sub ? '<div class="sub">' + sub + '</div>' : '') + '</div>' + (extra || '') +
+    '<button class="btn btn-ghost btn-sm btn-icon" onclick="closeInboxDialog()" aria-label="Close">' + icon('close') + '</button></div>';
+}
+
+function openInbox(i) {
+  const ib = (_inboxes && _inboxes.inboxes || [])[i];
+  if (!ib) return;
+  const campaigns = (_inboxes.campaigns || []);
+  const pools = _inboxes.pools || {};
+  const using = campaigns.filter(c => (pools[c.id] || []).includes(ib.id));
+  const everyInbox = campaigns.filter(c => !pools[c.id]);
+  let body = '';
+  if (ib.state === 'not_connected') {
+    body += '<div class="notice bad"><b>Not connected.</b> ' +
+      escHtml(ib.connect_hint || 'Sellbird can\'t sign in to it from this computer. Check the connection to see why, or remove it and add it again.') + '</div>';
+  }
+  if (ib.paused_reason) {
+    body += '<div class="notice wait"><b>Paused:</b> ' + escHtml(ib.paused_reason) + '</div>';
+  }
+  body += '<div class="modal-stats">' +
+    '<div class="inset"><div class="k">Cold today</div><div class="v">' + Number(ib.cold_sent_today) + ' / ' + Number(ib.cold_cap) + '</div></div>' +
+    '<div class="inset"><div class="k">First emails waiting</div><div class="v">' + Number(ib.first_emails_waiting) + '</div></div>' +
+    '<div class="inset"><div class="k">Warming up since</div><div class="v">' + (ib.warmup_started_at ? escHtml(inboxDate(ib.warmup_started_at)) : '<span class="muted">Established</span>') + '</div></div>' +
+    '</div>';
+  body += '<div class="modal-section"><h4>Campaigns sending from it</h4>';
+  if (!campaigns.length) body += '<p>No campaigns yet.</p>';
+  else {
+    const names = using.concat(everyInbox).map(c => escHtml(c.name || 'Untitled'));
+    const shown = names.slice(0, 6).join(', ') + (names.length > 6 ? ', and ' + (names.length - 6) + ' more' : '');
+    body += names.length ? '<p>' + shown + '</p>' : '<p>None. Every campaign has chosen other inboxes.</p>';
+    if (everyInbox.length) body += '<p class="form-hint">Campaigns that haven\'t chosen inboxes send from all of them.</p>';
+  }
+  body += '</div>';
+
+  if (ib.main) {
+    body += '<div class="modal-section"><h4>Settings</h4><p>Your main mailbox comes from sellbird.yaml: ' +
+      'its address is persona.email, its daily cap is channels.email.per_inbox_daily_cap, and pausing it pauses ' +
+      'all sending, on the Outbox tab.</p></div>';
+    inboxDialog(inboxDialogHead(escHtml(ib.address || 'Main mailbox'), inboxBadge(ib) + ' Main mailbox') +
+      '<div class="modal-body">' + body + '</div>');
+    return;
+  }
+  const id = jsq(ib.id);
+  body += '<div class="modal-section"><h4>Daily cold-email cap</h4>' +
+    '<div class="inline-edit"><input class="form-input" id="ib-cap" type="number" min="1" max="500" inputmode="numeric" placeholder="Default (' +
+    Number(_inboxes.per_inbox_daily_cap) + ')" value="' + (ib.cap_is_yours ? Number(ib.cold_cap) : '') + '">' +
+    '<button class="btn btn-secondary" onclick="saveInboxCap(' + id + ')">Save</button></div>' +
+    '<div class="form-hint">Leave empty for the default. Warming inboxes start lower on their own.</div></div>';
+  body += '<div class="modal-section"><h4>Sender name</h4>' +
+    '<div class="inline-edit"><input class="form-input" id="ib-name" maxlength="100" placeholder="Your persona name" value="' + escHtml(ib.name || '') + '">' +
+    '<button class="btn btn-secondary" onclick="saveInboxName(' + id + ')">Save</button></div>' +
+    '<div class="form-hint">The name people see in From.</div></div>';
+  body += '<div class="modal-section"><h4>Remove this inbox</h4><p>Sellbird stops sending from it, and threads it started end. Its sign-in stays in your keychain.</p>' +
+    '<div class="inline-edit" style="margin-top:8px"><input class="form-input" id="ib-confirm" placeholder="Type ' + escHtml(ib.address) + ' to confirm">' +
+    '<button class="btn btn-danger" onclick="removeInbox(' + id + ')">Remove</button></div></div>';
+
+  const pauseBtn = ib.paused_reason
+    ? '<button class="btn btn-primary" onclick="inboxAction(' + id + ',\'resume\')">Resume sending</button>'
+    : '<button class="btn btn-secondary" onclick="inboxAction(' + id + ',\'pause\')"' + (ib.state === 'not_connected' ? ' disabled' : '') + '>Pause</button>';
+  inboxDialog(inboxDialogHead(escHtml(ib.address), inboxBadge(ib) + ' ' + escHtml(ib.name || '')) +
+    '<div class="modal-body">' + body + '</div>' +
+    '<div class="modal-foot"><button class="btn btn-ghost" onclick="testInbox(' + id + ')">Check connection</button>' + pauseBtn + '</div>');
+}
+
+async function inboxPost(path, body, done, keepOpen) {
   const r = await api(path, {method: 'POST', headers: {'Content-Type': 'application/json'},
                              body: JSON.stringify(body || {})});
-  if (r && r.success) { showToast(done, 'success'); loadInboxes(); }
-  else showToast((r && r.message) || 'That didn\'t work.', 'error');
+  if (r && r.success) {
+    if (done) showToast(done, 'success');
+    if (!keepOpen) closeInboxDialog();
+    loadInboxes();
+  } else showToast((r && r.message) || 'That didn\'t work.', 'error');
+  return r;
 }
 
 function inboxAction(id, action) {
@@ -2720,24 +2848,135 @@ function inboxAction(id, action) {
             action === 'pause' ? 'Inbox paused' : 'Inbox sends again');
 }
 
-function inboxCap(id) {
-  const v = prompt('Daily cold-email cap for this inbox (1-500), or blank for the default:');
-  if (v === null) return;
-  const cap = v.trim() === '' ? null : Number(v.trim());
-  inboxPost('/api/inboxes/' + encodeURIComponent(id) + '/cap', {cap: cap}, 'Cap saved');
+function saveInboxCap(id) {
+  const v = document.getElementById('ib-cap').value.trim();
+  inboxPost('/api/inboxes/' + encodeURIComponent(id) + '/cap', {cap: v === '' ? null : Number(v)}, 'Cap saved');
 }
 
-function inboxName(id) {
-  const v = prompt('Name this inbox sends as (blank: your persona name):');
-  if (v === null) return;
-  inboxPost('/api/inboxes/' + encodeURIComponent(id) + '/name', {name: v.trim()}, 'Name saved');
+function saveInboxName(id) {
+  inboxPost('/api/inboxes/' + encodeURIComponent(id) + '/name',
+            {name: document.getElementById('ib-name').value.trim()}, 'Name saved');
 }
 
-function inboxRemove(id, address) {
-  const v = prompt('Removing ' + address + ' ends the threads it started. Type its address to confirm:');
-  if (v === null) return;
-  inboxPost('/api/inboxes/' + encodeURIComponent(id) + '/remove', {confirm: v.trim().toLowerCase()},
-            'Inbox removed');
+function removeInbox(id) {
+  inboxPost('/api/inboxes/' + encodeURIComponent(id) + '/remove',
+            {confirm: document.getElementById('ib-confirm').value.trim().toLowerCase()}, 'Inbox removed');
+}
+
+async function testInbox(id) {
+  showToast('Checking the connection...', 'info');
+  const r = await api('/api/inboxes/' + encodeURIComponent(id) + '/test', {method: 'POST'});
+  if (r && r.success) showToast(r.detail || (r.ok ? 'Connected' : 'Not connected'), r.ok ? 'success' : 'error');
+  else showToast((r && r.message) || 'Couldn\'t check it.', 'error');
+}
+
+// Adding an inbox
+
+let _addKind = 'gmail';
+
+function openAddInbox(kind) {
+  if (kind) _addKind = kind;
+  const can = (_inboxes && _inboxes.can_connect) || {};
+  const picks = Object.keys(INBOX_KINDS).map(k =>
+    '<button class="provider-pick' + (k === _addKind ? ' on' : '') + '" onclick="openAddInbox(\'' + k + '\')" aria-pressed="' + (k === _addKind) + '">' +
+    '<b>' + INBOX_KINDS[k][0] + '</b><span>' + INBOX_KINDS[k][1] + '</span></button>').join('');
+  let form = '<div class="form-group"><label class="form-label" for="add-address">Email address</label>' +
+    '<input class="form-input" id="add-address" type="email" autocomplete="off" placeholder="you@yourdomain.com" oninput="updateAddCommand()"></div>' +
+    '<div class="form-row"><div class="form-group"><label class="form-label" for="add-name">Sender name <span class="optional-tag">optional</span></label>' +
+    '<input class="form-input" id="add-name" maxlength="100" placeholder="Your persona name"></div>' +
+    '<div class="form-group"><label class="form-label" for="add-warmup">Warming up since <span class="optional-tag">optional</span></label>' +
+    '<input class="form-input" id="add-warmup" type="date"></div></div>' +
+    '<div class="form-hint" style="margin:-8px 0 16px">Leave the date empty if this inbox has been sending normally for a while.</div>';
+  let note = '';
+  if (_addKind === 'smtp') {
+    form += '<div class="form-row"><div class="form-group"><label class="form-label" for="add-host">SMTP server</label>' +
+      '<input class="form-input" id="add-host" placeholder="smtp.yourhost.com"></div>' +
+      '<div class="form-group" style="max-width:110px"><label class="form-label" for="add-port">Port</label>' +
+      '<input class="form-input" id="add-port" type="number" value="587"></div></div>' +
+      '<div class="form-group"><label class="form-label" for="add-password">Password or app password</label>' +
+      '<input class="form-input" id="add-password" type="password" autocomplete="new-password"></div>' +
+      '<details class="more-fields"><summary>Username and IMAP (for reading replies)</summary>' +
+      '<div class="form-group"><label class="form-label" for="add-user">Username</label><input class="form-input" id="add-user" placeholder="Same as the address"></div>' +
+      '<div class="form-row"><div class="form-group"><label class="form-label" for="add-imap">IMAP server</label><input class="form-input" id="add-imap" placeholder="Same as the SMTP server"></div>' +
+      '<div class="form-group" style="max-width:110px"><label class="form-label" for="add-imap-port">Port</label><input class="form-input" id="add-imap-port" type="number" value="993"></div></div></details>';
+    note = '<p class="form-hint">The password goes straight to your system keychain. Sellbird never shows it again.</p>';
+  } else if (!can[_addKind]) {
+    note = '<div class="notice info">' + (_addKind === 'gmail'
+      ? 'Signing in with Google needs your Google OAuth client first: set GMAIL_CLIENT_ID and GMAIL_CLIENT_SECRET in .env (Google Cloud Console, Credentials, OAuth client ID, Desktop app), then restart Sellbird.'
+      : 'Signing in with Microsoft needs your app registration first: set M365_CLIENT_ID (and M365_TENANT_ID) in .env (entra.microsoft.com, App registrations), then restart Sellbird.') + '</div>';
+  } else {
+    note = '<p class="form-hint">A ' + INBOX_KINDS[_addKind][0] + ' sign-in opens in the browser on the computer running Sellbird. Sign in as the address above.</p>';
+  }
+  note += '<div class="modal-section"><h4>Or from your terminal</h4><div class="cmd-copy"><code id="add-cmd"></code>' +
+    '<button class="btn btn-secondary btn-sm" onclick="copyAddCommand()">Copy</button></div></div>';
+  const disabled = _addKind !== 'smtp' && !can[_addKind];
+  inboxDialog(inboxDialogHead('Add an inbox', 'Connect an inbox you already own. Sellbird sends from it and reads its replies.') +
+    '<div class="modal-body"><div class="provider-picks">' + picks + '</div><div style="height:16px"></div>' +
+    '<div id="add-status"></div>' + form + note + '</div>' +
+    '<div class="modal-foot"><button class="btn btn-ghost" onclick="closeInboxDialog()">Cancel</button>' +
+    '<button class="btn btn-primary" id="add-go" onclick="submitAddInbox()"' + (disabled ? ' disabled' : '') + '>' +
+    (_addKind === 'smtp' ? 'Connect' : 'Sign in with ' + (_addKind === 'gmail' ? 'Google' : 'Microsoft')) + '</button></div>');
+  updateAddCommand();
+}
+
+function updateAddCommand() {
+  const el = document.getElementById('add-cmd');
+  if (!el) return;
+  const addr = (document.getElementById('add-address').value || '').trim() || 'you@yourdomain.com';
+  el.textContent = 'sellbird inboxes connect ' + _addKind + ' --address ' + addr +
+    (_addKind === 'smtp' ? ' --smtp-host smtp.yourhost.com' : '');
+}
+
+function copyAddCommand() {
+  const text = document.getElementById('add-cmd').textContent;
+  navigator.clipboard.writeText(text).then(() => showToast('Copied', 'success'),
+    () => showToast('Couldn\'t copy. Select the command instead.', 'error'));
+}
+
+function addStatus(cls, html) {
+  const el = document.getElementById('add-status');
+  if (el) el.innerHTML = html ? '<div class="notice ' + cls + '">' + html + '</div>' : '';
+}
+
+async function submitAddInbox() {
+  const v = id => { const el = document.getElementById(id); return el ? el.value.trim() : ''; };
+  const body = {address: v('add-address'), name: v('add-name'), warmup_started: v('add-warmup')};
+  const go = document.getElementById('add-go');
+  if (_addKind === 'smtp') {
+    Object.assign(body, {smtp_host: v('add-host'), smtp_port: Number(v('add-port') || 587),
+      password: document.getElementById('add-password').value, username: v('add-user'),
+      imap_host: v('add-imap'), imap_port: Number(v('add-imap-port') || 993)});
+  }
+  go.disabled = true;
+  addStatus('info', _addKind === 'smtp' ? 'Connecting and checking the sign-in...' : 'Opening the sign-in...');
+  const r = await api('/api/inboxes/connect/' + _addKind, {method: 'POST',
+    headers: {'Content-Type': 'application/json'}, body: JSON.stringify(body)});
+  if (!r || !r.success) {
+    go.disabled = false;
+    addStatus('bad', escHtml((r && r.message) || 'That didn\'t work.'));
+    return;
+  }
+  if (_addKind === 'smtp') {
+    showToast('Connected ' + r.address, 'success');
+    if (!r.test_ok) showToast('It\'s connected, but the check failed: ' + (r.test_detail || ''), 'error');
+    closeInboxDialog(); loadInboxes();
+    return;
+  }
+  addStatus('wait', 'A ' + (_addKind === 'gmail' ? 'Google' : 'Microsoft') + ' sign-in opened in your browser. ' +
+    'Sign in as <b>' + escHtml(body.address.toLowerCase()) + '</b> and allow access. This page updates when you\'re done.');
+  _inboxPoll = setInterval(async () => {
+    const s = await api('/api/inboxes/connect/status');
+    if (!s || s.state === 'waiting') return;
+    clearInterval(_inboxPoll); _inboxPoll = null;
+    if (s.state === 'connected') {
+      showToast('Connected ' + s.address, 'success');
+      if (s.message) showToast('It\'s connected, but the check failed: ' + s.message, 'error');
+      closeInboxDialog(); loadInboxes();
+    } else {
+      go.disabled = false;
+      addStatus('bad', escHtml(s.message || 'The sign-in didn\'t finish.'));
+    }
+  }, 1500);
 }
 
 async function loadActivity() {
@@ -2810,3 +3049,10 @@ setInterval(() => {
     case 'controls': loadLogs(); break;
   }
 }, 15000);
+
+(function wireInboxDialog() {
+  const d = document.getElementById('inbox-dialog');
+  if (!d) return;
+  d.addEventListener('close', () => { if (_inboxPoll) { clearInterval(_inboxPoll); _inboxPoll = null; } });
+  d.addEventListener('click', e => { if (e.target === d) closeInboxDialog(); });
+})();
