@@ -1238,6 +1238,16 @@ def main():
     sub.add_argument("--days", type=int, default=30, help="Breakdown window (default: 30)")
     sub.set_defaults(func=cmd_usage)
 
+    # Commands that installed extensions add (sellbird.extensions). A name the
+    # built-in CLI already uses is refused, so an extension never hides one.
+    from sellbird import extensions
+    for name, (help_text, configure) in extensions.registry().cli_commands.items():
+        if name in subparsers.choices:
+            raise extensions.ExtensionError(
+                f"an extension's command {name!r} clashes with a built-in command")
+        sub = subparsers.add_parser(name, help=help_text)
+        sub.set_defaults(func=configure(sub))
+
     args = parser.parse_args()
     _carry_over_from_harvey()
     args._project_root = project_root

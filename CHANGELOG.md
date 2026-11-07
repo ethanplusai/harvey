@@ -9,6 +9,13 @@ minor versions can still change behaviour.
 
 ### Added
 
+- **Extensions.** A separate package can add dashboard routes, steps that
+  run each heartbeat cycle and `sellbird` subcommands through the
+  `sellbird.extensions` entry point, without patching Sellbird. A failing
+  extension stops Sellbird with its name; a failing step is logged and
+  skipped. `sellbird.dashboard.build_app(guard=, routers=)` serves the
+  dashboard for someone else, with its own sign-in and a per-request home.
+  See [docs/extensions.md](docs/extensions.md).
 - **Storage and settings seams.** Every database open goes through
   `sellbird.storage`: SQLite paths as before, or `<prefix>:<name>` for a
   backend an extension registers (in code or through the `sellbird.storage`
