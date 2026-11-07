@@ -800,6 +800,96 @@ def test_spanish_opt_out_lines_are_accepted():
         assert ComplianceConfig(opt_out_line=line).opt_out_line == line
 
 
+# ── Indonesian opt-outs ──
+
+INDONESIAN_LINE = 'Tidak tertarik? Balas "STOP" dan saya tidak akan mengirim email lagi.'
+
+
+@pytest.mark.parametrize("reply", [
+    "STOP", "Stop ya pak, terima kasih", "Berhenti", "Berhenti, terima kasih.", "Hapus",
+    "Tidak, terima kasih.", "tidak terima kasih", "Nggak, makasih", "Ga, thanks",
+    "Tidak, terima kasih banyak.",
+    "Tolong jangan kirim email lagi.", "Jangan kirimi saya email lagi",
+    "Tidak usah kirim penawaran lagi ya", "Mohon jangan hubungi saya lagi.",
+    "Jangan email saya lagi", "Jangan ganggu kami.", "Jangan kirim lagi.",
+    "Gak perlu kirim promosi lagi", "Jangan kirim email lagi ke saya",
+    "Berhenti mengirim email ke saya.", "Tolong berhenti mengirimi saya email promosi.",
+    "Stop kirim email", "Berhenti menghubungi kami",
+    "Hapus saya dari daftar email Anda.", "Tolong hapus email saya dari database kalian",
+    "Keluarkan saya dari mailing list", "Hapus saya.", "Tolong hapus email saya, terima kasih",
+    "Saya ingin berhenti berlangganan",
+    "Tidak tertarik.", "Kami tidak tertarik, terima kasih.", "Saya belum tertarik untuk saat ini.",
+    "Maaf, kami tidak butuh.", "Tidak berminat", "Kami kurang tertarik.",
+    "Tidak tertarik\n\nSalam,\nBudi", "Jangan hubungi saya lagi\nBudi\nTelp 0800-0000-000",
+])
+def test_indonesian_opt_outs(reply):
+    assert _opt_out_reason(reply, reply) is not None
+
+
+@pytest.mark.parametrize("reply", [
+    "Ya atau tidak, terima kasih", "Tidak, terima kasih kembali", "Tidak apa-apa, terima kasih",
+    "Tidak ada pertanyaan lagi, terima kasih", "Belum, terima kasih",
+    "Jangan kirim dulu, kami masih rapat internal.",
+    "Jangan kirim email ke alamat ini, kirim ke budi@acme.example",
+    "Jangan hubungi saya sebelum jam 10 ya", "Jangan email, lewat WhatsApp saja",
+    "Jangan hubungi saya, langsung ke Pak Andi saja.",
+    "Hapus saya dari CC, PIC-nya Budi.", "Tolong hapus data saya yang lama dan pakai yang baru",
+    "Kalau tidak tertarik, apakah ada biaya?", "Bagaimana jika kami tidak tertarik?",
+    "Tidak tertarik?", "Tidak tertarik dengan paket tahunan, tapi paket bulanan boleh.",
+    "Kami tidak tertarik, tapi rekan saya mungkin.", "Tidak perlu khawatir, kami tertarik.",
+    "Jangan berhenti mengirim laporan mingguan", "Kapan berhenti mengirim invoice?",
+    "Supplier kami sudah berhenti mengirim barang.", "Kami tertarik, berapa harganya?",
+    "Tidak tertarik bulan ini, coba hubungi lagi bulan depan.",
+    INDONESIAN_LINE,
+])
+def test_indonesian_that_is_not_an_opt_out(reply):
+    assert _opt_out_reason(reply, reply) is None
+
+
+def test_a_long_indonesian_reply_is_quick():
+    import time
+    text = "jangan kirim saya " * 20000
+    started = time.monotonic()
+    _opt_out_reason(text, text)
+    assert time.monotonic() - started < 2
+
+
+@pytest.mark.asyncio
+async def test_an_indonesian_opt_out_reaches_the_handler(state):
+    status, _ = await _reply(state, "Tidak, terima kasih.")
+    assert status == "opted_out"
+
+
+def test_indonesian_mobile_signature_doesnt_hide_a_bare_opt_out():
+    reply = "STOP\n\nDikirim dari iPhone saya"
+    assert _opt_out_reason(reply, reply)["rule"] == "only_words"
+
+
+def test_our_own_indonesian_footer_quoted_back_is_not_an_opt_out():
+    ours = OurText([INDONESIAN_LINE])
+    their = ours.remove(f"Kami tertarik, berapa harganya?\n> {INDONESIAN_LINE}")
+    assert _opt_out_reason(their, "Kami tertarik, berapa harganya?") is None
+
+
+def test_every_indonesian_reply_an_opt_out_line_can_ask_for_is_caught():
+    from sellbird.config import INDONESIAN_OPT_OUT_WORDS
+    for word in INDONESIAN_OPT_OUT_WORDS:
+        assert _opt_out_reason(word, word), word
+
+
+def test_indonesian_opt_out_lines_are_accepted():
+    import pydantic
+    for line in (INDONESIAN_LINE,
+                 "Kalau tidak relevan, balas saja BERHENTI.",
+                 'Tidak tertarik? Balas "tidak, terima kasih".',
+                 "Jawab STOP untuk berhenti menerima email."):
+        assert ComplianceConfig(opt_out_line=line).opt_out_line == line
+    for bad in ('Tidak tertarik? Balas "tidak".', 'Balas "hapus" untuk berhenti.',
+                "Klik di sini untuk berhenti."):
+        with pytest.raises(pydantic.ValidationError):
+            ComplianceConfig(opt_out_line=bad)
+
+
 # ── Hebrew escalation ──
 
 @pytest.mark.asyncio
