@@ -100,6 +100,15 @@ sellbird inboxes list                                           # each inbox and
 - Replies are read from every inbox each cycle. If one can't be read,
   nothing is sent that cycle, as with one inbox, and the Today page says
   which inbox.
+- The dashboard's **Inboxes** tab shows every inbox with today's cold sends
+  against its cap. Click one to pause, resume, cap, rename, check or remove
+  it. **Add inbox** connects one: Gmail and Microsoft 365 open their sign-in
+  in the browser on the computer running Sellbird (it needs the same
+  `GMAIL_CLIENT_ID`/`M365_CLIENT_ID` setup as the main mailbox), and an SMTP
+  password goes straight to your system keychain and is never shown again.
+  On a server with no browser, use `sellbird inboxes connect` instead.
+- Your coding agent can list inboxes and pause one (`inboxes_list`,
+  `inbox_pause`); only you resume one or change its cap.
 - An extension can add another way to connect an inbox with
   `registry.add_mailbox_connection` ([docs/extensions.md](extensions.md)).
 
