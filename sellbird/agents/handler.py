@@ -20,6 +20,7 @@ from sellbird.config import (
     live_do_not_contact,
 )
 from sellbird.gate import autopilot_review, do_not_contact_match, pre_send_check
+from sellbird.email_style import style_problems, tidy
 from sellbird.humanize import humanize, humanizer_enabled
 from sellbird.integrations.instantly import InstantlyClient
 from sellbird.integrations.mail_provider import (
@@ -1401,4 +1402,36 @@ Write a reply that:"""
             self.brain, [{"subject": "", "body": response}], agent="handler",
             enabled=humanizer_enabled(self.config),
         )
-        return polished[0]["body"]
+        return await self._keep_to_rules(tidy(polished[0]["body"]), prospect)
+
+    async def _keep_to_rules(self, body: str, prospect) -> str:
+        """``body`` after at most one rewrite for Sellbird's writing rules
+        (sellbird.email_style). A reply that still breaks them is kept: the
+        Sender holds it for you rather than send it, and a reply someone is
+        waiting for shouldn't vanish."""
+        names = [n for n in (prospect.company, prospect.first_name, prospect.last_name) if n]
+        found = style_problems("", body, kind="reply", names=names)
+        if not found:
+            return body
+        problems = "\n".join(f"- It {p}." for p in found)
+        prompt = f"""This email reply breaks Sellbird's writing rules:
+{problems}
+
+Rewrite it so it breaks none of them. Keep what it says and every fact; add
+nothing. Make it shorter, never longer. Plain text, no dash between words (use a
+period or a comma), no exclamation marks.
+
+{fence(body, "reply draft")}
+
+{UNTRUSTED_RULE}
+
+Write ONLY the email body."""
+        try:
+            rewrite = tidy(await self.brain.think(
+                prompt, session_id="sellbird-handler", agent="handler", task="fix_reply") or "")
+        except Exception as e:
+            logger.warning(f"Handler: rewrite to rules failed: {e}")
+            return body
+        if rewrite and not style_problems("", rewrite, kind="reply", names=names):
+            return rewrite
+        return body

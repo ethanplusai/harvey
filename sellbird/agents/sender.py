@@ -30,6 +30,7 @@ from sellbird.integrations.instantly import InstantlyClient
 from sellbird.integrations.mail_provider import NATIVE_PROVIDERS, get_mail_provider
 from sellbird.integrations.precleared import PreclearedClient, clear_hold, record_hold
 from sellbird.integrations.signature import signature_problem
+from sellbird.email_style import style_problems
 from sellbird.mailboxes import Inboxes, load_inboxes
 from sellbird.sending_mode import SIGNATURE_HOLD_PREFIX, sync_sending_mode
 from sellbird.state import (
@@ -829,6 +830,16 @@ class Sender:
             colleague = await self.state.colleague_who_replied(prospect.id)
             if colleague:
                 return "cancelled", f"{COLLEAGUE_REPLIED} ({colleague})"
+        # Sellbird's writing rules (no dashes, no exclamation marks, no AI
+        # phrases): a draft that breaks them waits for an edit instead of
+        # going out. Length and shape were checked when it was written, so an
+        # edit you made on purpose isn't second-guessed here.
+        style = style_problems(item["subject"], item["body"],
+                               kind="reply" if item["kind"] == "reply" else "cold",
+                               names=_names(prospect), shape=False)
+        if style:
+            logger.warning(f"Sender: holding email to {item['to_email']}: {style}")
+            return "pending_review", (HELD_FOR_REVIEW + "the email " + "; ".join(style))[:300]
         gate = pre_send_check(
             item["to_email"], item["subject"], self._outgoing_body(item),
             prospect=prospect, allow_risky=allow_risky, kind=item["kind"],
@@ -1258,3 +1269,10 @@ class Sender:
         if sent:
             logger.info(f"Sender: {sent} email(s) sent this cycle "
                         f"({sent_today + sent}/{max_daily} today).")
+
+
+def _names(prospect) -> list[str]:
+    """The prospect's own name and company: never read as an AI tell."""
+    if prospect is None:
+        return []
+    return [n for n in (prospect.company, prospect.first_name, prospect.last_name) if n]

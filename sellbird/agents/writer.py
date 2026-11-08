@@ -16,6 +16,10 @@ from datetime import datetime, timezone
 
 from sellbird.brain import Brain
 from sellbird.config import EmailRulesError, SellbirdConfig, compliance_of, load_email_rules
+from sellbird.email_style import (
+    BREAKUP_MAX_WORDS, FIRST_EMAIL_MAX_WORDS, FOLLOW_UP_MAX_WORDS,
+    style_problems, tidy, with_sign_off,
+)
 from sellbird.humanize import humanize, humanizer_enabled
 from sellbird.integrations.mail_provider import NATIVE_PROVIDERS
 from sellbird.models.campaign import Campaign, EmailStep
@@ -35,6 +39,17 @@ WRITE_ATTEMPTS_KEY = "write_attempts:"
 # Merge variables that name a person; a company inbox has none of them.
 PERSON_VAR = re.compile(r"\{\{\s*(first_?name|last_?name|title)\s*\}\}", re.IGNORECASE)
 
+# Any merge variable, for checking a rewrite kept the draft's own.
+MERGE_VAR = re.compile(r"\{\{\s*\w+\s*\}\}")
+
+
+def _names(prospect) -> list[str]:
+    """Text that belongs to the prospect (their name, their company), so the
+    style rules never read "Elevate Fitness" as an AI tell."""
+    return [n for n in (getattr(prospect, "company", ""), getattr(prospect, "first_name", ""),
+                        getattr(prospect, "last_name", ""), getattr(prospect, "title", "")) if n]
+
+
 # Native mode: one Claude call per prospect for email 1, so batches stay
 # small — the rest of the 'new' pool is picked up on later cycles.
 NATIVE_BATCH_CAP = 8
@@ -42,13 +57,19 @@ LEGACY_BATCH_CAP = 50
 
 # The built-in "how" lines each prompt ends with: email 1 is an observation
 # and a question, with no pitch. Operator email rules replace exactly these.
-PERSONAL_SHAPE = """- Under 75 words. One specific observation from the FACTS above, one
-  question. No pitch, no product name.
+PERSONAL_SHAPE = f"""- {FIRST_EMAIL_MAX_WORDS} words at most, and aim for 25-45. Every word you cut raises the
+  reply rate. One specific observation from the FACTS above, one question. No pitch,
+  no product name.
 - Write the actual text (no merge variables — you know their name/company).
+- No sign-off and no name at the end: Sellbird adds the sender's first name.
 - Subject: lowercase, 2-5 words."""
-SEQUENCE_SHAPE = """- Email 1: Personalized cold observation + one question. Under 75 words. No pitch.
-- Email 2: Follow-up 3 days later. Different angle, one concrete proof point. Under 75 words.
-- Email 3: Break-up email 4 days after that. Under 40 words. Gracious, not guilt-tripping."""
+SEQUENCE_SHAPE = f"""- Email 1: Personalized cold observation + one question. {FIRST_EMAIL_MAX_WORDS} words at most, aim for
+  25-45. No pitch.
+- Email 2: Follow-up 3 days later. Different angle, one concrete proof point. {FOLLOW_UP_MAX_WORDS} words
+  at most, aim for 20-40.
+- Email 3: Break-up email 4 days after that. {BREAKUP_MAX_WORDS} words at most, aim for 10-20.
+  Gracious, not guilt-tripping.
+- No sign-off and no name at the end of any email: Sellbird adds the sender's first name."""
 SEQUENCE_STYLE = """- Never be pushy or salesy. Be consultative and value-driven.
 - Subject lines: lowercase, 2-5 words."""
 # Why the Writer stopped: Today and `sellbird status` show it.
@@ -313,6 +334,9 @@ class Writer:
 
         drafted = 0
         for (prospect, _), draft in zip(pending, polished):
+            draft = await self._keep_to_rules(draft, step=1, names=_names(prospect))
+            if draft is None:
+                continue
             item_id = await self.state.add_outbox_item(
                 prospect_id=prospect.id,
                 campaign_id=campaign_id,
@@ -572,9 +596,95 @@ Return ONLY a JSON array (no markdown fences, no commentary):
             self.brain, [{"subject": s.subject, "body": s.body} for s in steps],
             agent="writer", enabled=humanizer_enabled(self.config),
         )
+        names = [n for p in prospects for n in _names(p)]
         for step, draft in zip(steps, polished):
-            step.subject, step.body = draft["subject"], draft["body"]
+            kept = await self._keep_to_rules(draft, step=step.step, names=names)
+            if kept is None:
+                # One template goes to the whole batch: a step that can't be
+                # brought within the rules fails the sequence, and the batch
+                # is tried again next cycle (counted, see MAX_WRITE_ATTEMPTS).
+                return []
+            step.subject, step.body = kept["subject"], kept["body"]
         return steps
+
+    async def _keep_to_rules(self, draft: dict, *, step: int, names=()) -> dict | None:
+        """``draft`` tidied, signed and within Sellbird's writing rules
+        (sellbird.email_style), after at most one rewrite; None when even
+        the rewrite breaks them.
+
+        Operator email rules replace the built-in length and shape, and the
+        sign-off (they may write their own); the always-rules (no dashes, no
+        exclamation marks, no AI phrases, no formatting) still hold."""
+        shape = not getattr(self, "email_rules", "")
+
+        def finish(d: dict) -> dict:
+            body = tidy(str(d.get("body") or ""))
+            if shape:
+                body = with_sign_off(body, self.config.persona.name)
+            return {**d, "subject": tidy(str(d.get("subject") or "")), "body": body}
+
+        def problems(d: dict) -> list[str]:
+            return style_problems(d["subject"], d["body"], kind="cold", step=step,
+                                  names=names, shape=shape)
+
+        draft = finish(draft)
+        found = problems(draft)
+        if not found:
+            return draft
+        rewrite = await self._rewrite_to_rules(draft, found, step, shape)
+        if rewrite is not None:
+            rewrite = finish(rewrite)
+            found = problems(rewrite)
+            if not found:
+                return rewrite
+        logger.warning(f"Writer: dropped a draft for email {step} that breaks the rules: "
+                       + "; ".join(found))
+        return None
+
+    async def _rewrite_to_rules(self, draft: dict, found: list[str], step: int,
+                                shape: bool) -> dict | None:
+        """One model call that fixes exactly what ``style_problems`` found."""
+        body = draft["body"]
+        if shape:
+            # The sign-off is Sellbird's; the model never sees or writes it.
+            first = (self.config.persona.name or "").strip().split(" ")[0]
+            if first and body.endswith("\n\n" + first):
+                body = body[: -len(first) - 2].rstrip()
+        payload = {"subject": draft["subject"], "body": body}
+        problems = "\n".join(f"- It {p}." for p in found)
+        prompt = f"""This cold email (email {step} of a sequence) breaks Sellbird's writing rules:
+{problems}
+
+Rewrite it so it breaks none of them. Keep its facts, its one question and every
+merge variable such as {{{{first_name}}}} exactly as written; add no fact, name or claim.
+Make it shorter, never longer: cut words instead of adding them. Plain text, no
+dash between words (use a period or a comma), no exclamation marks, no sign-off
+and no name at the end.
+
+Draft:
+{fence(json.dumps(payload, ensure_ascii=False, indent=2), "draft")}
+
+{UNTRUSTED_RULE}
+
+Return ONLY a JSON object: {{"subject": "...", "body": "..."}}"""
+        try:
+            result = await self.brain.think_json(
+                prompt, session_id="sellbird-writer", agent="writer", task="fix_draft",
+            )
+        except Exception as e:
+            logger.warning(f"Writer: rewrite to rules failed: {e}")
+            return None
+        if not isinstance(result, dict):
+            return None
+        subject = str(result.get("subject") or "").strip()
+        new_body = str(result.get("body") or "").strip()
+        if not subject or not new_body:
+            return None
+        before = set(MERGE_VAR.findall(payload["subject"] + payload["body"]))
+        after = set(MERGE_VAR.findall(subject + new_body))
+        if not after <= before or (before and not after):
+            return None  # a merge variable appeared from nowhere, or all of them went
+        return {**draft, "subject": subject[:120], "body": new_body[:2000]}
 
     def _parse_sequence(self, result) -> list[EmailStep]:
         """Robustly coerce LLM output into a validated EmailStep list.

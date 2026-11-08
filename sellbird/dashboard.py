@@ -1264,6 +1264,17 @@ async def outbox_edit(item_id: str, request: Request):
         if item.get("kind") == "sequence" and footer and not text.rstrip().endswith(footer):
             checked = text.rstrip() + "\n\n" + footer  # as the Sender will send it
         gate = pre_send_check("reviewer@example.com", subject, checked)
+        from sellbird.email_style import style_problems
+        prospect = await state.get_prospect(item.get("prospect_id") or "")
+        names = [n for n in (getattr(prospect, "company", ""), getattr(prospect, "first_name", ""),
+                             getattr(prospect, "last_name", "")) if n]
+        style = style_problems(subject, text, shape=False, names=names,
+                               kind="reply" if item.get("kind") == "reply" else "cold")
+        if style:
+            return JSONResponse({"success": False,
+                                 "message": "The sender would hold this: the email "
+                                            + "; ".join(style)},
+                                status_code=400)
         if not gate:
             return JSONResponse({"success": False,
                                  "message": "The sender would have blocked this: "

@@ -178,8 +178,9 @@ async def test_without_rules_the_prompts_keep_the_built_in_shape(state):
     personal = await personal_prompt(state)
     sequence = await sequence_prompt(state)
     assert "OPERATOR'S EMAIL RULES" not in personal + sequence
-    assert "Under 75 words. One specific observation" in personal
-    assert "Email 3: Break-up email 4 days after that. Under 40 words." in sequence
+    assert "- 60 words at most, and aim for 25-45." in personal
+    assert "Email 3: Break-up email 4 days after that. 30 words at most" in sequence
+    assert "Sellbird adds the sender's first name" in personal + sequence
     assert BUILT_IN_FOOTER in personal and BUILT_IN_FOOTER in sequence
 
 
