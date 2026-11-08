@@ -15,6 +15,7 @@
 <!-- One icon set: 24px grid, 1.75 stroke, currentColor. -->
 <svg width="0" height="0" style="position:absolute" aria-hidden="true">
   <defs>
+    <symbol id="i-offer" viewBox="0 0 24 24"><rect x="3" y="8" width="18" height="13" rx="2"/><path d="M12 8v13M3 12h18"/><path d="M12 8c-1.5-3-5-4-5-1.5S10 8 12 8zM12 8c1.5-3 5-4 5-1.5S14 8 12 8z"/></symbol>
     <symbol id="i-today" viewBox="0 0 24 24"><path d="M3 10.5 12 3l9 7.5"/><path d="M5.5 9v11h13V9"/><path d="M10 20v-5h4v5"/></symbol>
     <symbol id="i-signals" viewBox="0 0 24 24"><circle cx="12" cy="12" r="2"/><path d="M16.2 7.8a6 6 0 0 1 0 8.4M7.8 16.2a6 6 0 0 1 0-8.4M19.1 4.9a10 10 0 0 1 0 14.2M4.9 19.1a10 10 0 0 1 0-14.2"/></symbol>
     <symbol id="i-discover" viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></symbol>
@@ -74,6 +75,7 @@
     <div class="nav-group">
       <div class="nav-label">Work</div>
       <button class="active" onclick="showTab('today', this)"><svg class="icon" aria-hidden="true"><use href="#i-today"/></svg><span class="label">Today</span><span class="nav-count" id="nav-today"></span></button>
+      <button onclick="showTab('offer', this)"><svg class="icon" aria-hidden="true"><use href="#i-offer"/></svg><span class="label">Your offer</span></button>
       <button onclick="showTab('outbox', this)"><svg class="icon" aria-hidden="true"><use href="#i-outbox"/></svg><span class="label">Outbox</span><span class="nav-count" id="nav-outbox"></span></button>
       <button onclick="showTab('conversations', this)"><svg class="icon" aria-hidden="true"><use href="#i-conversations"/></svg><span class="label">Conversations</span><span class="nav-count" id="nav-conversations"></span></button>
     </div>
@@ -154,6 +156,28 @@
 </div>
 
 <!-- Signals: the confirmation gate -->
+<!-- Your offer: what every first email ends by offering (sellbird.offer) -->
+<div id="offer" class="section">
+  <div class="section-head">
+    <div>
+      <h2>Your offer</h2>
+      <p>Every first email names something Sellbird found about the prospect, says what it costs them, and ends by offering this as the next step. Make it free, specific, and something you can deliver after a yes.</p>
+    </div>
+  </div>
+  <div class="card offer-card">
+    <div class="form-group"><label class="form-label" for="offer-entry">Your offer</label>
+      <textarea class="form-input" id="offer-entry" rows="2" maxlength="300" placeholder="e.g. a written plan for getting you onto page one of Google"></textarea></div>
+    <div class="offer-actions">
+      <button class="btn btn-secondary btn-sm" id="offer-suggest-btn" onclick="suggestOffers()">Suggest offers</button>
+      <button class="btn btn-secondary btn-sm" id="offer-preview-btn" onclick="previewOffer()">Preview an email</button>
+      <button class="btn btn-primary btn-sm" onclick="saveOffer()">Save offer</button>
+    </div>
+    <div id="offer-preview" class="offer-preview" hidden></div>
+    <div id="offer-ideas" class="offer-ideas"></div>
+  </div>
+
+</div>
+
 <div id="signals" class="section">
   <div class="section-head">
     <div>
@@ -295,20 +319,6 @@
 <!-- Settings -->
 <div id="settings" class="section">
   <div class="section-head"><div><h2>Settings</h2><p>Credentials are stored locally in <code>.env</code> and never sent anywhere except the services themselves.</p></div></div>
-
-  <div class="subhead">Your offer <span class="hint">What every first email ends by offering</span></div>
-  <div class="card offer-card">
-    <p class="desc">Each first email names something Sellbird found about the prospect, says what it costs them, and offers this as the next step. Make it free, specific, and something you can deliver after a yes.</p>
-    <div class="form-group"><label class="form-label" for="offer-entry">Your offer</label>
-      <textarea class="form-input" id="offer-entry" rows="2" maxlength="300" placeholder="e.g. a written plan for getting you onto page one of Google"></textarea></div>
-    <div class="offer-actions">
-      <button class="btn btn-secondary btn-sm" id="offer-suggest-btn" onclick="suggestOffers()">Suggest offers</button>
-      <button class="btn btn-secondary btn-sm" id="offer-preview-btn" onclick="previewOffer()">Preview an email</button>
-      <button class="btn btn-primary btn-sm" onclick="saveOffer()">Save offer</button>
-    </div>
-    <div id="offer-preview" class="offer-preview" hidden></div>
-    <div id="offer-ideas" class="offer-ideas"></div>
-  </div>
 
   <div class="subhead">Sending</div>
   <div id="sending-mode-card"></div>

@@ -548,6 +548,19 @@ async def trulyinbox_other():
 
 # ── Your offer: what every first email ends by offering (sellbird.offer) ──
 
+def _offer_config_file() -> Path:
+    """Where the offer is saved. The tracked sellbird.yaml template stays
+    untrained: your offer goes in the gitignored sellbird.local.yaml, which
+    then holds your whole config (as `sellbird train` does)."""
+    target = _resolve_config_file()
+    if target.name == "sellbird.yaml":
+        local = target.with_name("sellbird.local.yaml")
+        if not local.exists():
+            shutil.copyfile(target, local)
+        target = local
+    return target
+
+
 async def _offer_brain():
     from sellbird.brain import Brain
     from sellbird.config import load_config
@@ -581,6 +594,12 @@ async def suggest_offer():
     if not ideas:
         return JSONResponse({"error": "Sellbird couldn't come up with offers just now. Try again."},
                             status_code=502)
+    # Keep them, so the next visit shows them without another model call.
+    from sellbird.offer import save_offer
+    try:
+        save_offer(_offer_config_file(), config.product.offer.entry or "", [i["offer"] for i in ideas])
+    except Exception as e:
+        logger.warning(f"Couldn't keep the offer ideas: {e}")
     return {"ideas": ideas}
 
 
@@ -608,14 +627,7 @@ async def save_offer_route(request: Request):
     entry = " ".join(str((body or {}).get("entry") or "").split())[:MAX_OFFER_CHARS]
     ideas = (body or {}).get("ideas")
     ideas = [str(i) for i in ideas] if isinstance(ideas, list) else None
-    target = _resolve_config_file()
-    if target.name == "sellbird.yaml":
-        # The tracked template stays untrained: your offer goes in the
-        # gitignored local override, which then holds your whole config.
-        local = target.with_name("sellbird.local.yaml")
-        if not local.exists():
-            shutil.copyfile(target, local)
-        target = local
+    target = _offer_config_file()
     try:
         save_offer(target, entry, ideas)
     except Exception as e:

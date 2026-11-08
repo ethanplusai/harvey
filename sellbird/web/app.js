@@ -421,7 +421,8 @@ function loadCurrentTab() {
     case 'conversations': loadConversations(); break;
     case 'activity': loadActivity(); break;
     case 'usage': loadUsage(); break;
-    case 'settings': loadSettings(); loadSendingModeCard(); loadOffer(); break;
+    case 'settings': loadSettings(); loadSendingModeCard(); break;
+    case 'offer': loadOffer(); break;
     case 'controls': loadSellbirdStatus(); loadLogs(); break;
   }
 }
@@ -2744,6 +2745,8 @@ async function loadOffer() {
   document.getElementById('offer-entry').value = data.entry || '';
   _offerIdeas = (data.entry_ideas || []).map(o => ({offer: o}));
   renderOfferIdeas();
+  // First visit: nothing to pick from yet, so ask Sellbird for ideas now.
+  if (!_offerIdeas.length) suggestOffers();
 }
 
 function renderOfferIdeas() {
@@ -2766,9 +2769,11 @@ function useOfferIdea(i) {
 async function suggestOffers() {
   const btn = document.getElementById('offer-suggest-btn');
   btn.disabled = true; btn.textContent = 'Thinking...';
+  if (!_offerIdeas.length) document.getElementById('offer-ideas').innerHTML =
+    '<p class="desc">Sellbird is reading your product and coming up with offers that fit it...</p>';
   const r = await api('/api/offer/suggest', {method: 'POST'});
   btn.disabled = false; btn.textContent = 'Suggest offers';
-  if (!r || r.error || !r.ideas) { showToast((r && r.error) || 'Sellbird couldn\'t come up with offers just now. Try again.', 'error'); return; }
+  if (!r || r.error || !r.ideas) { renderOfferIdeas(); showToast((r && r.error) || 'Sellbird couldn\'t come up with offers just now. Try again.', 'error'); return; }
   _offerIdeas = r.ideas;
   renderOfferIdeas();
 }
