@@ -57,6 +57,24 @@ class TrayStatus:
     loop: Literal["running", "stopped", "unknown"]
     sending_paused: str = ""
     error: str = ""
+    # What's waiting on you, from Today: conversations Sellbird handed to you
+    # and emails waiting for your approval.
+    needs_you: int = 0
+    to_approve: int = 0
+
+    @property
+    def waiting(self) -> int:
+        return self.needs_you + self.to_approve
+
+
+@dataclass(frozen=True)
+class Reply:
+    """The newest message in a conversation, when the prospect wrote it."""
+    key: tuple[str, int]          # (conversation id, messages in the thread)
+    name: str
+    company: str
+    text: str
+    intent: str = ""
 
 
 @dataclass(frozen=True)
@@ -192,8 +210,39 @@ class TrayController:
             return TrayStatus("starting" if starting else "stopped", "unknown")
         if code in (401, 403):
             return TrayStatus("running", "unknown", error=SIGNED_OUT)
+        _, today = self._call("GET", "/api/today")
+        stats = today.get("stats") if isinstance(today.get("stats"), dict) else {}
         return TrayStatus("running", "running" if loop.get("running") else "stopped",
-                          sending_paused=loop.get("sending_paused") or "")
+                          sending_paused=loop.get("sending_paused") or "",
+                          needs_you=int(stats.get("needs_human") or 0),
+                          to_approve=int(stats.get("outbox_pending") or 0))
+
+    def replies(self) -> list[Reply] | None:
+        """Each conversation whose newest message is the prospect's, or None
+        when the dashboard can't be read."""
+        base = self._base()
+        if base is None:
+            return None
+        token = _read_user_token(self.data_dir)
+        try:
+            with self._client(base) as http:
+                r = http.get("/api/conversations", headers={"Authorization": f"Bearer {token}"})
+            rows = r.json() if r.status_code == 200 else None
+        except (httpx.HTTPError, OSError, ValueError):
+            return None
+        if not isinstance(rows, list):
+            return None
+        out = []
+        for row in rows:
+            if not isinstance(row, dict):
+                continue
+            thread = row.get("thread") or []
+            if not thread or not isinstance(thread[-1], dict) or thread[-1].get("sender") != "prospect":
+                continue
+            name = " ".join(x for x in (row.get("first_name"), row.get("last_name")) if x) or "Someone"
+            out.append(Reply((str(row.get("id")), len(thread)), name, row.get("company") or "",
+                             str(thread[-1].get("content") or ""), row.get("intent") or ""))
+        return out
 
     def start_dashboard(self) -> str:
         """Start the dashboard unless one is up, and wait a little for it."""
@@ -256,10 +305,42 @@ def icon_state(status: TrayStatus) -> str:
     return "paused" if status.sending_paused else "running"
 
 
+def waiting_label(status: TrayStatus) -> str:
+    """"2 replies need you · 8 emails to approve", or "" when nothing waits."""
+    parts = []
+    if status.needs_you:
+        parts.append(f"{status.needs_you} {'reply needs' if status.needs_you == 1 else 'replies need'} you")
+    if status.to_approve:
+        parts.append(f"{status.to_approve} {'email' if status.to_approve == 1 else 'emails'} to approve")
+    return " · ".join(parts)
+
+
+def reply_message(reply: Reply) -> str:
+    """The notification for one new reply."""
+    who = f"{reply.name} at {reply.company}" if reply.company else reply.name
+    text = " ".join(reply.text.split())
+    if len(text) > 90:
+        text = text[:87].rstrip() + "..."
+    verb = "said yes to your offer" if reply.intent == "accepted_offer" else "replied"
+    return f"{who} {verb}: \u201c{text}\u201d"
+
+
+def new_reply_messages(seen: set, replies: list[Reply], limit: int = 3) -> list[str]:
+    """Messages for replies not in ``seen`` (which this updates). More than
+    ``limit`` at once become one summary instead of a burst."""
+    new = [r for r in replies if r.key not in seen]
+    seen.update(r.key for r in replies)
+    if len(new) > limit:
+        return [f"{len(new)} new replies. Open Sellbird to read them."]
+    return [reply_message(r) for r in new]
+
+
 def menu_items(status: TrayStatus, autostart_on: bool) -> list[MenuRow]:
     up = status.dashboard == "running" and not status.error
-    rows = [MenuRow(f"Sellbird: {state_label(status)}", None, False),
-            MenuRow("Open dashboard", "open", status.dashboard == "running")]
+    rows = [MenuRow(f"Sellbird: {state_label(status)}", None, False)]
+    if up and status.waiting:
+        rows.append(MenuRow(waiting_label(status), "open", True))
+    rows.append(MenuRow("Open dashboard", "open", status.dashboard == "running"))
     if status.loop == "running":
         rows.append(MenuRow("Stop Sellbird", "stop_loop", up))
     else:
@@ -405,6 +486,18 @@ def _sharp_on_retina(icon) -> None:
 
 # ── The tray app ──
 
+def _show_count(icon, count: int) -> None:
+    """The number waiting on you, beside the bird in the macOS menu bar.
+    Elsewhere (and if macOS refuses) the menu still shows it."""
+    item = getattr(icon, "_status_item", None)
+    if item is None:
+        return
+    try:
+        item.button().setTitle_(f" {count}" if count else "")
+    except Exception:
+        logger.debug("Count not shown in the menu bar")
+
+
 def _autostart_on() -> bool:
     from sellbird.desktop import login_item
     try:
@@ -451,7 +544,11 @@ class TrayApp:
         self.autostart_on = False
         self.icon = None
         self._drawn: tuple[str, bool] | None = None
+        self._count_shown = None
         self._lock = threading.Lock()
+        # Replies already seen. None until the first look, which notifies
+        # nothing: only replies that arrive while the tray runs pop up.
+        self._seen: set | None = None
 
     def refresh(self, *, autostart: bool = False) -> None:
         status = self.controller.status()
@@ -461,6 +558,18 @@ class TrayApp:
             if autostart_on is not None:
                 self.autostart_on = autostart_on
         self._ui(lambda: self._apply(status))
+        if status.dashboard == "running" and not status.error:
+            self._check_replies()
+
+    def _check_replies(self) -> None:
+        replies = self.controller.replies()
+        if replies is None:
+            return
+        if self._seen is None:
+            self._seen = {r.key for r in replies}
+            return
+        for message in new_reply_messages(self._seen, replies):
+            self._notify(message)
 
     def _apply(self, status: TrayStatus) -> None:
         if self.icon is not None:
@@ -469,6 +578,10 @@ class TrayApp:
                 self.icon._sellbird_look = look
                 self.icon.icon = make_icon(*look)
                 self._drawn = look
+            count = status.waiting if status.dashboard == "running" and not status.error else 0
+            if count != self._count_shown:
+                _show_count(self.icon, count)
+                self._count_shown = count
             self.icon.update_menu()
 
     def _notify(self, message: str) -> None:

@@ -225,3 +225,60 @@ def test_menubar_icon_is_drawn_at_retina_size():
     # twice the point size, and wider than tall like the bird, not a 22px square
     assert image.size == (MENUBAR_PT[0] * 2, MENUBAR_PT[1] * 2)
     assert image.size[0] > image.size[1]
+
+
+# ── What's waiting on you, and new replies ────────────────────────────────
+
+from sellbird.desktop.tray import Reply, new_reply_messages, reply_message, waiting_label
+
+
+def test_the_menu_says_what_waits_on_you():
+    from sellbird.desktop.tray import TrayStatus, menu_items
+    status = TrayStatus("running", "running", needs_you=2, to_approve=1)
+    assert waiting_label(status) == "2 replies need you · 1 email to approve"
+    rows = menu_items(status, False)
+    assert rows[1].label == "2 replies need you · 1 email to approve" and rows[1].action == "open"
+    assert waiting_label(TrayStatus("running", "running")) == ""
+    assert all("need" not in r.label for r in menu_items(TrayStatus("running", "running"), False))
+
+
+def test_a_reply_notification_names_who_and_quotes_them():
+    r = Reply(("c1", 2), "Mike Ross", "Summit Roofing", "Sure, send it over.\nThanks")
+    assert reply_message(r) == "Mike Ross at Summit Roofing replied: “Sure, send it over. Thanks”"
+    yes = Reply(("c1", 2), "Mike Ross", "", "x" * 200, intent="accepted_offer")
+    message = reply_message(yes)
+    assert message.startswith("Mike Ross said yes to your offer:") and message.endswith("...”")
+
+
+def test_only_new_replies_notify_and_a_burst_becomes_one_summary():
+    seen = {("c1", 2)}
+    old = Reply(("c1", 2), "A", "", "old")
+    new = Reply(("c2", 3), "B", "", "new")
+    assert new_reply_messages(seen, [old, new]) == ["B replied: “new”"]
+    assert new_reply_messages(seen, [old, new]) == []          # never twice
+    burst = [Reply((f"x{i}", 1), "C", "", "hi") for i in range(5)]
+    assert new_reply_messages(seen, burst) == ["5 new replies. Open Sellbird to read them."]
+
+
+def test_the_first_look_sets_a_baseline_and_later_replies_pop_up():
+    from sellbird.desktop.tray import TrayApp, TrayStatus
+
+    class Controller:
+        def __init__(self):
+            self.rows = [Reply(("c1", 2), "A", "", "old")]
+
+        def status(self):
+            return TrayStatus("running", "running", needs_you=1)
+
+        def replies(self):
+            return list(self.rows)
+
+    shown = []
+    controller = Controller()
+    app = TrayApp(controller, pystray=None, autostart=lambda: False, ui=lambda fn: fn())
+    app._notify = shown.append
+    app.refresh()
+    assert shown == []                                   # nothing old pops up at start
+    controller.rows.append(Reply(("c2", 1), "Mike", "Summit Roofing", "Sure, send it"))
+    app.refresh()
+    assert shown == ["Mike at Summit Roofing replied: “Sure, send it”"]
