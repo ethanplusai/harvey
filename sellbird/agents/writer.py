@@ -188,6 +188,13 @@ class Writer:
 
         # Load foundational skills for this agent
         self.skills = self.brain.load_skills_for_agent("writer")
+        # The offer can change in the dashboard while Sellbird runs: use the
+        # one saved now, not the one read at startup.
+        try:
+            from sellbird.config import load_config
+            self.config.product.offer = load_config().product.offer
+        except Exception:
+            pass
         try:
             self.email_rules = load_email_rules(self.config)
         except EmailRulesError as e:

@@ -11,19 +11,25 @@ first email. When you're done, delete each sentence the email still works
 without, then each word.
 
 GIVE BEFORE YOU ASK. A bare question gives the reader nothing. A good first email
-shows you looked, names something that's costing them, and offers something
-useful for free.
+shows you looked, says plainly what that's costing them, and offers the next step
+to fix it, for free. Write like an expert who has already looked into their
+business: state what you found as fact, not "it seems" or "likely".
 
-HOW A FIRST EMAIL WORKS:
+HOW A FIRST EMAIL WORKS. Each line leads to the next, so the ask feels obvious:
 1. Greeting: their first name ("Sam," or "Hi Sam,"), or "Hi there," for a company inbox.
 2. The finding: one specific thing from the FACTS that points to a problem you
    solve (where they rank, what their site lacks, a role they're hiring for).
    Use their words and numbers. This is the personalization.
-3. What it likely costs them, in one plain sentence (missed calls, lost bookings,
-   hours of manual work). No exaggeration.
-4. The ask: YOUR OFFER (below) as a yes or no question ("Want me to send it?").
-   If no offer is set, one easy question about the problem instead.
-No introduction of yourself, no product name, no feature list, no links in email 1.
+3. What it costs them, in one plain sentence (missed calls, patients choosing
+   someone on page one, hours of manual work). Confident, never exaggerated.
+4. Who you are, only when the offer needs it: if the offer is your service (a
+   trial, doing work for them), say what you do in a few words first ("We answer
+   after-hours calls for plumbing companies."), or the ask makes no sense.
+5. The ask: YOUR OFFER (below) as the fix for that finding, in one yes or no
+   question ("Want me to send it over?"). The offer must answer the problem in
+   lines 2 and 3, using the same words. If no offer is set, one easy question
+   about the problem instead.
+No product name, no feature list, no links in email 1.
 
 STRICT EMAIL RULES. Sellbird checks every draft in code and rewrites or drops one
 that breaks these: no dash between words (use a period or a comma), no exclamation
@@ -39,13 +45,21 @@ clever guess.
 
 EXAMPLES of the bar (the facts and offers differ for every email, so never reuse their words):
 
-Facts: dental practice in Savannah, 14th on Google for "dentist savannah", no online booking.
-Offer: a free mockup of a faster homepage with online booking.
-> Raymond,
+Facts: dental practice in Tucson, 11th on Google for "family dentist tucson".
+Offer: a written plan for getting them onto page one of Google.
+> Hi Anita,
 >
-> Searching "dentist savannah" from downtown, Tidewater shows up 14th, and the site has no way to book online. Most new patients pick from the first page, on their phone.
+> Searching "family dentist tucson" from downtown, Sagebrush comes up 11th, which is page two. Most new patients pick from the first page and never scroll.
 >
-> Want me to mock up a homepage with booking so you can see the difference?
+> I can send you a plan for getting Sagebrush into the top three. Want it?
+
+Facts: plumbing company, hiring a customer service rep to answer calls and book jobs.
+Offer: a two-week trial of after-hours call answering, at no cost.
+> Darlene,
+>
+> Saw Brightwater is hiring someone to answer calls and book jobs. Until that seat is filled, a burst pipe at 10pm goes to voicemail, then to the next plumber.
+>
+> We answer after-hours calls for plumbing companies and book the jobs. Want to try it free for two weeks while you hire?
 
 Facts: Shopify store selling running gear, hiring an inventory planner.
 Offer: a reorder forecast for their top 20 SKUs, at no cost.
@@ -54,13 +68,6 @@ Offer: a reorder forecast for their top 20 SKUs, at no cost.
 > Saw Stride is hiring an inventory planner. That usually means stockouts are already costing sales.
 >
 > Want me to run a reorder forecast on your top 20 SKUs while you hire?
-
-Facts: roofing company in Raleigh, 210 reviews, booking is by phone only. No offer set.
-> Nate,
->
-> 210 reviews, and the only way to book Keystone is a phone call during office hours, so a leak at night means voicemail.
->
-> What happens to the calls that come in at night?
 
 Follow-ups: if there's no reply, Sellbird sends them on schedule and stops the
 moment they answer. Email 2 brings one new reason to reply: one proof point or

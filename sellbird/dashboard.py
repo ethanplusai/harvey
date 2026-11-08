@@ -546,6 +546,86 @@ async def trulyinbox_other():
     return {"success": True}
 
 
+# ── Your offer: what every first email ends by offering (sellbird.offer) ──
+
+async def _offer_brain():
+    from sellbird.brain import Brain
+    from sellbird.config import load_config
+    config = load_config()
+    state = _state()
+    await state.init_db()
+    return Brain(state, config.brain), state, config
+
+
+@app.get("/api/offer")
+async def get_offer():
+    from sellbird.config import load_config
+    from sellbird.offer import offer_view
+    try:
+        return offer_view(load_config())
+    except Exception as e:
+        return JSONResponse({"error": f"Couldn't read your config: {e}"}, status_code=500)
+
+
+@app.post("/api/offer/suggest")
+async def suggest_offer():
+    """A few offers that fit your product. One model call; nothing is saved."""
+    from sellbird.offer import suggest_offers
+    try:
+        brain, _, config = await _offer_brain()
+        ideas = await suggest_offers(brain, config)
+    except Exception as e:
+        logger.warning(f"Offer suggestions failed: {e}")
+        return JSONResponse({"error": "Sellbird couldn't come up with offers just now. Try again."},
+                            status_code=502)
+    if not ideas:
+        return JSONResponse({"error": "Sellbird couldn't come up with offers just now. Try again."},
+                            status_code=502)
+    return {"ideas": ideas}
+
+
+@app.post("/api/offer/preview")
+async def preview_offer(request: Request):
+    """One real first email written with this offer. Nothing is saved or sent."""
+    from sellbird.offer import MAX_OFFER_CHARS, preview_email
+    body = await request.json() if request.headers.get("content-type", "").startswith("application/json") else {}
+    entry = " ".join(str((body or {}).get("entry") or "").split())[:MAX_OFFER_CHARS]
+    if not entry:
+        return JSONResponse({"ok": False, "message": "Write an offer first."}, status_code=400)
+    try:
+        brain, state, config = await _offer_brain()
+        return await preview_email(brain, state, config, entry)
+    except Exception as e:
+        logger.warning(f"Offer preview failed: {e}")
+        return JSONResponse({"ok": False, "message": "The preview failed. Try again."}, status_code=502)
+
+
+@app.post("/api/offer")
+async def save_offer_route(request: Request):
+    """Save the offer to product.offer.entry. The Writer reads it on its next run."""
+    from sellbird.offer import MAX_OFFER_CHARS, save_offer
+    body = await request.json() if request.headers.get("content-type", "").startswith("application/json") else {}
+    entry = " ".join(str((body or {}).get("entry") or "").split())[:MAX_OFFER_CHARS]
+    ideas = (body or {}).get("ideas")
+    ideas = [str(i) for i in ideas] if isinstance(ideas, list) else None
+    target = _resolve_config_file()
+    if target.name == "sellbird.yaml":
+        # The tracked template stays untrained: your offer goes in the
+        # gitignored local override, which then holds your whole config.
+        local = target.with_name("sellbird.local.yaml")
+        if not local.exists():
+            shutil.copyfile(target, local)
+        target = local
+    try:
+        save_offer(target, entry, ideas)
+    except Exception as e:
+        return JSONResponse({"success": False, "message": f"Couldn't save to {target.name}: {e}"},
+                            status_code=500)
+    return {"success": True, "entry": entry,
+            "message": "Saved. Every new first email ends with this offer." if entry
+                       else "Saved. With no offer, first emails end with a question."}
+
+
 @app.post("/api/settings/test-instantly")
 async def test_instantly(request: Request):
     """Test an Instantly API key."""

@@ -1054,3 +1054,20 @@ a.btn, a.btn:hover { text-decoration: none; }
 .rename-card p { margin: 0; }
 .rename-actions { display: flex; gap: 8px; flex-shrink: 0; }
 @media (max-width: 700px) { .rename-card { flex-direction: column; align-items: flex-start; } }
+
+
+/* Your offer */
+.offer-card { display: flex; flex-direction: column; gap: 12px; }
+.offer-card textarea { resize: vertical; min-height: 52px; font: inherit; }
+.offer-actions { display: flex; gap: 8px; flex-wrap: wrap; }
+.offer-ideas { display: flex; flex-direction: column; gap: 6px; }
+.offer-idea { display: flex; flex-direction: column; gap: 2px; text-align: left; padding: 10px 12px;
+  border: 1px solid var(--line); border-radius: 8px; background: transparent;
+  color: inherit; font: inherit; cursor: pointer; }
+.offer-idea:hover { border-color: var(--accent); background: var(--accent-soft); }
+.offer-idea-text { font-weight: 600; }
+.offer-idea-meta { font-size: 12px; opacity: .75; }
+.offer-preview { display: flex; flex-direction: column; gap: 6px; }
+.offer-mail { border: 1px solid var(--line); border-radius: 8px; padding: 12px 14px; }
+.offer-mail-subject { font-weight: 600; margin-bottom: 8px; }
+.offer-mail pre { white-space: pre-wrap; font: inherit; margin: 0; line-height: 1.5; }

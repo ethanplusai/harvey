@@ -296,6 +296,20 @@
 <div id="settings" class="section">
   <div class="section-head"><div><h2>Settings</h2><p>Credentials are stored locally in <code>.env</code> and never sent anywhere except the services themselves.</p></div></div>
 
+  <div class="subhead">Your offer <span class="hint">What every first email ends by offering</span></div>
+  <div class="card offer-card">
+    <p class="desc">Each first email names something Sellbird found about the prospect, says what it costs them, and offers this as the next step. Make it free, specific, and something you can deliver after a yes.</p>
+    <div class="form-group"><label class="form-label" for="offer-entry">Your offer</label>
+      <textarea class="form-input" id="offer-entry" rows="2" maxlength="300" placeholder="e.g. a written plan for getting you onto page one of Google"></textarea></div>
+    <div class="offer-actions">
+      <button class="btn btn-secondary btn-sm" id="offer-suggest-btn" onclick="suggestOffers()">Suggest offers</button>
+      <button class="btn btn-secondary btn-sm" id="offer-preview-btn" onclick="previewOffer()">Preview an email</button>
+      <button class="btn btn-primary btn-sm" onclick="saveOffer()">Save offer</button>
+    </div>
+    <div id="offer-ideas" class="offer-ideas"></div>
+    <div id="offer-preview" class="offer-preview" hidden></div>
+  </div>
+
   <div class="subhead">Sending</div>
   <div id="sending-mode-card"></div>
 

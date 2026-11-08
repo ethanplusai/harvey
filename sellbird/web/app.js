@@ -421,7 +421,7 @@ function loadCurrentTab() {
     case 'conversations': loadConversations(); break;
     case 'activity': loadActivity(); break;
     case 'usage': loadUsage(); break;
-    case 'settings': loadSettings(); loadSendingModeCard(); break;
+    case 'settings': loadSettings(); loadSendingModeCard(); loadOffer(); break;
     case 'controls': loadSellbirdStatus(); loadLogs(); break;
   }
 }
@@ -2726,3 +2726,73 @@ setInterval(() => {
     case 'controls': loadLogs(); break;
   }
 }, 15000);
+
+
+// ── Your offer (sellbird.offer): design it with Sellbird, preview, save ──
+
+let _offerIdeas = [];
+
+function offerEsc(t) {
+  const d = document.createElement('div');
+  d.textContent = t == null ? '' : String(t);
+  return d.innerHTML;
+}
+
+async function loadOffer() {
+  const data = await api('/api/offer');
+  if (!data || data.error) return;
+  document.getElementById('offer-entry').value = data.entry || '';
+  _offerIdeas = (data.entry_ideas || []).map(o => ({offer: o}));
+  renderOfferIdeas();
+}
+
+function renderOfferIdeas() {
+  const box = document.getElementById('offer-ideas');
+  if (!_offerIdeas.length) { box.innerHTML = ''; return; }
+  box.innerHTML = '<div class="form-label">Ideas (click one to use it, then edit it in your own words)</div>' +
+    _offerIdeas.map((idea, i) => `<button type="button" class="offer-idea" onclick="useOfferIdea(${i})">
+      <span class="offer-idea-text">${offerEsc(idea.offer)}</span>
+      ${idea.finding ? `<span class="offer-idea-meta">Pairs with: ${offerEsc(idea.finding)}</span>` : ''}
+      ${idea.why ? `<span class="offer-idea-meta">${offerEsc(idea.why)}</span>` : ''}
+    </button>`).join('');
+}
+
+function useOfferIdea(i) {
+  const el = document.getElementById('offer-entry');
+  el.value = _offerIdeas[i].offer;
+  el.focus();
+}
+
+async function suggestOffers() {
+  const btn = document.getElementById('offer-suggest-btn');
+  btn.disabled = true; btn.textContent = 'Thinking...';
+  const r = await api('/api/offer/suggest', {method: 'POST'});
+  btn.disabled = false; btn.textContent = 'Suggest offers';
+  if (!r || r.error || !r.ideas) { showToast((r && r.error) || 'Sellbird couldn\'t come up with offers just now. Try again.', 'error'); return; }
+  _offerIdeas = r.ideas;
+  renderOfferIdeas();
+}
+
+async function previewOffer() {
+  const entry = document.getElementById('offer-entry').value.trim();
+  if (!entry) { showToast('Write an offer first, or pick an idea.', 'error'); return; }
+  const btn = document.getElementById('offer-preview-btn');
+  const box = document.getElementById('offer-preview');
+  btn.disabled = true; btn.textContent = 'Writing...';
+  box.hidden = false;
+  box.innerHTML = '<p class="desc">Writing a sample first email for one of your prospects. Nothing is saved or sent.</p>';
+  const r = await api('/api/offer/preview', {method: 'POST', headers: {'Content-Type': 'application/json'},
+                                            body: JSON.stringify({entry})});
+  btn.disabled = false; btn.textContent = 'Preview an email';
+  if (!r || !r.ok) { box.innerHTML = `<p class="desc">${offerEsc((r && r.message) || 'The preview failed. Try again.')}</p>`; return; }
+  box.innerHTML = `<div class="form-label">Sample for ${offerEsc(r.to)} (not saved, not sent)</div>
+    <div class="offer-mail"><div class="offer-mail-subject">${offerEsc(r.subject)}</div><pre>${offerEsc(r.body)}</pre></div>`;
+}
+
+async function saveOffer() {
+  const entry = document.getElementById('offer-entry').value.trim();
+  const r = await api('/api/offer', {method: 'POST', headers: {'Content-Type': 'application/json'},
+                                     body: JSON.stringify({entry, ideas: _offerIdeas.map(i => i.offer)})});
+  if (r && r.success) showToast(r.message, 'success');
+  else showToast((r && r.message) || 'Couldn\'t save the offer.', 'error');
+}
