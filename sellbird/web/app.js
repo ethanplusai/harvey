@@ -2781,12 +2781,14 @@ async function previewOffer() {
   btn.disabled = true; btn.textContent = 'Writing...';
   box.hidden = false;
   box.innerHTML = '<p class="desc">Writing a sample first email for one of your prospects. Nothing is saved or sent.</p>';
+  box.scrollIntoView({block: 'nearest', behavior: 'smooth'});
   const r = await api('/api/offer/preview', {method: 'POST', headers: {'Content-Type': 'application/json'},
                                             body: JSON.stringify({entry})});
   btn.disabled = false; btn.textContent = 'Preview an email';
   if (!r || !r.ok) { box.innerHTML = `<p class="desc">${offerEsc((r && r.message) || 'The preview failed. Try again.')}</p>`; return; }
   box.innerHTML = `<div class="form-label">Sample for ${offerEsc(r.to)} (not saved, not sent)</div>
     <div class="offer-mail"><div class="offer-mail-subject">${offerEsc(r.subject)}</div><pre>${offerEsc(r.body)}</pre></div>`;
+  box.scrollIntoView({block: 'nearest', behavior: 'smooth'});
 }
 
 async function saveOffer() {
