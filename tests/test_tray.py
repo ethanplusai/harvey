@@ -301,3 +301,50 @@ def test_the_first_look_sets_a_baseline_and_later_replies_pop_up():
     controller.rows.append(Reply(("c2", 1), "Mike", "Summit Roofing", "Sure, send it"))
     app.refresh()
     assert shown == ["Mike at Summit Roofing replied: “Sure, send it”"]
+
+
+# ── Branded notifications through the Sellbird helper app ────────────────
+
+def test_without_swift_the_helper_is_not_built(tmp_path, monkeypatch):
+    import shutil as sh
+    from sellbird.desktop import tray
+    monkeypatch.setattr(sh, "which", lambda name: None)
+    assert tray.build_notifier(tmp_path / "Sellbird.app") is False
+    assert tray.MacNotifier.create(tmp_path, app=tmp_path / "Sellbird.app") is False
+
+
+def test_the_helper_is_built_once_per_version(tmp_path, monkeypatch):
+    from pathlib import Path
+    pytest.importorskip("PIL")
+    import shutil as sh
+    from sellbird.desktop import tray
+    calls = []
+
+    def run(cmd, **kw):
+        calls.append(cmd[0])
+        if cmd[0] == "/usr/bin/swiftc":
+            Path(cmd[3]).write_text("binary")
+        if cmd[0] == "iconutil":
+            Path(cmd[5]).write_text("icns")
+        return type("R", (), {"returncode": 0})()
+
+    monkeypatch.setattr(sh, "which", lambda name: "/usr/bin/swiftc")
+    app = tmp_path / "Sellbird.app"
+    assert tray.build_notifier(app, run=run)
+    plist = (app / "Contents" / "Info.plist").read_text()
+    assert "ai.sellbird.notifier" in plist and "<string>Sellbird</string>" in plist
+    assert (app / "Contents" / "MacOS" / "sellbird-notify").is_file()
+    built = len(calls)
+    assert tray.build_notifier(app, run=run) and len(calls) == built   # same version: no rebuild
+
+
+def test_the_dashboard_link_goes_in_a_private_file_not_on_the_command_line(tmp_path, monkeypatch):
+    import subprocess as sp
+    from sellbird.desktop.tray import MacNotifier
+    launched = []
+    monkeypatch.setattr(sp, "Popen", lambda args, **kw: launched.append(args))
+    notifier = MacNotifier(tmp_path / "Sellbird.app", tmp_path / "notify-link")
+    assert notifier.notify("Mike replied", "http://127.0.0.1:5555/#token=secret")
+    assert all("secret" not in a for a in launched[0])
+    assert (tmp_path / "notify-link").read_text().endswith("#token=secret")
+    assert (tmp_path / "notify-link").stat().st_mode & 0o777 == 0o600

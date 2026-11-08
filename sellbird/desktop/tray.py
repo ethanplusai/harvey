@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import json
 import logging
+import os
 import subprocess
 import sys
 import threading
@@ -275,13 +276,22 @@ class TrayController:
     def resume_sending(self) -> str:
         return self._post("/api/sending/resume", "Sending resumed.")
 
-    def open_dashboard(self) -> bool:
+    def dashboard_link(self, tab: str = "") -> str:
+        """The dashboard's address with your token, or "" when it isn't running."""
         info = dashboard_instance.read(self.data_dir)
-        if info is None or self._base() is None:
-            return False
+        if info is None:
+            return ""
         from sellbird.mcp_server import base_url
         token = _read_user_token(self.data_dir)
-        self._opener(base_url(info.host, info.port) + (f"#token={token}" if token else ""))
+        return base_url(info.host, info.port) + (f"#token={token}" if token else "")
+
+    def open_dashboard(self) -> bool:
+        if self._base() is None:
+            return False
+        link = self.dashboard_link()
+        if not link:
+            return False
+        self._opener(link)
         return True
 
 
@@ -561,68 +571,117 @@ def _sharp_on_retina(icon) -> None:
 
 # ── The tray app ──
 
+NOTIFIER_SOURCE = Path(__file__).with_name("notifier") / "main.swift"
+NOTIFIER_ID = "ai.sellbird.notifier"
+_LSREGISTER = ("/System/Library/Frameworks/CoreServices.framework/Frameworks/"
+               "LaunchServices.framework/Support/lsregister")
+_INFO_PLIST = """<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0"><dict>
+<key>CFBundleIdentifier</key><string>{id}</string>
+<key>CFBundleName</key><string>Sellbird</string>
+<key>CFBundleDisplayName</key><string>Sellbird</string>
+<key>CFBundleExecutable</key><string>sellbird-notify</string>
+<key>CFBundleIconFile</key><string>Sellbird</string>
+<key>CFBundlePackageType</key><string>APPL</string>
+<key>CFBundleVersion</key><string>{version}</string>
+<key>LSUIElement</key><true/>
+</dict></plist>
+"""
+
+
+def notifier_version() -> str:
+    """Changes whenever the helper's source or icon would."""
+    import hashlib
+    h = hashlib.sha256(NOTIFIER_SOURCE.read_bytes())
+    h.update(BRAND.encode() + BIRD_PATH.encode())
+    return h.hexdigest()[:12]
+
+
+def build_notifier(app: Path, run=subprocess.run) -> bool:
+    """Build ``app``: a tiny macOS app named Sellbird, with the bird as its
+    icon, that posts notifications (sellbird/desktop/notifier/main.swift).
+
+    macOS shows a notification with the icon of the app that sent it, and
+    only lets a real, signed app send one: from Python they came out as
+    "python3" or Script Editor. Needs the Swift compiler (Xcode or its
+    command-line tools); without it the menu-bar app keeps the old style."""
+    import shutil
+    import tempfile
+
+    version = notifier_version()
+    stamp = app / "Contents" / "sellbird-version"
+    if stamp.is_file() and stamp.read_text().strip() == version:
+        return True
+    swiftc = shutil.which("swiftc")
+    if swiftc is None:
+        return False
+    with tempfile.TemporaryDirectory() as tmp:
+        work = Path(tmp) / "Sellbird.app"
+        (work / "Contents" / "MacOS").mkdir(parents=True)
+        (work / "Contents" / "Resources").mkdir()
+        iconset = Path(tmp) / "Sellbird.iconset"
+        iconset.mkdir()
+        for px in (16, 32, 64, 128, 256, 512, 1024):
+            image = app_icon(px)
+            if px <= 512:
+                image.save(iconset / f"icon_{px}x{px}.png")
+            if px >= 32:
+                image.save(iconset / f"icon_{px // 2}x{px // 2}@2x.png")
+        steps = [
+            [swiftc, "-O", "-o", str(work / "Contents" / "MacOS" / "sellbird-notify"),
+             str(NOTIFIER_SOURCE)],
+            ["iconutil", "-c", "icns", str(iconset), "-o",
+             str(work / "Contents" / "Resources" / "Sellbird.icns")],
+        ]
+        (work / "Contents" / "Info.plist").write_text(
+            _INFO_PLIST.format(id=NOTIFIER_ID, version=version))
+        for step in steps:
+            if run(step, capture_output=True).returncode != 0:
+                logger.debug("Notifier build step failed: %s", step[0])
+                return False
+        (work / "Contents" / "sellbird-version").write_text(version)
+        if app.exists():
+            shutil.rmtree(app)
+        app.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copytree(work, app)
+    # Ad-hoc signed and registered, so macOS knows Sellbird by name and icon.
+    run(["codesign", "--force", "--deep", "-s", "-", str(app)], capture_output=True)
+    run([_LSREGISTER, "-f", str(app)], capture_output=True)
+    return True
+
+
 class MacNotifier:
-    """macOS notifications that show Sellbird's own icon, and open the
-    dashboard when clicked.
+    """Posts notifications through the Sellbird helper app (build_notifier),
+    so they show Sellbird's name and icon, and a click opens the dashboard."""
 
-    pystray posts through AppleScript, so macOS shows Script Editor's icon and
-    a click goes nowhere. A Python process has no app identity, so macOS
-    gives it no notification center until it has a bundle identifier; with
-    one, a notification can carry the Sellbird icon."""
-
-    BUNDLE_ID = "ai.sellbird.tray"
-
-    def __init__(self, center, image, delegate):
-        self.center, self.image, self.delegate = center, image, delegate
+    def __init__(self, app: Path, link_file: Path):
+        self.app, self.link_file = app, link_file
 
     @classmethod
-    def create(cls, on_click):
-        """A notifier, or False when this Mac won't give us one."""
+    def create(cls, data_dir: Path, app: Path | None = None):
+        """A notifier, or False when this Mac can't build the helper."""
+        # One helper per user, where macOS lets an app send notifications
+        # (from a temporary or project folder it refuses them outright).
+        app = app or (Path.home() / "Library" / "Application Support" / "sellbird" / "Sellbird.app")
         try:
-            import io
-
-            import AppKit
-            import Foundation
-
-            info = Foundation.NSBundle.mainBundle().infoDictionary()
-            if not info.get("CFBundleIdentifier"):
-                info["CFBundleIdentifier"] = cls.BUNDLE_ID
-            center = Foundation.NSUserNotificationCenter.defaultUserNotificationCenter()
-            if center is None:
+            if not build_notifier(app):
                 return False
-            png = io.BytesIO()
-            app_icon(256).save(png, "png")
-            image = AppKit.NSImage.alloc().initWithData_(Foundation.NSData(png.getvalue()))
-
-            class _Delegate(Foundation.NSObject):
-                def userNotificationCenter_shouldPresentNotification_(self, c, n):
-                    return True
-
-                def userNotificationCenter_didActivateNotification_(self, c, n):
-                    try:
-                        on_click()
-                    finally:
-                        c.removeDeliveredNotification_(n)
-
-            delegate = _Delegate.alloc().init()
-            center.setDelegate_(delegate)
-            return cls(center, image, delegate)
         except Exception as e:
-            logger.debug("No macOS notifier: %s", type(e).__name__)
+            logger.debug("Notifier not built: %s", type(e).__name__)
             return False
+        return cls(app, Path(data_dir) / "notify-link")
 
-    def notify(self, message: str) -> bool:
+    def notify(self, message: str, link: str = "") -> bool:
+        """Post ``message``. ``link`` (the dashboard, with its token) is kept
+        in a file only you can read, not on a command line others could see."""
         try:
-            import Foundation
-
-            note = Foundation.NSUserNotification.alloc().init()
-            note.setTitle_("Sellbird")
-            note.setInformativeText_(message)
-            try:  # the icon on the left; macOS has no public way to set it
-                note.setValue_forKey_(self.image, "_identityImage")
-            except Exception:
-                note.setContentImage_(self.image)
-            self.center.deliverNotification_(note)
+            if link:
+                self.link_file.write_text(link)
+                os.chmod(self.link_file, 0o600)
+            subprocess.Popen(["open", "-n", "-g", str(self.app), "--args", message,
+                              str(self.link_file) if link else ""],
+                             stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
             return True
         except Exception as e:
             logger.debug("Notification not shown: %s", type(e).__name__)
@@ -715,9 +774,9 @@ class TrayApp:
     def _notify(self, message: str) -> None:
         def show():
             if self._mac is None and sys.platform == "darwin":
-                self._mac = MacNotifier.create(on_click=lambda: _spawn(self.controller.open_dashboard))
+                self._mac = MacNotifier.create(self.controller.data_dir)
             if self._mac:
-                if self._mac.notify(message):
+                if self._mac.notify(message, self.controller.dashboard_link()):
                     return
             if self.icon is not None:
                 try:
