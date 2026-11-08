@@ -9,6 +9,12 @@ minor versions can still change behaviour.
 
 ### Added
 
+- **Antigravity (Gemini) brain provider** (`brain.provider: antigravity`). Connects
+  Harvey to your local Google Antigravity installation using the `agy` CLI in headless
+  print mode. Supports Gemini models (defaulting to `gemini-3.8-flash-high`) without
+  requiring an API key or per-token API billing. Calls run in an isolated workspace
+  with slash commands disabled, and tokens/calls are tracked in the local usage ledger.
+
 - **Your own email shape** (`writer.email_rules`). Point it at a markdown file
   (`skills/email_rules.md` is gitignored) and its rules replace the Writer's
   built-in shape, which ends every prompt and so beat anything in the skills:

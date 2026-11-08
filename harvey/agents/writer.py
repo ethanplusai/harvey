@@ -111,6 +111,7 @@ class Writer:
         self.state = state
         self.config = config
         self.env = env
+        self.skills = self.brain.load_skills_for_agent("writer") if hasattr(brain, "load_skills_for_agent") else ""
 
     @property
     def is_native(self) -> bool:

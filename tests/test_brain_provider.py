@@ -751,3 +751,37 @@ def test_cli_status_hides_another_providers_pause(monkeypatch, tmp_path, capsys)
                       config=BrainConfig(provider="codex", model="gpt-5.5"),
                       setting=_STALE_CODEX_PAUSE)
     assert "Codex PAUSED" in out
+
+
+def test_antigravity_brain_config():
+    cfg = BrainConfig(provider="antigravity", model="gemini-3.8-flash-high")
+    assert cfg.provider == "antigravity"
+    assert cfg.model == "gemini-3.8-flash-high"
+
+
+@pytest.mark.asyncio
+async def test_antigravity_think(state, monkeypatch):
+    from harvey import antigravity_runtime
+
+    class FakeAgyProc:
+        returncode = 0
+        async def communicate(self):
+            return b'{"conversation_id": "test-123", "status": "SUCCESS", "response": "antigravity response", "usage": {"input_tokens": 10, "output_tokens": 5}}', b""
+
+    async def fake_exec(*cmd, **kwargs):
+        assert cmd[0] == "fake_agy"
+        assert "--model" in cmd
+        assert "gemini-3.8-flash-high" in cmd
+        assert "--output-format" in cmd
+        assert "json" in cmd
+        return FakeAgyProc()
+
+    monkeypatch.setattr(antigravity_runtime, "check_cli", lambda: "fake_agy")
+    monkeypatch.setattr(asyncio, "create_subprocess_exec", fake_exec)
+
+    brain = Brain(state, BrainConfig(provider="antigravity", model="gemini-3.8-flash-high"))
+    res = await brain.think("test prompt")
+    assert res == "antigravity response"
+    usage = await state.get_usage_today(provider="antigravity")
+    assert usage == 1
+
