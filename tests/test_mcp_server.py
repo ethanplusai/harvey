@@ -115,6 +115,9 @@ async def test_the_agent_can_pause_but_never_resume(core):
     ("POST", "/api/trulyinbox/connect"), ("GET", "/api/settings"),
     ("GET", "/api/sellbird/logs"), ("GET", "/api/export/prospects.csv"),
     ("POST", "/api/prospects/p1/opt-out/undo"), ("POST", "/api/sellbird/start"),
+    ("POST", "/api/inboxes/x/resume"), ("POST", "/api/inboxes/x/cap"),
+    ("POST", "/api/inboxes/x/remove"), ("POST", "/api/inboxes/x/name"),
+    ("POST", "/api/campaigns/c/inboxes"),
 ])
 @pytest.mark.asyncio
 async def test_everything_else_is_the_users(core, method, path):
@@ -133,8 +136,8 @@ def test_the_users_token_still_reaches_everything(core):
 
 def test_the_allowlist_is_reads_estimates_pause_and_offer_proposals_only():
     # The offer routes write a sample or a proposal; none changes what's sent.
-    allowed_posts = ("/api/discover/estimate", "/api/sending/pause", "/api/offer/suggest",
-                     "/api/offer/preview", "/api/offer/propose")
+    allowed_posts = ("/api/discover/estimate", "/api/sending/pause", "/api/inboxes/[^/]+/pause",
+                     "/api/offer/suggest", "/api/offer/preview", "/api/offer/propose")
     for method, pattern in agent_policy.AGENT_ROUTES:
         assert method == "GET" or pattern in allowed_posts
     assert not agent_policy.agent_may("POST", "/api/offer")

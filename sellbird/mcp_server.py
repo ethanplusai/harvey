@@ -42,12 +42,14 @@ Sellbird is the user's outreach engine: it finds companies and the people who de
 writes cold email, sends it from the user's own inboxes and handles replies.
 
 You can read everything (today's summary, campaigns, prospects, companies, conversations,
-the Outbox, signals, usage, setup, the company profile), estimate what a discovery run
-would cost, and pause sending. You also help the user design the offer every first email
-ends with (offer_suggest, offer_preview, offer_propose): they confirm it in the dashboard. You cannot approve or send email, resume sending, confirm signals, run
-discovery, change settings or keys, or delete anything: those are the user's, in the
-dashboard (`sellbird dashboard`). When something needs them, say which tab to open
-(Today, Your company, Outbox, Signals, Discover, Settings) and what to click. Never ask the user for
+the Outbox, signals, inboxes, usage, setup, the company profile), estimate what a
+discovery run would cost, and pause sending or one inbox. You also help the user design
+the offer every first email ends with (offer_suggest, offer_preview, offer_propose): they
+confirm it in the dashboard. You cannot approve or send email, resume sending, confirm
+signals, run discovery, change settings or keys, or delete anything: those are the
+user's, in the dashboard (`sellbird dashboard`). When something needs them, say which tab
+to open (Today, Your company, Outbox, Inboxes, Signals, Discover, Settings) and what to
+click. Never ask the user for
 their dashboard token, and never read data/dashboard-token.
 """
 
@@ -349,6 +351,21 @@ def build_server(client_factory: Callable[[], CoreClient] = default_client, *,
         waits on dashboard → Your company until they click Use this offer: only
         the user changes what every first email offers."""
         return await guarded(lambda c: c.post("/api/offer/propose", {"entry": entry, "why": why}))
+
+    @server.tool()
+    async def inboxes_list() -> dict:
+        """Every sending inbox: the main mailbox and the extra ones the user connected,
+        whether each is sending, paused or not connected, and today's cold sends
+        against its cap."""
+        return await read("/api/inboxes")
+
+    @server.tool()
+    async def inbox_pause(inbox_id: str, reason: str = "") -> dict:
+        """Pause one extra inbox (an id from inboxes_list). Its unsent first emails
+        move to the other inboxes. Only the user can resume it, in the dashboard's
+        Inboxes tab. To stop every inbox, use sending_pause."""
+        return await guarded(lambda c: c.post(
+            f"/api/inboxes/{quote(inbox_id, safe='')}/pause", {"reason": reason}))
 
     # Tools that installed extensions add (sellbird.extensions).
     from sellbird import extensions

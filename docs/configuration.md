@@ -47,6 +47,8 @@ sellbird companies             # company register → CSV: every company, fit, a
 sellbird sending pause|resume  # kill switch
 sellbird suppressions [add|remove <value>]  # addresses and domains never emailed
 sellbird inboxes list|connect|test|pause|resume|cap|name|remove|use  # several sending inboxes
+sellbird tray                  # menu-bar (macOS) / tray (Windows) icon; --status prints the state
+sellbird autostart install|uninstall|status  # start the tray at login
 sellbird mcp install [claude|codex]  # let your coding agent read Sellbird and pause sending
 sellbird warmup [domain]       # is the sending domain ready? (SPF/DKIM/DMARC, age, blocklists, warmup)
 sellbird trulyinbox connect    # connect TrulyInbox so Sellbird reads the mailbox's warmup
@@ -100,8 +102,28 @@ sellbird inboxes list                                           # each inbox and
 - Replies are read from every inbox each cycle. If one can't be read,
   nothing is sent that cycle, as with one inbox, and the Today page says
   which inbox.
+- The dashboard's **Inboxes** tab shows every inbox with today's cold sends
+  against its cap. Click one to pause, resume, cap, rename, check or remove
+  it. **Add inbox** connects one: Gmail and Microsoft 365 open their sign-in
+  in the browser on the computer running Sellbird (it needs the same
+  `GMAIL_CLIENT_ID`/`M365_CLIENT_ID` setup as the main mailbox), and an SMTP
+  password goes straight to your system keychain and is never shown again.
+  On a server with no browser, use `sellbird inboxes connect` instead.
+- Your coding agent can list inboxes and pause one (`inboxes_list`,
+  `inbox_pause`); only you resume one or change its cap.
 - An extension can add another way to connect an inbox with
   `registry.add_mailbox_connection` ([docs/extensions.md](extensions.md)).
+
+## The menu-bar app
+
+`sellbird tray` puts Sellbird in the macOS menu bar (the Windows tray). It
+starts the dashboard if it isn't running, then lets you start and stop
+Sellbird, pause and resume sending, and open the dashboard, already unlocked.
+Quitting the icon leaves Sellbird running. `sellbird autostart install` starts
+the icon when you log in: a LaunchAgent on macOS, a Startup-folder shortcut on
+Windows. It only ever touches its own entry, and refuses if something else is
+at that path. Linux has no tray: run `sellbird dashboard` and `sellbird run`
+as services instead.
 
 ## Your coding agent (MCP)
 

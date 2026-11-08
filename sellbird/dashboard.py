@@ -257,13 +257,13 @@ async def get_setup_status():
     if provider == "gmail":
         provider_done = _has("GMAIL_CLIENT_ID", "GMAIL_CLIENT_SECRET") and \
             (PROJECT_ROOT / "data" / "gmail_token.json").is_file()
-        provider_help = ("Set GMAIL_CLIENT_ID/SECRET in Settings, then run "
-                         "'sellbird gmail auth' in your terminal.")
+        provider_help = ("Add your Google OAuth client ID and secret in Settings, then sign "
+                         "in on the Inboxes tab (or run 'sellbird gmail auth').")
     elif provider == "microsoft":
         provider_done = _has("M365_CLIENT_ID") and \
             (PROJECT_ROOT / "data" / "m365_token.json").is_file()
-        provider_help = ("Set the Microsoft 365 client and tenant IDs in Settings, then run "
-                         "'sellbird microsoft auth' in your terminal.")
+        provider_help = ("Add your Microsoft 365 client and tenant IDs in Settings, then sign "
+                         "in on the Inboxes tab (or run 'sellbird microsoft auth').")
     elif provider == "smtp":
         provider_done = _has("SMTP_HOST", "SMTP_USERNAME", "SMTP_PASSWORD")
         provider_help = "Enter your SMTP host, username, and password in Settings."
@@ -474,6 +474,11 @@ async def save_env_settings(request: Request):
             except Exception as e:
                 logger.warning("Failed to write .env: %s", e)
                 return {"success": False, "message": "Could not write .env file."}
+            # The sign-in clients take effect now, so the Inboxes tab can sign in
+            # without a restart (load_dotenv never overwrites a value already set).
+            for key in ("GMAIL_CLIENT_ID", "GMAIL_CLIENT_SECRET", "M365_CLIENT_ID", "M365_TENANT_ID"):
+                if key in updates:
+                    os.environ[key] = updates[key]
     return {"success": True}
 
 
@@ -863,7 +868,14 @@ async def get_sellbird_status():
     """Check if Sellbird is currently running."""
     pid = _check_sellbird_pid()
     started = _sellbird_started_at.isoformat() if _sellbird_started_at else None
-    return {"running": pid is not None, "pid": pid, "started_at": started}
+    try:
+        state = _state()
+        await state.init_db()
+        paused = await state.get_setting("sending_paused") or ""
+    except Exception:
+        paused = ""
+    return {"running": pid is not None, "pid": pid, "started_at": started,
+            "sending_paused": paused}
 
 
 @app.post("/api/sellbird/start")
@@ -2912,6 +2924,11 @@ INSTANCE_ID = uuid.uuid4().hex
 @app.get("/api/instance")
 async def get_instance():
     return {"instance": INSTANCE_ID}
+
+
+from sellbird.inbox_routes import router as _inbox_router  # noqa: E402
+
+app.include_router(_inbox_router)
 
 
 # ── Extensions (sellbird.extensions): their routes, after every built-in one,
