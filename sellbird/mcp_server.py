@@ -42,11 +42,12 @@ Sellbird is the user's outreach engine: it finds companies and the people who de
 writes cold email, sends it from the user's own inboxes and handles replies.
 
 You can read everything (today's summary, campaigns, prospects, companies, conversations,
-the Outbox, signals, usage, setup), estimate what a discovery run would cost, and pause
-sending. You cannot approve or send email, resume sending, confirm signals, run
+the Outbox, signals, usage, setup, the company profile), estimate what a discovery run
+would cost, and pause sending. You also help the user design the offer every first email
+ends with (offer_suggest, offer_preview, offer_propose): they confirm it in the dashboard. You cannot approve or send email, resume sending, confirm signals, run
 discovery, change settings or keys, or delete anything: those are the user's, in the
 dashboard (`sellbird dashboard`). When something needs them, say which tab to open
-(Today, Outbox, Signals, Discover, Settings) and what to click. Never ask the user for
+(Today, Your company, Outbox, Signals, Discover, Settings) and what to click. Never ask the user for
 their dashboard token, and never read data/dashboard-token.
 """
 
@@ -66,6 +67,10 @@ def base_url(host: str, port: int) -> str:
     return f"http://{host}:{port}/"
 
 
+# A tool that asks the model to write something waits this long, not 15s.
+MODEL_CALL_TIMEOUT = 180.0
+
+
 class CoreClient:
     """Calls the running dashboard's API as the coding agent."""
 
@@ -73,9 +78,9 @@ class CoreClient:
         self.data_dir = Path(data_dir)
         self._transport = transport
 
-    def _client(self, base: str) -> httpx.AsyncClient:
+    def _client(self, base: str, timeout: float = 15.0) -> httpx.AsyncClient:
         extra = {"transport": self._transport} if self._transport is not None else {}
-        return httpx.AsyncClient(base_url=base, timeout=15.0, **extra)
+        return httpx.AsyncClient(base_url=base, timeout=timeout, **extra)
 
     async def _connection(self) -> tuple[str, str]:
         info = dashboard_instance.read(self.data_dir)
@@ -98,10 +103,11 @@ class CoreClient:
             raise CoreUnavailable() from None
         return base, token
 
-    async def _request(self, method: str, path: str, *, json: dict | None = None) -> dict:
+    async def _request(self, method: str, path: str, *, json: dict | None = None,
+                       timeout: float = 15.0) -> dict:
         base, token = await self._connection()
         try:
-            async with self._client(base) as http:
+            async with self._client(base, timeout) as http:
                 response = await http.request(
                     method, path, json=json, headers={"Authorization": f"Bearer {token}"})
         except (httpx.TransportError, httpx.InvalidURL, OSError):
@@ -122,8 +128,8 @@ class CoreClient:
     async def get(self, path: str) -> dict:
         return await self._request("GET", path)
 
-    async def post(self, path: str, body: dict | None = None) -> dict:
-        return await self._request("POST", path, json=body)
+    async def post(self, path: str, body: dict | None = None, timeout: float = 15.0) -> dict:
+        return await self._request("POST", path, json=body, timeout=timeout)
 
 
 def default_client() -> CoreClient:
@@ -314,6 +320,35 @@ def build_server(client_factory: Callable[[], CoreClient] = default_client, *,
             return {**result, "paused": True,
                     "message": "Sending is paused. Only the user can resume it, in the dashboard."}
         return await guarded(call)
+
+    @server.tool()
+    async def company() -> dict:
+        """Everything Sellbird writes from: the product, who it sells to, the
+        first-email offer (and any offer you proposed), the sender, objections,
+        and what training wrote about the product."""
+        return await read("/api/company")
+
+    @server.tool()
+    async def offer_suggest() -> dict:
+        """Ask Sellbird for 4 first-email offers that fit the product, each with
+        the finding it pairs with and why a prospect would say yes. Saves nothing.
+        Use them to start the offer conversation with the user, not as the answer."""
+        return await guarded(lambda c: c.post("/api/offer/suggest", timeout=MODEL_CALL_TIMEOUT))
+
+    @server.tool()
+    async def offer_preview(entry: str) -> dict:
+        """Write one real first email with `entry` as the offer, for one of the
+        user's prospects, so they can judge the offer in a real email. Saves and
+        sends nothing."""
+        return await guarded(lambda c: c.post("/api/offer/preview", {"entry": entry},
+                                              timeout=MODEL_CALL_TIMEOUT))
+
+    @server.tool()
+    async def offer_propose(entry: str, why: str = "") -> dict:
+        """Propose the offer the user agreed on, in the words they agreed to. It
+        waits on dashboard → Your company until they click Use this offer: only
+        the user changes what every first email offers."""
+        return await guarded(lambda c: c.post("/api/offer/propose", {"entry": entry, "why": why}))
 
     # Tools that installed extensions add (sellbird.extensions).
     from sellbird import extensions

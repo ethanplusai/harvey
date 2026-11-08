@@ -255,10 +255,10 @@ def test_without_an_offer_the_writer_asks_a_question():
     assert "none set" in offer_block(cfg)
 
 
-def test_training_suggests_offers_and_never_replaces_yours():
+def test_training_suggests_offers_and_never_picks_or_replaces_yours():
     from sellbird.trainer import _offer_from, merge_trained_config
     offer = _offer_from({"entry_offer_ideas": ["a homepage mockup", "a ranking report", ""]})
-    assert offer == {"entry": "a homepage mockup", "entry_ideas": ["a homepage mockup", "a ranking report"]}
+    assert offer == {"entry_ideas": ["a homepage mockup", "a ranking report"]}
     learned = {"persona": {"company": "C"}, "product": {"name": "P", "offer": offer}}
     mine = merge_trained_config(learned, {"persona": {"company": "C", "email": "a@c.com"},
                                           "product": {"name": "P", "offer": {"entry": "my own audit"}}})
@@ -266,4 +266,4 @@ def test_training_suggests_offers_and_never_replaces_yours():
     assert mine["product"]["offer"]["entry_ideas"] == ["a homepage mockup", "a ranking report"]
     empty = merge_trained_config(learned, {"persona": {"company": "C", "email": "a@c.com"},
                                            "product": {"name": "P", "offer": {"entry": ""}}})
-    assert empty["product"]["offer"]["entry"] == "a homepage mockup"
+    assert empty["product"]["offer"]["entry"] == ""

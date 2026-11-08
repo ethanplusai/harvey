@@ -171,11 +171,35 @@ Ask the user these questions and build `sellbird.yaml` and `skills/product_knowl
 - What objections do you usually hear? How do you respond?
 - **Offers & closing:**
   - What's the primary offer? (subscription, service, etc.)
-  - Is there a low-commitment entry? (free trial, free audit, etc.)
+  - The first-email offer: work it out with them as in Step 3b.
   - What's the goal? (book a call, start a trial, get a reply)
   - How should meetings be booked? (calendar link, suggest times, ask preference)
   - How long is the call? (default: 15 minutes)
   - Who takes the meeting?
+
+### Step 3b: Work out the offer together
+
+Every first email Sellbird writes names one thing it found about the prospect (where they
+rank, what their site lacks, a role they're hiring for), says what that costs them, and
+ends by offering one free, useful thing as the fix: the **offer**. It decides more replies
+than any other line, so work it out with the user in conversation. Don't pick it for them.
+
+1. Explain it in two sentences, using an example from their business.
+2. Call `company` to see what training learned, then `offer_suggest` for ideas. Treat
+   the ideas as a starting point. Propose two or three, each tied to a finding Sellbird
+   can really see about prospects.
+3. Ask what they can deliver quickly after a yes, and how they'd phrase it. A good offer
+   is specific, valuable on its own, and something they can deliver this week ("a written
+   plan for getting you onto page one", "a mockup of your homepage with online booking").
+   Never a discount, a generic call or a demo.
+4. Call `offer_preview` with the wording you've landed on, and show them the sample email.
+   Adjust until they like it.
+5. Call `offer_propose` with their exact wording. Then tell them to open the dashboard,
+   go to **Your company → Your offer**, and click **Use this offer**. Only they can change
+   what every first email offers.
+
+Without the MCP tools, do the same in conversation and have them paste the offer into
+Your company → Your offer.
 
 ### Step 4: Confirm Signals
 

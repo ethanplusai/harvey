@@ -159,3 +159,88 @@ def save_offer(config_file: Path, entry: str, ideas: list[str] | None = None) ->
     config_file.write_text(yaml.safe_dump(data, default_flow_style=False, sort_keys=False,
                                           allow_unicode=True), encoding="utf-8")
     return config_file
+
+
+# ── Your company: everything Sellbird writes from, in one place ──────────
+
+PROPOSED_KEY = "offer_proposed"
+
+# What the Your company tab may change, per config section, and each field's type.
+EDITABLE = {
+    "product": {"name": str, "description": str, "pricing": str, "key_benefits": list,
+                "objection_responses": dict},
+    "persona": {"name": str, "role": str, "tone": str},
+    "icp": {"industries": list, "titles": list, "company_size": str, "geography": list},
+    "offer": {"entry": str},
+}
+MAX_TEXT = 2000
+MAX_ITEMS = 30
+
+
+def _skill_text(root: Path, name: str) -> str:
+    path = Path(root) / "skills" / f"{name}.md"
+    try:
+        return read_user_text(path)
+    except OSError:
+        return ""
+
+
+def company_view(config, root: Path, proposed: dict | None = None) -> dict:
+    """Your company as the tab shows it: what you sell, to whom, the offer,
+    the sender, objections, and what training wrote about the product."""
+    p, s, icp = config.product, config.persona, config.icp
+    return {
+        "product": {"name": p.name, "description": p.description, "pricing": p.pricing,
+                    "key_benefits": list(p.key_benefits or []),
+                    "objection_responses": dict(p.objection_responses or {})},
+        "persona": {"name": s.name, "role": s.role, "company": s.company, "tone": s.tone,
+                    "email": getattr(s, "email", "")},
+        "icp": {"industries": list(icp.industries or []), "titles": list(icp.titles or []),
+                "company_size": icp.company_size, "geography": list(icp.geography or [])},
+        "offer": {**offer_view(config), "proposed": proposed or None},
+        "knowledge": _skill_text(root, "product_knowledge"),
+        "competitors": _skill_text(root, "competitive_intel"),
+    }
+
+
+def _clean(kind, value):
+    if kind is str:
+        return str(value or "").strip()[:MAX_TEXT]
+    if kind is list:
+        items = value if isinstance(value, list) else str(value or "").split("\n")
+        return [" ".join(str(i).split())[:MAX_TEXT] for i in items if str(i).strip()][:MAX_ITEMS]
+    if kind is dict:
+        if not isinstance(value, dict):
+            raise ValueError("expected a list of objections and answers")
+        return {" ".join(str(k).split())[:MAX_TEXT]: str(v).strip()[:MAX_TEXT]
+                for k, v in list(value.items())[:MAX_ITEMS] if str(k).strip() and str(v).strip()}
+    raise ValueError("unknown field type")
+
+
+def save_company(config_file: Path, section: str, fields: dict) -> dict:
+    """Write the edited ``fields`` of one section to the config file (with a
+    .bak of it as it was). Only EDITABLE fields are accepted. Returns what
+    was saved."""
+    allowed = EDITABLE.get(section)
+    if not allowed:
+        raise ValueError(f"'{section}' can't be edited here")
+    unknown = sorted(set(fields) - set(allowed))
+    if unknown:
+        raise ValueError(f"can't edit {', '.join(unknown)} here")
+    cleaned = {k: _clean(allowed[k], v) for k, v in fields.items()}
+    for key in ("name", "description"):
+        if section == "product" and key in cleaned and not cleaned[key]:
+            raise ValueError(f"the product {key} can't be empty")
+    raw = read_user_text(config_file)
+    data = yaml.safe_load(raw) or {}
+    if section == "offer":
+        target = data.setdefault("product", {}).setdefault("offer", {})
+    else:
+        target = data.setdefault(section, {})
+    if not isinstance(target, dict):
+        raise ValueError(f"{section} in {config_file.name} isn't a section Sellbird can edit")
+    target.update(cleaned)
+    config_file.with_name(config_file.name + ".bak").write_text(raw, encoding="utf-8")
+    config_file.write_text(yaml.safe_dump(data, default_flow_style=False, sort_keys=False,
+                                          allow_unicode=True), encoding="utf-8")
+    return cleaned

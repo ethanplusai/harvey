@@ -422,7 +422,7 @@ function loadCurrentTab() {
     case 'activity': loadActivity(); break;
     case 'usage': loadUsage(); break;
     case 'settings': loadSettings(); loadSendingModeCard(); break;
-    case 'offer': loadOffer(); break;
+    case 'company': loadCompany(); break;
     case 'controls': loadSellbirdStatus(); loadLogs(); break;
   }
 }
@@ -2729,34 +2729,171 @@ setInterval(() => {
 }, 15000);
 
 
-// ── Your offer (sellbird.offer): design it with Sellbird, preview, save ──
+// ── Your company (sellbird.offer): what Sellbird writes from, and the offer ──
 
+let _company = null;
 let _offerIdeas = [];
 
-function offerEsc(t) {
+function ce(t) {
   const d = document.createElement('div');
   d.textContent = t == null ? '' : String(t);
   return d.innerHTML;
 }
 
-async function loadOffer() {
-  const data = await api('/api/offer');
-  if (!data || data.error) return;
-  document.getElementById('offer-entry').value = data.entry || '';
-  _offerIdeas = (data.entry_ideas || []).map(o => ({offer: o}));
+function lines(list) { return (list || []).join('\n'); }
+function splitLines(text) { return String(text || '').split('\n').map(x => x.trim()).filter(Boolean); }
+
+async function loadCompany() {
+  const body = document.getElementById('company-body');
+  const data = await api('/api/company');
+  if (!data) { body.innerHTML = offlineState(); return; }
+  if (data.error) { body.innerHTML = `<p class="desc">${ce(data.error)}</p>`; return; }
+  _company = data;
+  const o = data.offer || {}, p = data.product || {}, icp = data.icp || {}, s = data.persona || {};
+  const objections = Object.entries(p.objection_responses || {});
+  body.innerHTML = `
+  <section class="card company-card" aria-labelledby="co-offer-h">
+    <div class="company-card-head">
+      <h3 id="co-offer-h">Your offer</h3>
+      <span class="hint">What every first email ends by offering</span>
+    </div>
+    ${o.proposed ? `<div class="offer-proposed">
+      <div><span class="tag accent">Your agent proposed</span></div>
+      <p class="offer-proposed-text">${ce(o.proposed.entry)}</p>
+      ${o.proposed.why ? `<p class="desc">${ce(o.proposed.why)}</p>` : ''}
+      <div class="offer-actions">
+        <button class="btn btn-primary btn-sm" onclick="useProposedOffer()">Use this offer</button>
+        <button class="btn btn-secondary btn-sm" onclick="dismissProposedOffer()">Dismiss</button>
+      </div>
+    </div>` : ''}
+    <p class="desc">Each first email names something Sellbird found about the prospect, says what it costs them, and offers this as the fix. Make it free, specific, and something you can deliver this week. ${o.entry ? '' : '<b>No offer yet</b>, so first emails end with a question instead. '}The easiest way to work it out is to ask your coding agent: <i>"Help me work out my Sellbird offer."</i></p>
+    <div class="form-group"><label class="form-label" for="offer-entry">Offer</label>
+      <textarea class="form-input" id="offer-entry" rows="2" maxlength="300" placeholder="e.g. a written plan for getting you onto page one of Google">${ce(o.entry || '')}</textarea></div>
+    <div class="offer-actions">
+      <button class="btn btn-primary btn-sm" onclick="saveOffer()">Save offer</button>
+      <button class="btn btn-secondary btn-sm" id="offer-preview-btn" onclick="previewOffer()">Preview an email</button>
+      <button class="btn btn-secondary btn-sm" id="offer-suggest-btn" onclick="suggestOffers()">Suggest ideas</button>
+    </div>
+    <div id="offer-preview" class="offer-preview" hidden></div>
+    <div id="offer-ideas" class="offer-ideas"></div>
+  </section>
+
+  <section class="card company-card" aria-labelledby="co-product-h">
+    <div class="company-card-head"><h3 id="co-product-h">What you sell</h3></div>
+    <div class="company-grid">
+      <div class="form-group"><label class="form-label" for="co-p-name">Product or service</label>
+        <input class="form-input" id="co-p-name" value="${ce(p.name)}"></div>
+      <div class="form-group"><label class="form-label" for="co-p-pricing">Pricing</label>
+        <input class="form-input" id="co-p-pricing" value="${ce(p.pricing)}"></div>
+    </div>
+    <div class="form-group"><label class="form-label" for="co-p-desc">What it is and who it's for</label>
+      <textarea class="form-input" id="co-p-desc" rows="3">${ce(p.description)}</textarea></div>
+    <div class="form-group"><label class="form-label" for="co-p-benefits">Key benefits <span class="hint">one per line</span></label>
+      <textarea class="form-input" id="co-p-benefits" rows="4">${ce(lines(p.key_benefits))}</textarea></div>
+    <div class="offer-actions"><button class="btn btn-primary btn-sm" onclick="saveCompanySection('product')">Save</button></div>
+  </section>
+
+  <section class="card company-card" aria-labelledby="co-icp-h">
+    <div class="company-card-head"><h3 id="co-icp-h">Who you sell to</h3></div>
+    <div class="company-grid">
+      <div class="form-group"><label class="form-label" for="co-i-industries">Industries <span class="hint">one per line</span></label>
+        <textarea class="form-input" id="co-i-industries" rows="4">${ce(lines(icp.industries))}</textarea></div>
+      <div class="form-group"><label class="form-label" for="co-i-titles">Job titles <span class="hint">one per line</span></label>
+        <textarea class="form-input" id="co-i-titles" rows="4">${ce(lines(icp.titles))}</textarea></div>
+      <div class="form-group"><label class="form-label" for="co-i-size">Company size</label>
+        <input class="form-input" id="co-i-size" value="${ce(icp.company_size)}"></div>
+      <div class="form-group"><label class="form-label" for="co-i-geo">Where <span class="hint">one per line</span></label>
+        <textarea class="form-input" id="co-i-geo" rows="2">${ce(lines(icp.geography))}</textarea></div>
+    </div>
+    <div class="offer-actions"><button class="btn btn-primary btn-sm" onclick="saveCompanySection('icp')">Save</button></div>
+  </section>
+
+  <section class="card company-card" aria-labelledby="co-sender-h">
+    <div class="company-card-head"><h3 id="co-sender-h">Who it's from</h3>
+      <span class="hint">${ce(s.company)}${s.email ? ' · ' + ce(s.email) : ''}</span></div>
+    <div class="company-grid">
+      <div class="form-group"><label class="form-label" for="co-s-name">Sender name <span class="hint">signed under every email</span></label>
+        <input class="form-input" id="co-s-name" value="${ce(s.name)}"></div>
+      <div class="form-group"><label class="form-label" for="co-s-role">Role</label>
+        <input class="form-input" id="co-s-role" value="${ce(s.role)}"></div>
+    </div>
+    <div class="form-group"><label class="form-label" for="co-s-tone">Tone</label>
+      <input class="form-input" id="co-s-tone" value="${ce(s.tone)}"></div>
+    <div class="offer-actions"><button class="btn btn-primary btn-sm" onclick="saveCompanySection('persona')">Save</button></div>
+  </section>
+
+  <section class="card company-card" aria-labelledby="co-obj-h">
+    <div class="company-card-head"><h3 id="co-obj-h">Objections and answers</h3>
+      <span class="hint">How replies handle pushback</span></div>
+    <div id="co-objections" class="company-objections">
+      ${(objections.length ? objections : [['', '']]).map(([k, v], i) => objectionRow(k, v, i)).join('')}
+    </div>
+    <div class="offer-actions">
+      <button class="btn btn-secondary btn-sm" onclick="addObjection()">Add an objection</button>
+      <button class="btn btn-primary btn-sm" onclick="saveCompanySection('product', true)">Save</button>
+    </div>
+  </section>
+
+  ${data.knowledge || data.competitors ? `<section class="card company-card" aria-labelledby="co-learned-h">
+    <div class="company-card-head"><h3 id="co-learned-h">What Sellbird learned from your site</h3>
+      <span class="hint">From training. Retrain with <code>sellbird train &lt;url&gt;</code></span></div>
+    ${data.knowledge ? `<details class="company-learned"><summary>Product knowledge</summary><pre>${ce(data.knowledge)}</pre></details>` : ''}
+    ${data.competitors ? `<details class="company-learned"><summary>Competitors</summary><pre>${ce(data.competitors)}</pre></details>` : ''}
+  </section>` : ''}`;
+  _offerIdeas = (o.entry_ideas || []).map(x => ({offer: x}));
   renderOfferIdeas();
-  // First visit: nothing to pick from yet, so ask Sellbird for ideas now.
-  if (!_offerIdeas.length) suggestOffers();
+  const badge = document.getElementById('nav-company');
+  if (badge) badge.textContent = o.proposed ? '1' : '';
+}
+
+function objectionRow(k, v, i) {
+  return `<div class="company-objection">
+    <div class="form-group"><label class="form-label" for="co-ok-${i}">When they say</label>
+      <input class="form-input co-ok" id="co-ok-${i}" value="${ce(k)}"></div>
+    <div class="form-group"><label class="form-label" for="co-ov-${i}">Answer with</label>
+      <textarea class="form-input co-ov" id="co-ov-${i}" rows="2">${ce(v)}</textarea></div>
+  </div>`;
+}
+
+function addObjection() {
+  const box = document.getElementById('co-objections');
+  box.insertAdjacentHTML('beforeend', objectionRow('', '', box.children.length));
+}
+
+async function saveCompanySection(section, objectionsOnly) {
+  const v = id => document.getElementById(id).value;
+  let fields;
+  if (section === 'product' && objectionsOnly) {
+    const out = {};
+    document.querySelectorAll('.company-objection').forEach(row => {
+      const k = row.querySelector('.co-ok').value.trim(), a = row.querySelector('.co-ov').value.trim();
+      if (k && a) out[k] = a;
+    });
+    fields = {objection_responses: out};
+  } else if (section === 'product') {
+    fields = {name: v('co-p-name'), pricing: v('co-p-pricing'), description: v('co-p-desc'),
+              key_benefits: splitLines(v('co-p-benefits'))};
+  } else if (section === 'icp') {
+    fields = {industries: splitLines(v('co-i-industries')), titles: splitLines(v('co-i-titles')),
+              company_size: v('co-i-size'), geography: splitLines(v('co-i-geo'))};
+  } else if (section === 'persona') {
+    fields = {name: v('co-s-name'), role: v('co-s-role'), tone: v('co-s-tone')};
+  }
+  const r = await api('/api/company', {method: 'POST', headers: {'Content-Type': 'application/json'},
+                                       body: JSON.stringify({section, fields})});
+  if (r && r.success) showToast(r.message, 'success');
+  else showToast((r && r.message) || 'Couldn\'t save.', 'error');
 }
 
 function renderOfferIdeas() {
   const box = document.getElementById('offer-ideas');
+  if (!box) return;
   if (!_offerIdeas.length) { box.innerHTML = ''; return; }
-  box.innerHTML = '<div class="form-label">Ideas (click one to use it, then edit it in your own words)</div>' +
+  box.innerHTML = '<div class="form-label">Ideas to start from (click one to put it in the box, then make it yours)</div>' +
     _offerIdeas.map((idea, i) => `<button type="button" class="offer-idea" onclick="useOfferIdea(${i})">
-      <span class="offer-idea-text">${offerEsc(idea.offer)}</span>
-      ${idea.finding ? `<span class="offer-idea-meta">Pairs with: ${offerEsc(idea.finding)}</span>` : ''}
-      ${idea.why ? `<span class="offer-idea-meta">${offerEsc(idea.why)}</span>` : ''}
+      <span class="offer-idea-text">${ce(idea.offer)}</span>
+      ${idea.finding ? `<span class="offer-idea-meta">Pairs with: ${ce(idea.finding)}</span>` : ''}
+      ${idea.why ? `<span class="offer-idea-meta">${ce(idea.why)}</span>` : ''}
     </button>`).join('');
 }
 
@@ -2769,10 +2906,10 @@ function useOfferIdea(i) {
 async function suggestOffers() {
   const btn = document.getElementById('offer-suggest-btn');
   btn.disabled = true; btn.textContent = 'Thinking...';
-  if (!_offerIdeas.length) document.getElementById('offer-ideas').innerHTML =
+  document.getElementById('offer-ideas').innerHTML =
     '<p class="desc">Sellbird is reading your product and coming up with offers that fit it...</p>';
   const r = await api('/api/offer/suggest', {method: 'POST'});
-  btn.disabled = false; btn.textContent = 'Suggest offers';
+  btn.disabled = false; btn.textContent = 'Suggest ideas';
   if (!r || r.error || !r.ideas) { renderOfferIdeas(); showToast((r && r.error) || 'Sellbird couldn\'t come up with offers just now. Try again.', 'error'); return; }
   _offerIdeas = r.ideas;
   renderOfferIdeas();
@@ -2780,7 +2917,7 @@ async function suggestOffers() {
 
 async function previewOffer() {
   const entry = document.getElementById('offer-entry').value.trim();
-  if (!entry) { showToast('Write an offer first, or pick an idea.', 'error'); return; }
+  if (!entry) { showToast('Write an offer first.', 'error'); return; }
   const btn = document.getElementById('offer-preview-btn');
   const box = document.getElementById('offer-preview');
   btn.disabled = true; btn.textContent = 'Writing...';
@@ -2790,16 +2927,25 @@ async function previewOffer() {
   const r = await api('/api/offer/preview', {method: 'POST', headers: {'Content-Type': 'application/json'},
                                             body: JSON.stringify({entry})});
   btn.disabled = false; btn.textContent = 'Preview an email';
-  if (!r || !r.ok) { box.innerHTML = `<p class="desc">${offerEsc((r && r.message) || 'The preview failed. Try again.')}</p>`; return; }
-  box.innerHTML = `<div class="form-label">Sample for ${offerEsc(r.to)} (not saved, not sent)</div>
-    <div class="offer-mail"><div class="offer-mail-subject">${offerEsc(r.subject)}</div><pre>${offerEsc(r.body)}</pre></div>`;
+  if (!r || !r.ok) { box.innerHTML = `<p class="desc">${ce((r && r.message) || 'The preview failed. Try again.')}</p>`; return; }
+  box.innerHTML = `<div class="form-label">Sample for ${ce(r.to)} (not saved, not sent)</div>
+    <div class="offer-mail"><div class="offer-mail-subject">${ce(r.subject)}</div><pre>${ce(r.body)}</pre></div>`;
   box.scrollIntoView({block: 'nearest', behavior: 'smooth'});
 }
 
-async function saveOffer() {
-  const entry = document.getElementById('offer-entry').value.trim();
+async function saveOffer(entryOverride) {
+  const entry = entryOverride != null ? entryOverride : document.getElementById('offer-entry').value.trim();
   const r = await api('/api/offer', {method: 'POST', headers: {'Content-Type': 'application/json'},
-                                     body: JSON.stringify({entry, ideas: _offerIdeas.map(i => i.offer)})});
-  if (r && r.success) showToast(r.message, 'success');
+                                     body: JSON.stringify({entry})});
+  if (r && r.success) { showToast(r.message, 'success'); loadCompany(); }
   else showToast((r && r.message) || 'Couldn\'t save the offer.', 'error');
+}
+
+async function useProposedOffer() {
+  if (_company && _company.offer && _company.offer.proposed) await saveOffer(_company.offer.proposed.entry);
+}
+
+async function dismissProposedOffer() {
+  await api('/api/offer/propose', {method: 'DELETE'});
+  loadCompany();
 }

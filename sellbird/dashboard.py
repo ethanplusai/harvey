@@ -594,12 +594,6 @@ async def suggest_offer():
     if not ideas:
         return JSONResponse({"error": "Sellbird couldn't come up with offers just now. Try again."},
                             status_code=502)
-    # Keep them, so the next visit shows them without another model call.
-    from sellbird.offer import save_offer
-    try:
-        save_offer(_offer_config_file(), config.product.offer.entry or "", [i["offer"] for i in ideas])
-    except Exception as e:
-        logger.warning(f"Couldn't keep the offer ideas: {e}")
     return {"ideas": ideas}
 
 
@@ -630,12 +624,76 @@ async def save_offer_route(request: Request):
     target = _offer_config_file()
     try:
         save_offer(target, entry, ideas)
+        from sellbird.offer import PROPOSED_KEY
+        state = _state()
+        await state.init_db()
+        await state.delete_setting(PROPOSED_KEY)
     except Exception as e:
         return JSONResponse({"success": False, "message": f"Couldn't save to {target.name}: {e}"},
                             status_code=500)
     return {"success": True, "entry": entry,
             "message": "Saved. Every new first email ends with this offer." if entry
                        else "Saved. With no offer, first emails end with a question."}
+
+
+@app.get("/api/company")
+async def get_company():
+    """Your company: everything Sellbird writes from, and any offer your agent proposed."""
+    from sellbird.config import load_config
+    from sellbird.offer import PROPOSED_KEY, company_view
+    try:
+        state = _state()
+        await state.init_db()
+        raw = await state.get_setting(PROPOSED_KEY)
+        proposed = json.loads(raw) if raw else None
+        return company_view(load_config(), PROJECT_ROOT, proposed)
+    except Exception as e:
+        return JSONResponse({"error": f"Couldn't read your config: {e}"}, status_code=500)
+
+
+@app.post("/api/company")
+async def save_company_route(request: Request):
+    """Save one edited section of Your company to the config file."""
+    from sellbird.offer import save_company
+    body = await request.json() if request.headers.get("content-type", "").startswith("application/json") else {}
+    section = str((body or {}).get("section") or "")
+    fields = (body or {}).get("fields")
+    if not isinstance(fields, dict) or not fields:
+        return JSONResponse({"success": False, "message": "Nothing to save."}, status_code=400)
+    try:
+        save_company(_offer_config_file(), section, fields)
+    except ValueError as e:
+        return JSONResponse({"success": False, "message": f"Not saved: {e}."}, status_code=400)
+    except Exception as e:
+        return JSONResponse({"success": False, "message": f"Couldn't save: {e}"}, status_code=500)
+    return {"success": True, "message": "Saved. New emails use it from the next draft."}
+
+
+@app.post("/api/offer/propose")
+async def propose_offer(request: Request):
+    """Your agent's proposed offer, waiting for you to use or dismiss it on
+    Your company. Proposing changes nothing that's sent."""
+    from sellbird.offer import MAX_OFFER_CHARS, PROPOSED_KEY
+    body = await request.json() if request.headers.get("content-type", "").startswith("application/json") else {}
+    entry = " ".join(str((body or {}).get("entry") or "").split())[:MAX_OFFER_CHARS]
+    why = " ".join(str((body or {}).get("why") or "").split())[:500]
+    if not entry:
+        return JSONResponse({"ok": False, "message": "An offer is required."}, status_code=400)
+    state = _state()
+    await state.init_db()
+    await state.set_setting(PROPOSED_KEY, json.dumps({"entry": entry, "why": why,
+                                                      "at": datetime.now(timezone.utc).isoformat()}))
+    return {"ok": True, "message": "Proposed. The user confirms it on the Your company tab "
+                                    "(dashboard → Your company → Your offer → Use this offer)."}
+
+
+@app.delete("/api/offer/propose")
+async def dismiss_proposed_offer():
+    from sellbird.offer import PROPOSED_KEY
+    state = _state()
+    await state.init_db()
+    await state.delete_setting(PROPOSED_KEY)
+    return {"success": True}
 
 
 @app.post("/api/settings/test-instantly")
