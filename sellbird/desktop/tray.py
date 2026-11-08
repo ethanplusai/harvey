@@ -574,6 +574,23 @@ def _sharp_on_retina(icon) -> None:
 # ── The tray app ──
 
 NOTIFIER_SOURCE = Path(__file__).with_name("notifier") / "main.swift"
+# Built from NOTIFIER_SOURCE for Apple silicon and Intel and shipped with
+# Sellbird, so a Mac without Xcode still gets branded notifications. The
+# .source-sha256 file names the source it was built from: when the source
+# changes and the binary isn't rebuilt, it's ignored and swiftc builds one.
+NOTIFIER_PREBUILT = NOTIFIER_SOURCE.with_name("sellbird-notify")
+
+
+def prebuilt_notifier() -> Path | None:
+    """The shipped notifier binary, when it matches the source next to it."""
+    import hashlib
+    stamp = NOTIFIER_PREBUILT.with_name("sellbird-notify.source-sha256")
+    try:
+        built_from = stamp.read_text(encoding="utf-8").strip()
+        source = hashlib.sha256(NOTIFIER_SOURCE.read_bytes()).hexdigest()
+    except OSError:
+        return None
+    return NOTIFIER_PREBUILT if NOTIFIER_PREBUILT.is_file() and built_from == source else None
 NOTIFIER_ID = "ai.sellbird.notifier"
 _LSREGISTER = ("/System/Library/Frameworks/CoreServices.framework/Frameworks/"
                "LaunchServices.framework/Support/lsregister")
@@ -607,16 +624,18 @@ def build_notifier(app: Path, run=subprocess.run) -> bool:
     macOS shows a notification with the icon of the app that sent it, and
     only lets a real, signed app send one: from Python they came out as
     "python3" or Script Editor. Needs the Swift compiler (Xcode or its
-    command-line tools); without it the menu-bar app keeps the old style."""
+    command-line tools) only when the shipped binary (NOTIFIER_PREBUILT) is
+    missing or out of date; without either it keeps the old style."""
     import shutil
     import tempfile
 
     version = notifier_version()
     stamp = app / "Contents" / "sellbird-version"
-    if stamp.is_file() and stamp.read_text().strip() == version:
+    if stamp.is_file() and stamp.read_text(encoding="utf-8").strip() == version:
         return True
-    swiftc = shutil.which("swiftc")
-    if swiftc is None:
+    prebuilt = prebuilt_notifier()
+    swiftc = None if prebuilt else shutil.which("swiftc")
+    if prebuilt is None and swiftc is None:
         return False
     with tempfile.TemporaryDirectory() as tmp:
         work = Path(tmp) / "Sellbird.app"
@@ -630,19 +649,21 @@ def build_notifier(app: Path, run=subprocess.run) -> bool:
                 image.save(iconset / f"icon_{px}x{px}.png")
             if px >= 32:
                 image.save(iconset / f"icon_{px // 2}x{px // 2}@2x.png")
-        steps = [
-            [swiftc, "-O", "-o", str(work / "Contents" / "MacOS" / "sellbird-notify"),
-             str(NOTIFIER_SOURCE)],
-            ["iconutil", "-c", "icns", str(iconset), "-o",
-             str(work / "Contents" / "Resources" / "Sellbird.icns")],
-        ]
+        binary = work / "Contents" / "MacOS" / "sellbird-notify"
+        steps = [["iconutil", "-c", "icns", str(iconset), "-o",
+                  str(work / "Contents" / "Resources" / "Sellbird.icns")]]
+        if prebuilt:
+            shutil.copy2(prebuilt, binary)
+            binary.chmod(0o755)
+        else:
+            steps.insert(0, [swiftc, "-O", "-o", str(binary), str(NOTIFIER_SOURCE)])
         (work / "Contents" / "Info.plist").write_text(
-            _INFO_PLIST.format(id=NOTIFIER_ID, version=version))
+            _INFO_PLIST.format(id=NOTIFIER_ID, version=version), encoding="utf-8")
         for step in steps:
             if run(step, capture_output=True).returncode != 0:
                 logger.debug("Notifier build step failed: %s", step[0])
                 return False
-        (work / "Contents" / "sellbird-version").write_text(version)
+        (work / "Contents" / "sellbird-version").write_text(version, encoding="utf-8")
         if app.exists():
             shutil.rmtree(app)
         app.parent.mkdir(parents=True, exist_ok=True)
@@ -679,7 +700,7 @@ class MacNotifier:
         in a file only you can read, not on a command line others could see."""
         try:
             if link:
-                self.link_file.write_text(link)
+                self.link_file.write_text(link, encoding="utf-8")
                 os.chmod(self.link_file, 0o600)
             subprocess.Popen(["open", "-n", "-g", str(self.app), "--args", message,
                               str(self.link_file) if link else ""],

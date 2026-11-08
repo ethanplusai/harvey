@@ -18,8 +18,7 @@ final class Notifier: NSObject, NSApplicationDelegate, UNUserNotificationCenterD
             quit(after: 5)   // launched by a click: wait for didReceive
             return
         }
-        center.requestAuthorization(options: [.alert, .sound]) { granted, error in
-            FileHandle.standardError.write("authorization granted=\(granted) error=\(String(describing: error))\n".data(using: .utf8)!)
+        center.requestAuthorization(options: [.alert, .sound]) { granted, _ in
             guard granted else { self.quit(after: 0); return }
             let content = UNMutableNotificationContent()
             content.title = "Sellbird"
@@ -28,10 +27,7 @@ final class Notifier: NSObject, NSApplicationDelegate, UNUserNotificationCenterD
             if self.args.count > 1, !self.args[1].isEmpty { content.userInfo = ["url": self.args[1]] }
             let request = UNNotificationRequest(identifier: UUID().uuidString,
                                                 content: content, trigger: nil)
-            center.add(request) { error in
-                FileHandle.standardError.write("added error=\(String(describing: error))\n".data(using: .utf8)!)
-                self.quit(after: 1)
-            }
+            center.add(request) { _ in self.quit(after: 1) }
         }
     }
 

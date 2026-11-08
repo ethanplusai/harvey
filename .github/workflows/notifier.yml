@@ -1,0 +1,29 @@
+name: macOS notifier
+
+# The menu-bar app's notifications go through a tiny Swift app
+# (sellbird/desktop/notifier). Its prebuilt binary ships with Sellbird so a Mac
+# without Xcode still gets them. This checks the source compiles and that the
+# shipped binary was rebuilt from the current source.
+on:
+  pull_request:
+    paths: ["sellbird/desktop/notifier/**", ".github/workflows/notifier.yml"]
+  push:
+    branches: [main]
+    paths: ["sellbird/desktop/notifier/**"]
+
+jobs:
+  notifier:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Compile for Apple silicon and Intel
+        run: |
+          cd sellbird/desktop/notifier
+          swiftc -O -target arm64-apple-macos12 -o /tmp/arm main.swift
+          swiftc -O -target x86_64-apple-macos12 -o /tmp/x86 main.swift
+          lipo -info sellbird-notify
+      - name: Shipped binary matches the source
+        run: |
+          cd sellbird/desktop/notifier
+          test "$(shasum -a 256 main.swift | cut -d' ' -f1)" = "$(cat sellbird-notify.source-sha256)" || {
+            echo "main.swift changed but sellbird-notify wasn't rebuilt. See docs/menu-bar.md."; exit 1; }

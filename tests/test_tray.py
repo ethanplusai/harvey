@@ -305,10 +305,11 @@ def test_the_first_look_sets_a_baseline_and_later_replies_pop_up():
 
 # ── Branded notifications through the Sellbird helper app ────────────────
 
-def test_without_swift_the_helper_is_not_built(tmp_path, monkeypatch):
+def test_without_swift_or_a_prebuilt_binary_the_helper_is_not_built(tmp_path, monkeypatch):
     import shutil as sh
     from sellbird.desktop import tray
     monkeypatch.setattr(sh, "which", lambda name: None)
+    monkeypatch.setattr(tray, "prebuilt_notifier", lambda: None)
     assert tray.build_notifier(tmp_path / "Sellbird.app") is False
     assert tray.MacNotifier.create(tmp_path, app=tmp_path / "Sellbird.app") is False
 
@@ -329,6 +330,7 @@ def test_the_helper_is_built_once_per_version(tmp_path, monkeypatch):
         return type("R", (), {"returncode": 0})()
 
     monkeypatch.setattr(sh, "which", lambda name: "/usr/bin/swiftc")
+    monkeypatch.setattr(tray, "prebuilt_notifier", lambda: None)
     app = tmp_path / "Sellbird.app"
     assert tray.build_notifier(app, run=run)
     plist = (app / "Contents" / "Info.plist").read_text()
@@ -378,3 +380,31 @@ def test_a_reply_notification_opens_that_conversation(tmp_path):
     assert app._mac.links == ["http://127.0.0.1:5555/#token=t&tab=conversations&focus=c%202",
                               "http://127.0.0.1:5555/#token=t&tab=conversations",
                               "http://127.0.0.1:5555/#token=t"]
+
+
+def test_the_shipped_notifier_matches_its_source():
+    # Rebuild sellbird/desktop/notifier/sellbird-notify (see docs/menu-bar.md)
+    # whenever main.swift changes, or every Mac without Xcode loses branding.
+    from sellbird.desktop.tray import prebuilt_notifier
+    assert prebuilt_notifier() is not None
+
+
+def test_a_mac_without_swift_uses_the_shipped_notifier(tmp_path, monkeypatch):
+    pytest.importorskip("PIL")
+    import shutil as sh
+    from sellbird.desktop import tray
+    monkeypatch.setattr(sh, "which", lambda name: None)
+    ran = []
+
+    def run(cmd, **kw):
+        ran.append(cmd[0])
+        if cmd[0] == "iconutil":
+            from pathlib import Path
+            Path(cmd[5]).write_text("icns")
+        return type("R", (), {"returncode": 0})()
+
+    app = tmp_path / "Sellbird.app"
+    assert tray.build_notifier(app, run=run)
+    binary = app / "Contents" / "MacOS" / "sellbird-notify"
+    assert binary.read_bytes() == tray.NOTIFIER_PREBUILT.read_bytes()
+    assert "swiftc" not in " ".join(ran)
