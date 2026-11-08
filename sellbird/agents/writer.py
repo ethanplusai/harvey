@@ -189,12 +189,15 @@ class Writer:
         # Load foundational skills for this agent
         self.skills = self.brain.load_skills_for_agent("writer")
         # The offer can change in the dashboard while Sellbird runs: use the
-        # one saved now, not the one read at startup.
-        try:
-            from sellbird.config import load_config
-            self.config.product.offer = load_config().product.offer
-        except Exception:
-            pass
+        # one saved now, not the one read at startup. A hosted workspace's
+        # config comes from its own store, never a file, so it's left alone.
+        from sellbird.workspace_home import current_home
+        if not current_home().hosted:
+            try:
+                from sellbird.config import load_config
+                self.config.product.offer = load_config().product.offer
+            except Exception:
+                pass
         try:
             self.email_rules = load_email_rules(self.config)
         except EmailRulesError as e:
