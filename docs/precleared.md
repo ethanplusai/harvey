@@ -5,7 +5,9 @@ Before the first cold email to anyone new, Sellbird can ask
 address. The answer turns on facts the address does not show: a UK sole
 trader needs consent where a limited company does not. Precleared looks them
 up live (Companies House, the domain, the website) and applies the rules of
-the recipient's country.
+the recipient's country: the UK, US, Canada, Germany, France, Australia,
+Ireland, the Netherlands, Spain, Italy, Latvia, the UAE, Egypt and Qatar. The
+sender can be based in any of those fourteen countries too.
 
 Off by default. One check per address, for mail sent through Gmail,
 Microsoft 365 or SMTP. Instantly campaigns and replies are never checked.
@@ -19,7 +21,7 @@ wins):
 compliance:
   precleared:
     enabled: true
-    sender_country: "GB"        # GB or US
+    sender_country: "GB"        # GB, US, CA, DE, FR, AU, IE, NL, ES, IT, LV, AE, EG or QA
     address_source: "unknown"   # unless copied from the businesses' own sites
     prospect_country: ""        # e.g. "US" if all prospects are in one country
 ```
@@ -102,7 +104,7 @@ notice, and so does switching the check off.
 |---|---|
 | None | 10, shared per public IP address |
 | Free key | 25 |
-| Any new key, first 14 days | 100 |
+| Any new key, its first 14 days (counted from its first check) | 100 |
 
 Beyond that a key draws on a prepaid pack, and Sellbird shows the checkout
 link when one runs out. `sellbird precleared-key` gets a free key for your email

@@ -110,8 +110,9 @@ usage:
     timezone: "America/New_York"
 
 # Optional: check each new recipient with Precleared (precleared.dev) before
-# the first cold email: may cold marketing email go to this address under UK
-# PECR, US CAN-SPAM, Canada's CASL, Germany's UWG and France's rules? Any other
+# the first cold email: may cold marketing email go to this address under the
+# rules of the recipient's country (UK PECR, US CAN-SPAM, Canada's CASL,
+# Germany's UWG, France's CPCE and the rest of Precleared's fourteen)? Any other
 # answer holds the email back, with the reason in the Outbox. One check per
 # address; 10 a day free without a key. A free key (PRECLEARED_API_KEY in .env,
 # which `sellbird precleared-key` gets for you) allows 100 a day for its first 14
@@ -138,7 +139,8 @@ compliance:
   #   - "jane@acme.example"
   precleared:
     enabled: false
-    sender_country: ""          # GB or US: where your business is based
+    sender_country: ""          # where your business is based: GB, US, CA, DE, FR, AU,
+                                # IE, NL, ES, IT, LV, AE, EG or QA
     address_source: "unknown"   # published | bought | scraped | given | unknown
     prospect_country: ""        # optional, e.g. US if all your prospects are in one country
     # Sellbird also tells Precleared the recipient's country when the company's

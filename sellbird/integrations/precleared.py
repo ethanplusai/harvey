@@ -2,10 +2,12 @@
 
 Off by default. With ``compliance.precleared.enabled: true``, the sender asks
 Precleared about each new recipient before the first cold email of a
-sequence: may a cold marketing email go to this address under UK PECR, US
-CAN-SPAM, Canada's CASL, Germany's UWG or France's rules? Anything other than
-``ok_to_email`` holds the email back with the reason, and the signed receipt
-id is logged with the send so the decision can be shown later.
+sequence: may a cold marketing email go to this address under the rules of
+the recipient's country (UK PECR, US CAN-SPAM, Canada's CASL, Germany's UWG,
+France's CPCE, and the rest of the fourteen countries in SENDER_COUNTRIES)?
+Anything other than ``ok_to_email`` holds the email back with the reason, and
+the signed receipt id is logged with the send so the decision can be shown
+later. The sender can be based in any of those fourteen countries.
 
 One check per address: a definite verdict is cached in the settings table for
 CACHE_DAYS, together with a fingerprint of the facts it was decided on (sender
@@ -66,7 +68,7 @@ from urllib.parse import unquote, urlsplit
 
 import httpx
 
-from sellbird.config import normalize_prospect_country
+from sellbird.config import PRECLEARED_SENDER_COUNTRIES, normalize_prospect_country
 from sellbird.send_window import icp_country
 
 logger = logging.getLogger("sellbird.precleared")
@@ -89,7 +91,8 @@ SETTINGS_PREFIX = "precleared:"
 VERDICTS = {"ok_to_email", "consent_needed", "blocked", "unknown"}
 DEFINITE_VERDICTS = {"ok_to_email", "consent_needed", "blocked"}
 ADDRESS_SOURCES = ("published", "bought", "scraped", "given", "unknown")
-SENDER_COUNTRIES = ("GB", "US")
+# Where the sender can be based: the countries whose rules Precleared applies.
+SENDER_COUNTRIES = PRECLEARED_SENDER_COUNTRIES
 # Precleared's limits for the company and person names sent with a check.
 # A longer value would be refused, so names are cut to fit.
 MAX_COMPANY_NAME = 160
@@ -637,7 +640,7 @@ def create_free_key(email: str, country: str = "",
     """Ask Precleared for a free key for ``email`` (POST /api/v1/keys).
 
     New keys get 100 checks a day for their first 14 days, then 25 a day.
-    Only the email address, the sender country (GB or US, when known) and
+    Only the email address, the sender country (one of SENDER_COUNTRIES, when known) and
     KEY_USE_CASE are sent. Precleared shows a key only once and limits how
     many each email address and network can have; when it can't make one,
     ``error`` carries its reason.
