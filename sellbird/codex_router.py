@@ -101,7 +101,7 @@ class RouterClient:
                     try:
                         data = response.json()
                         return self._result(data, started)
-                    except (ValueError, TypeError, KeyError, AttributeError):
+                    except (ValueError, TypeError, KeyError, AttributeError, OverflowError):
                         raise CodexError("Router returned an invalid response.") from None
         except (TimeoutError, httpx.TimeoutException):
             # Timeout can occur after billing; avoid an automatic duplicate charge.
@@ -117,6 +117,13 @@ class RouterClient:
     def _result(self, data: dict, started: float) -> CodexResult:
         if not isinstance(data, dict) or data.get("status") != "completed":
             raise CodexError("Router response did not complete.")
+        # Routers normally strip the provider prefix from the upstream model.
+        # Accept only the exact configured ID or that exact unprefixed ID;
+        # never silently attribute an unrelated model to the chosen one.
+        unprefixed = self.model.split("/", 1)[-1]
+        if data.get("model") not in (self.model, unprefixed):
+            raise CodexError("Router returned a different or missing model ID.",
+                             kind="setup")
         output = data.get("output")
         if not isinstance(output, list):
             raise CodexError("Router output is missing.")

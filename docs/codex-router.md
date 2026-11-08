@@ -20,7 +20,10 @@ Sellbird never reads or copies `.codex/auth.json`, API keys, MCP settings,
 plugins, hooks, or workspace instructions. Only a literal loopback IP URL with
 an explicit port and `/v1` path is accepted. Redirects and environment proxies
 are disabled. Requests have no tools; unexpected tool output fails closed.
-There is no fallback to Claude, ChatGPT, or another model.
+There is no fallback to Claude, ChatGPT, or another model. The returned model
+must match the requested model ID or its exact provider-prefix-stripped ID.
+This verifies the router's reported ID, not the identity of an opaque
+upstream service.
 
 **This is not a ChatGPT subscription.** Requests may debit your AgentRouter
 account. Token counts are recorded under `codex_router`; monetary cost and

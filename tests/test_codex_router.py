@@ -14,7 +14,7 @@ from sellbird.state import StateManager
 
 def reply(**changes):
     data = {
-        "id": "resp_test", "status": "completed",
+        "id": "resp_test", "status": "completed", "model": "gpt-6.1-sol",
         "output": [{"type": "reasoning"}, {
             "type": "message", "role": "assistant",
             "content": [{"type": "output_text", "text": '{"ok": true}'}]}],
@@ -93,11 +93,23 @@ async def test_http_errors_redacted(status, kind, retryable):
         {"type": "refusal", "refusal": "no"}]}]),
     reply(output=[None]),
     reply(usage={"input_tokens": "not-a-number"}),
+    reply(usage={"input_tokens": float("inf")}),
+    reply(model="gpt-5.5"),
+    reply(model=None),
 ])
 @pytest.mark.asyncio
 async def test_invalid_and_tool_output_fails(data):
     with pytest.raises(CodexError):
-        await client(lambda _: httpx.Response(200, json=data)).run("test", timeout=1)
+        await client(lambda _: httpx.Response(
+            200, content=json.dumps(data))).run("test", timeout=1)
+
+
+@pytest.mark.parametrize("model", ["ar/gpt-6.1-sol", "gpt-6.1-sol"])
+@pytest.mark.asyncio
+async def test_exact_or_unprefixed_response_model(model):
+    result = await client(lambda _: httpx.Response(200, json=reply(model=model))).run(
+        "test", timeout=1)
+    assert result.model == "ar/gpt-6.1-sol"
 
 
 @pytest.mark.asyncio
