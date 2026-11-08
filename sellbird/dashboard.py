@@ -911,6 +911,11 @@ async def get_stats():
         )
         usage_today = (usage[0]["claude_calls"] or 0) if usage else 0
         codex_today = (usage[0]["codex_calls"] or 0) if usage else 0
+        router_usage = await query_db(
+            "SELECT value FROM settings WHERE key = ?",
+            (f"codex_router_calls:{date.today().isoformat()}",),
+        )
+        router_today = int(router_usage[0]["value"]) if router_usage else 0
 
         return {
             "prospects": {"total": prospect_total, "by_status": prospect_map},
@@ -920,6 +925,7 @@ async def get_stats():
             "actions_total": action_count,
             "claude_calls_today": usage_today,
             "codex_calls_today": codex_today,
+            "codex_router_calls_today": router_today,
             "brain_provider": _active_provider(),
             "brain_status": await _brain_status(),
         }

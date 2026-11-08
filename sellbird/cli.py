@@ -235,6 +235,8 @@ def cmd_status(args):
         by_provider = summary.get("usage_today_by_provider", {})
         print(f"  Claude calls today:   {by_provider.get('claude', summary['usage_today'])}")
         print(f"  Codex calls today:    {by_provider.get('codex', 0)}")
+        if by_provider.get("codex_router"):
+            print(f"  AR router attempts:   {by_provider['codex_router']} (API billed; cost unknown)")
         from sellbird.config import compliance_notice, load_config, sending_notice
         loaded = None
         try:
@@ -303,6 +305,9 @@ def cmd_status(args):
                     healthy = False
                     print(f"  Brain:                {label} NOT READY")
                     print(f"                        {problem}")
+                elif brain.provider == "codex_router":
+                    print(f"  Brain:                {label} router reachable "
+                          "(model/auth not checked; no prompt sent; API billed)")
                 elif brain.provider == "codex":
                     print(f"  Brain:                {label} ready (CLI, isolation, login, "
                           "model and account checked; no prompt sent)")
@@ -310,7 +315,7 @@ def cmd_status(args):
                     print(f"  Brain:                {label} CLI isolation flags present "
                           "(login not checked: Claude is checked by its first call)")
         elif brain_status.get("status") == "paused":
-            label = {"claude": "Claude", "codex": "Codex"}.get(brain_status.get("provider"), "Brain")
+            label = {"claude": "Claude", "codex": "Codex", "codex_router": "AR router (API)"}.get(brain_status.get("provider"), "Brain")
             print(f"  Brain:                {label} PAUSED since {brain_status.get('since', '?')}")
             print(f"                        {brain_status.get('reason', '')}")
         print()
@@ -352,7 +357,7 @@ def cmd_usage(args):
         except Exception:
             pass
 
-        label = {"claude": "Claude", "codex": "Codex"}.get(provider, "Brain")
+        label = {"claude": "Claude", "codex": "Codex", "codex_router": "AR router (API)"}.get(provider, "Brain")
         print(f"\n  {label} Usage")
         print("  " + "=" * 52)
         if windows:
@@ -361,6 +366,9 @@ def cmd_usage(args):
             for key, w in windows.items():
                 resets = f"  (resets {w['resets_at']})" if w.get("resets_at") else ""
                 print(f"  {labels.get(key, key):<16} {w['utilization']:5.1f}% used{resets}")
+        elif provider == "codex_router":
+            print("  API quota and monetary cost unknown; check your router account. "
+                  "Recorded zero cost means unreported, not free. Daily call cap applies.")
         elif provider == "codex":
             print("  Quota gauge unavailable (check 'codex login', the Codex CLI "
                   "version, and network).")
@@ -1139,8 +1147,8 @@ def main():
         help="Max pages to crawl (default: 100)",
     )
     sub.add_argument(
-        "--provider", choices=["claude", "codex"], default=None,
-        help="Subscription to think with (default: the one in your config, else claude)",
+        "--provider", choices=["claude", "codex", "codex_router"], default=None,
+        help="Brain provider (codex_router is API billed; default: configured provider)",
     )
     sub.add_argument("--model", default=None, help="Model for this provider (default: provider default)")
     sub.add_argument(

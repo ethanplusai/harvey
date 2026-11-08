@@ -630,7 +630,7 @@ class UsageConfig(BaseModel):
         return v
 
 
-BRAIN_PROVIDERS = ("claude", "codex")
+BRAIN_PROVIDERS = ("claude", "codex", "codex_router")
 CODEX_REASONING_EFFORTS = ("minimal", "low", "medium", "high", "xhigh")
 
 # Model names are passed to a CLI, so they must look like a model name and
@@ -639,17 +639,29 @@ _MODEL_NAME_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._:/\[\]-]{0,127}$")
 
 
 class BrainConfig(BaseModel):
-    """Which subscription Sellbird thinks with.
+    """Which explicitly selected provider Sellbird thinks with.
 
     ``claude`` (default) runs Claude Code headless on your Claude plan.
     ``codex`` runs Codex on your ChatGPT plan. There is never an automatic
     fallback between them, and an explicit ``model`` only affects Sellbird —
     your own Claude Code / Codex settings are never read or changed.
+    ``codex_router`` is a separate API-billed, loopback-only Responses backend,
+    not a subscription or a fallback.
     """
 
     provider: str = "claude"
     model: str = ""  # empty = the provider's own default
-    reasoning_effort: str = ""  # codex only; empty = model default
+    reasoning_effort: str = ""  # codex / codex_router; empty = model default
+    router_base_url: str = "http://127.0.0.1:20129/v1"
+
+    @model_validator(mode="after")
+    def _router_settings(self):
+        if self.provider == "codex_router":
+            from sellbird.codex_router import validate_router_url
+            self.router_base_url = validate_router_url(self.router_base_url)
+            if not self.model:
+                raise ValueError("codex_router requires an explicit model ID.")
+        return self
 
     @field_validator("provider", mode="before")
     @classmethod

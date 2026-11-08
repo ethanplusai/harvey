@@ -554,7 +554,7 @@ MIGRATIONS: list[str] = [
     """,
 ]
 
-BRAIN_PROVIDERS = ("claude", "codex")
+BRAIN_PROVIDERS = ("claude", "codex", "codex_router")
 _USAGE_LOG_COLUMN = {"claude": "claude_calls", "codex": "codex_calls"}
 
 # When a company was last profiled: the newer of the explicit check stamp
@@ -2590,6 +2590,9 @@ class StateManager:
 
     async def get_usage_today(self, provider: str = "claude") -> int:
         """Brain calls made today on one provider's subscription."""
+        if provider == "codex_router":
+            key = f"codex_router_calls:{date.today().isoformat()}"
+            return int(await self.get_setting(key, "0"))
         column = _USAGE_LOG_COLUMN[provider]
         today = date.today().isoformat()
         async with self._connect() as db:
@@ -2600,6 +2603,18 @@ class StateManager:
                 return (row[0] or 0) if row else 0
 
     async def increment_usage(self, provider: str = "claude"):
+        if provider == "codex_router":
+            # Separate, atomic counter: API requests must not consume or pretend
+            # to consume either subscription. Count even if usage logging fails.
+            key = f"codex_router_calls:{date.today().isoformat()}"
+            async with self._connect() as db:
+                await db.execute(
+                    "INSERT INTO settings (key, value) VALUES (?, '1') "
+                    "ON CONFLICT(key) DO UPDATE SET "
+                    "value = CAST(CAST(settings.value AS INTEGER) + 1 AS TEXT), "
+                    "updated_at = CURRENT_TIMESTAMP", (key,))
+                await db.commit()
+            return
         column = _USAGE_LOG_COLUMN[provider]
         today = date.today().isoformat()
         async with self._connect() as db:
@@ -2768,6 +2783,7 @@ class StateManager:
                 usage_today = (usage_row[0] or 0) if usage_row else 0
                 codex_today = (usage_row[1] or 0) if usage_row else 0
 
+        router_today = await self.get_usage_today(provider="codex_router")
         return {
             "prospects": prospect_counts,
             # The 'new' prospects the Writer can act on. A guessed or invalid
@@ -2784,7 +2800,10 @@ class StateManager:
             "open_conversations": open_conversations,
             "auto_reply_handoffs": auto_reply_handoffs,
             "usage_today": usage_today,  # Claude calls (kept for compatibility)
-            "usage_today_by_provider": {"claude": usage_today, "codex": codex_today},
+            "usage_today_by_provider": {
+                "claude": usage_today, "codex": codex_today,
+                **({"codex_router": router_today} if router_today else {}),
+            },
             # Companies discovered but not yet read. The heartbeat profiles
             # these every cycle — it is free, so it never competes with the
             # Claude budget the rest of the loop is rationing.
