@@ -716,7 +716,7 @@ class Brain:
         # and loaded by every agent that needs product context
         skill_map = {
             "scout": ["prospecting_tactics", "lead_qualification", "account_navigation", "signal_playbook", "product_knowledge"],
-            "writer": ["email_frameworks", "signal_playbook", "sales_methodology", "offer_strategy", "product_knowledge", "competitive_intel"],
+            "writer": ["email_frameworks", "signal_playbook", "offer_strategy", "product_knowledge", "competitive_intel"],
             "handler": ["objection_handling", "sales_methodology", "offer_strategy", "product_knowledge", "competitive_intel"],
             "sender": ["email_frameworks", "product_knowledge"],
             "linkedin": ["linkedin_outreach", "prospecting_tactics", "product_knowledge"],

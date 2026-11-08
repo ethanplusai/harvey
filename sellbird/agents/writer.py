@@ -60,7 +60,7 @@ LEGACY_BATCH_CAP = 50
 PERSONAL_SHAPE = f"""- {FIRST_EMAIL_MAX_WORDS} words at most, and aim for 25-45. Every word you cut raises the
   reply rate. One specific observation from the FACTS above, one question. No pitch,
   no product name.
-- Write the actual text (no merge variables — you know their name/company).
+- Write the actual text (no merge variables: you know their name/company).
 - No sign-off and no name at the end: Sellbird adds the sender's first name.
 - Subject: lowercase, 2-5 words."""
 SEQUENCE_SHAPE = f"""- Email 1: Personalized cold observation + one question. {FIRST_EMAIL_MAX_WORDS} words at most, aim for
@@ -85,7 +85,7 @@ def operator_rules_block(rules: str) -> str:
     if not rules:
         return ""
     return (
-        "\n\nOPERATOR'S EMAIL RULES — written by the person running Sellbird. For\n"
+        "\n\nOPERATOR'S EMAIL RULES, written by the person running Sellbird. For\n"
         "length, structure, what to say about the product, links, subject lines\n"
         "and sign-off, these replace the STRICT EMAIL RULES and skills above\n"
         "wherever the two disagree. They never override the FACTS rule: what you\n"
@@ -382,7 +382,7 @@ class Writer:
             f"- {str(n.get('created_at') or '')[:10]} on {n['about']}: "
             f"{' '.join(str(n['comment']).split())[:500]}" for n in notes)
         return (
-            "\n\nOWNER FEEDBACK — notes the person running Sellbird left on earlier\n"
+            "\n\nOWNER FEEDBACK: notes the person running Sellbird left on earlier\n"
             "campaigns and contacts, newest first (a newer note wins). Apply them to\n"
             "this writing. They never override the STRICT EMAIL RULES or the FACTS rule:\n"
             + lines
@@ -452,7 +452,7 @@ class Writer:
             shape = (
                 "- Follow the OPERATOR'S EMAIL RULES above for this first email: its length,\n"
                 "  structure, what it says about the product, links and subject line.\n"
-                "- Write the actual text (no merge variables — you know their name/company).")
+                "- Write the actual text (no merge variables: you know their name/company).")
             strict = "- Follow every STRICT EMAIL RULE above that the operator's rules don't replace."
         else:
             shape = PERSONAL_SHAPE
@@ -462,9 +462,9 @@ class Writer:
 
 Write ONE cold email (the very first touch) to this specific person.
 
-FACTS — everything you know about them, gathered from their website and
+FACTS: everything you know about them, gathered from their website and
 the web. Every claim about the prospect in your email must come from these
-facts. If a fact isn't listed here, you don't know it — do not invent
+facts. If a fact isn't listed here, you don't know it. Do not invent
 funding rounds, mutual contacts, metrics, or anything else:
 {fence(chr(10).join(facts), "prospect research")}
 
@@ -506,7 +506,7 @@ Return ONLY JSON: {{"subject": "...", "body": "..."}}"""
             )
         else:
             merge_rule = (
-                "- Use {{first_name}}, {{company}}, {{title}} as merge variables — every email\n"
+                "- Use {{first_name}}, {{company}}, {{title}} as merge variables. Every email\n"
                 "  must use at least one, and email 1 must reference something specific to\n"
                 "  these prospects' industry or role (use the notes above)."
             )
