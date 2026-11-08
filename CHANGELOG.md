@@ -33,6 +33,11 @@ minor versions can still change behaviour.
 
 ### Added
 
+- **A menu-bar app.** `sellbird tray` (macOS menu bar, Windows tray)
+  starts the dashboard when needed, starts and stops Sellbird, pauses and
+  resumes sending and opens the dashboard unlocked. `sellbird autostart
+  install` starts it at login. See "The menu-bar app" in
+  [docs/configuration.md](docs/configuration.md).
 - **Several sending inboxes.** Besides the main mailbox, connect Gmail,
   Microsoft 365 or SMTP inboxes you already own with
   `sellbird inboxes connect`. Their sign-ins and passwords live in the
@@ -41,7 +46,11 @@ minor versions can still change behaviour.
   its own daily cold cap (`channels.email.per_inbox_daily_cap`, or your own
   number) and warmup ramp, and can be paused, renamed, removed or limited
   to some campaigns. Replies are read from every inbox. With one inbox
-  nothing changes. See "Several sending inboxes" in
+  nothing changes. The dashboard's Inboxes tab shows them, opens each one
+  to pause, cap, rename or remove it, and adds one (a Gmail or Microsoft
+  sign-in in your browser, or an SMTP password that goes straight to your
+  keychain). Your coding agent can list them and pause one, never add or
+  remove one. See "Several sending inboxes" in
   [docs/configuration.md](docs/configuration.md).
 - **An MCP server for your coding agent.** `sellbird mcp install` adds
   Sellbird to Claude Code (or Codex), showing the change first. The agent
