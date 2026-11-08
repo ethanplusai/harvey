@@ -16,7 +16,7 @@ from datetime import datetime, timezone
 from sellbird.booking import booking_instruction
 from sellbird.brain import Brain, BrainUnavailable
 from sellbird.config import (
-    DEFAULT_OPT_OUT_LINE, SellbirdConfig, EnvConfig, compliance_of, legacy_sending_held,
+    DEFAULT_OPT_OUT_LINE, PREVIOUS_DEFAULT_OPT_OUT_LINE, SellbirdConfig, EnvConfig, compliance_of, legacy_sending_held,
     live_do_not_contact,
 )
 from sellbird.gate import autopilot_review, do_not_contact_match, pre_send_check
@@ -646,6 +646,7 @@ class Handler:
             *await self.state.get_texts_for_prospect(prospect.id),
             *await self.state.get_footer_history(),
             compliance.postal_address, compliance.opt_out_line, DEFAULT_OPT_OUT_LINE,
+            PREVIOUS_DEFAULT_OPT_OUT_LINE,
         ])
 
     async def _suppress(self, email: str, reason: str, source: str) -> None:

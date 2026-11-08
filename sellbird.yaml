@@ -124,8 +124,8 @@ compliance:
   # postal address you receive mail at: a street address, PO box or virtual
   # mailbox. Until it's set, cold email still sends, with a warning.
   postal_address: ""
-  # Keep wording Sellbird recognises as an opt-out ("no thanks", "unsubscribe").
-  opt_out_line: 'Not interested? Reply "no thanks" and I won''t email again.'
+  # Any wording works: Sellbird reads every reply for a request to stop.
+  opt_out_line: "Not interested? Just let me know and I won't email you again."
   # Never email these, cold or in reply: competitors, your existing customers,
   # anyone under a legal hold. An entry is an address or a domain, and a domain
   # covers its subdomains ("acme.example" also blocks "mail.acme.example", but
