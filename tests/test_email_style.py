@@ -191,3 +191,49 @@ async def test_sender_holds_an_email_with_a_dash_for_review(tmp_path):
         mod.sync_sending_mode = mod_sync
     assert status == "pending_review"
     assert error.startswith(HELD_FOR_REVIEW + "the email uses a dash")
+
+
+# ── The writer reads only the signal guidance that fits ──────────────────
+
+PLAYBOOK = """# Signal playbook
+
+## The core rule
+Say the signal plainly — first line.
+
+### Hiring signal (they're hiring)
+Name the role.
+
+### Funding signal (recent raise)
+Mention the raise.
+
+### Search-rank signal (SERP_RANK)
+Say where they rank.
+
+## When you have no real signal
+Use a role problem.
+"""
+
+
+class PlaybookBrain:
+    def load_skill(self, name):
+        return PLAYBOOK if name == "signal_playbook" else ""
+
+
+def test_signal_guide_keeps_only_the_sections_the_facts_call_for():
+    w = _writer(PlaybookBrain())
+    guide = w._signal_guide("- Signal (hiring): Inventory planner")
+    assert "Name the role." in guide and "The core rule" in guide
+    assert "Mention the raise." not in guide and "Say where they rank." not in guide
+    assert "—" not in guide
+
+
+def test_signal_guide_without_a_signal_gives_the_fallback():
+    guide = _writer(PlaybookBrain())._signal_guide("- Company: Acme")
+    assert "Use a role problem." in guide and "Name the role." not in guide
+
+
+def test_writer_no_longer_reads_the_long_playbooks():
+    import inspect
+    from sellbird.brain import Brain
+    src = inspect.getsource(Brain.load_skills_for_agent)
+    assert '"writer": ["product_knowledge", "competitive_intel"]' in src

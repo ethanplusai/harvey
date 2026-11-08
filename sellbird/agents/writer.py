@@ -39,6 +39,33 @@ WRITE_ATTEMPTS_KEY = "write_attempts:"
 # Merge variables that name a person; a company inbox has none of them.
 PERSON_VAR = re.compile(r"\{\{\s*(first_?name|last_?name|title)\s*\}\}", re.IGNORECASE)
 
+# Which signal_playbook sections a prospect's facts call for, by heading
+# prefix and the words in the facts that point to them.
+_SIGNAL_SECTIONS = (
+    ("### Hiring signal", ("hiring", "job post", "is hiring", "open role", "careers")),
+    ("#### Using a job posting", ("hiring", "job post", "open role")),
+    ("### Tech-stack signal", ("tools detected", "uses ", "built on", "shopify", "hubspot", "wordpress")),
+    ("### Funding signal", ("raised", "funding", "seed", "series a", "series b", "y combinator", "accelerator")),
+    ("### New-domain", ("new domain", "registered", "just launched", "new business")),
+    ("### Search-rank signal", ("searched", "search", "came up", "ranks", "google", "maps", "local pack")),
+)
+
+
+def _sections(markdown: str) -> dict[str, str]:
+    """Each heading line of ``markdown`` mapped to the text under it."""
+    out, head, lines = {}, "", []
+    for line in markdown.split("\n"):
+        if line.startswith("#"):
+            if head:
+                out[head] = "\n".join(lines).strip()
+            head, lines = line.strip(), []
+        else:
+            lines.append(line)
+    if head:
+        out[head] = "\n".join(lines).strip()
+    return out
+
+
 # Any merge variable, for checking a rewrite kept the draft's own.
 MERGE_VAR = re.compile(r"\{\{\s*\w+\s*\}\}")
 
@@ -363,6 +390,29 @@ class Writer:
         a raise it announced; see sellbird.startups), else None."""
         return await startup_facts(getattr(self, "state", None), company_id)
 
+    def _signal_guide(self, facts: str) -> str:
+        """The parts of skills/signal_playbook.md that fit these facts ("" when
+        none do, or the playbook is missing).
+
+        The whole playbook covers hiring, funding, tools, search rank and new
+        domains; one prospect has one or two of those, and the rest is noise
+        in a prompt for a 40-word email."""
+        load = getattr(self.brain, "load_skill", None)
+        text = load("signal_playbook") if load else ""
+        if not isinstance(text, str) or not text.strip():
+            return ""
+        sections = _sections(text)
+        low = facts.lower()
+        wanted = ["## The core rule"]
+        for heading, words in _SIGNAL_SECTIONS:
+            if any(w in low for w in words):
+                wanted += [h for h in sections if h.startswith(heading)]
+        if len(wanted) == 1:
+            wanted.append("## When you have no real signal")
+        body = "\n\n".join(f"{h}\n{sections[h]}" for h in dict.fromkeys(wanted) if h in sections)
+        body = body.replace(" \u2014 ", ", ").replace("\u2014", ", ")
+        return "\n\nUSING THEIR SIGNAL\n" + body if body else ""
+
     def _startup_playbook(self) -> str:
         """skills/selling_to_startups.md, for startup prospects ("" if absent)."""
         text = self.brain.load_skill("selling_to_startups") if hasattr(self.brain, "load_skill") else ""
@@ -443,6 +493,7 @@ class Writer:
         ) or ""
         if self.skills:
             prompt += "\n\n" + self.skills
+        prompt += self._signal_guide("\n".join(facts))
         if startup is not None:
             prompt += self._startup_playbook()
         prompt += await self._feedback_block([prospect.id])
@@ -532,9 +583,9 @@ Description: {self.config.product.description}
 Key benefits: {', '.join(self.config.product.key_benefits)}
 Pricing: {self.config.product.pricing}"""
 
-        # Inject email framework skills
         if self.skills:
             prompt += "\n\n" + self.skills
+        prompt += self._signal_guide(prospect_summary)
         # One template goes to the whole batch: founder framing only when
         # every prospect in it is a startup.
         backed = [await self._startup(p.company_id) for p in prospects]
