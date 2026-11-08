@@ -1487,6 +1487,9 @@ function brainCallChips(data) {
   if (data.brain_provider === 'codex') {
     return paused + chip('Codex', codex) + (data.claude_calls_today ? chip('Claude', data.claude_calls_today) : '');
   }
+  if (data.brain_provider === 'codex_router') {
+    return paused + chip('AR router (API)', data.codex_router_calls_today);
+  }
   return paused + chip('Claude', data.claude_calls_today) + (codex ? chip('Codex', codex) : '');
 }
 
@@ -1515,6 +1518,11 @@ function emailTag(p) {
 function quotaCardHtml(data) {
   const provider = data && data.quota_provider;
   if (!provider) return '';
+  if (provider === 'codex_router') {
+    return '<h2>AR router (API billed)</h2><p class="muted">Account quota and monetary cost are unknown. ' +
+      'Recorded zero cost means unreported, not free. The daily call cap counts attempts, not dollars. ' +
+      'Set spending limits in your router account.</p>';
+  }
   const title = provider === 'codex' ? 'Codex (ChatGPT plan) Quota' : 'Claude Subscription Quota';
   let html = '<h2>' + escHtml(title) + '</h2>';
   if (!data.quota || !Object.keys(data.quota).length) {

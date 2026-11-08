@@ -40,7 +40,7 @@ _NON_RETRYABLE_PATTERNS = (
 )
 
 
-PROVIDER_LABELS = {"claude": "Claude", "codex": "Codex"}
+PROVIDER_LABELS = {"claude": "Claude", "codex": "Codex", "codex_router": "AR router (API)"}
 
 # Settings key holding the brain's last health transition, for `sellbird
 # status` and the dashboard: {"provider", "status": "ok"|"paused", "reason",
@@ -100,12 +100,19 @@ class Brain:
         self._usage_limited_until = 0.0
         self._usage_pause_recorded = False
         self._status_synced = False
-        if self.provider == "codex":
+        if self.provider in ("codex", "codex_router"):
             from sellbird.codex import CodexClient, CodexQuotaClient
-            self.codex = CodexClient(
-                model=self.model, reasoning_effort=self.config.reasoning_effort
-            )
-            self.quota = CodexQuotaClient(self.codex)
+            if self.provider == "codex_router":
+                from sellbird.codex_router import RouterClient, RouterQuotaClient
+                self.codex = RouterClient(
+                    model=self.model, reasoning_effort=self.config.reasoning_effort,
+                    base_url=self.config.router_base_url)
+                self.quota = RouterQuotaClient()
+            else:
+                self.codex = CodexClient(
+                    model=self.model, reasoning_effort=self.config.reasoning_effort
+                )
+                self.quota = CodexQuotaClient(self.codex)
         else:
             # Lazy import avoids a cycle (quota -> usage -> state).
             from sellbird.integrations.quota import QuotaClient
@@ -138,7 +145,7 @@ class Brain:
         PROVIDER_RECHECK_SECONDS, so a persistent problem doesn't start
         runtimes every heartbeat.
         """
-        if self.provider != "codex":
+        if self.provider not in ("codex", "codex_router"):
             return await self._claude_preflight()
         from sellbird.codex import CodexError
 
@@ -160,9 +167,13 @@ class Brain:
         if self.unavailable:
             await self._mark_available()
         elif not self._status_synced:
-            logger.info(
-                f"Codex ready: supported CLI, isolation verified, login and account "
-                f"valid, model {self.model or 'auto'} usable with no tools (no prompt sent).")
+            if self.provider == "codex_router":
+                logger.info("Router reachable; model/auth not checked (no prompt sent). "
+                            "API billing and quota/cost are external to Sellbird.")
+            else:
+                logger.info(
+                    f"Codex ready: supported CLI, isolation verified, login and account "
+                    f"valid, model {self.model or 'auto'} usable with no tools (no prompt sent).")
             # A pause recorded before a restart must not outlive the problem.
             self._status_synced = True
             try:
@@ -195,7 +206,7 @@ class Brain:
         return ""
 
     def _fingerprint(self):
-        if self.provider == "codex":
+        if self.provider in ("codex", "codex_router"):
             return self.codex.fingerprint()
         from sellbird.claude_runtime import fingerprint
         return fingerprint()
@@ -263,7 +274,7 @@ class Brain:
         ``agent``/``task`` label the call in the usage_events ledger so the
         dashboard can attribute tokens and cost to specific work.
         """
-        if self.provider == "codex":
+        if self.provider in ("codex", "codex_router"):
             return await self._think_codex(
                 prompt, session_id=session_id, timeout=timeout,
                 max_retries=max_retries, agent=agent, task=task,
@@ -440,6 +451,10 @@ class Brain:
                 )
                 await asyncio.sleep(delay)
             try:
+                if self.provider == "codex_router":
+                    # Count attempts before billing can occur, including errors.
+                    # If the accounting database is unavailable, fail closed.
+                    await self.state.increment_usage(provider=self.provider)
                 result = await self.codex.run(
                     prompt, timeout=timeout, skip_if=lambda: self.paused_reason)
             except CodexError as e:
@@ -467,7 +482,8 @@ class Brain:
                 return ""
 
             try:
-                await self.state.increment_usage(provider="codex")
+                if self.provider != "codex_router":
+                    await self.state.increment_usage(provider=self.provider)
             except Exception as e:
                 logger.warning(f"Failed to record usage counter: {e}")
             try:
@@ -495,8 +511,9 @@ class Brain:
             model=result.model,
             duration_ms=result.duration_ms,
             num_turns=1,
-            source="codex_app_server",
-            provider="codex",
+            source=("router_api_cost_unknown" if self.provider == "codex_router"
+                    else "codex_app_server"),
+            provider=self.provider,
             **result.usage,
         )
 
@@ -628,7 +645,7 @@ class Brain:
             return await self.state.get_usage_today(provider=self.provider)
         except Exception as e:
             logger.warning(f"Could not read usage from state: {e}")
-            return 0.0
+            return float("inf") if self.provider == "codex_router" else 0.0
 
     async def is_within_budget(
         self, max_daily_calls: int = 200, max_percent: float | None = None
