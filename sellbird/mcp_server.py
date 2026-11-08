@@ -353,6 +353,14 @@ def build_server(client_factory: Callable[[], CoreClient] = default_client, *,
         return await guarded(lambda c: c.post("/api/offer/propose", {"entry": entry, "why": why}))
 
     @server.tool()
+    async def offers_accepted() -> dict:
+        """People who said yes to the user's first-email offer, newest first, with
+        their details and what the configured handoff answered (if any). Use it to
+        deliver the offer with the user's other tools, such as starting the work in
+        the system that makes it."""
+        return await read("/api/offers/accepted")
+
+    @server.tool()
     async def inboxes_list() -> dict:
         """Every sending inbox: the main mailbox and the extra ones the user connected,
         whether each is sending, paused or not connected, and today's cold sends

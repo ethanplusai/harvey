@@ -43,6 +43,7 @@ AGENT_ROUTES: tuple[tuple[str, str], ...] = (
     ("POST", r"/api/discover/estimate"),   # computes a price, runs nothing
     ("POST", r"/api/sending/pause"),       # never resume: that's yours
     ("GET", r"/api/company"),
+    ("GET", r"/api/offers/accepted"),
     ("POST", r"/api/offer/suggest"),       # ideas only, saves nothing you'd send
     ("POST", r"/api/offer/preview"),       # writes a sample, saves and sends nothing
     ("POST", r"/api/offer/propose"),       # you confirm it on Your company

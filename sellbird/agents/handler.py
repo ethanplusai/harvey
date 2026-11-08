@@ -8,6 +8,7 @@ sending domain while nobody's watching.
 """
 
 import html
+import json
 import logging
 import re
 import unicodedata
@@ -41,6 +42,7 @@ BOUNCE_COUNT_KEY = "bounce_count"
 MIN_SENDS_FOR_KILL_SWITCH = 10
 
 INTENT_LABELS = {
+    "accepted_offer",
     "interested",
     "objection",
     "not_interested",
@@ -53,7 +55,10 @@ INTENT_LABELS = {
 
 # Intents that get an automated reply. Everything else is closed,
 # deferred, or escalated to a human.
-AUTO_REPLY_INTENTS = {"interested", "objection", "question", "wrong_person"}
+AUTO_REPLY_INTENTS = {"accepted_offer", "interested", "objection", "question", "wrong_person"}
+# Set once a prospect's accepted offer was handed off (sellbird.handoff), so a
+# retry of the same reply never hands them off twice.
+HANDOFF_KEY = "handoff:"
 # Replies that don't stop the cold email to the rest of their company.
 NO_COMPANY_STOP_INTENTS = {"ooo", "wrong_person"}
 
@@ -820,9 +825,15 @@ class Handler:
         # spend a model call drafting; they go to you instead (step 3).
         listed = do_not_contact_match(prospect.email or lead_email,
                                       live_do_not_contact(self.config))
+        # 2a. They said yes to the offer: hand them to the system that
+        # delivers it first, so the reply can carry what it answered.
+        handoff = None
+        if intent == "accepted_offer" and not listed and not handed_off:
+            handoff = await self._hand_off_once(prospect, reply_text)
         response = ""
         if intent in AUTO_REPLY_INTENTS and not held and not listed and not handed_off:
-            response = await self._generate_response(intent, reply_text, prospect, convo)
+            response = await self._generate_response(intent, reply_text, prospect, convo,
+                                                     handoff=handoff)
 
         # 2c. Store the conversation in one write.
         if stored is None:
@@ -922,6 +933,16 @@ class Handler:
             await self.state.update_conversation(convo.id, status="needs_human")
             logger.info(f"Handler: {lead_email} sent an auto-reply. Handed to a human.")
             return
+
+        if intent == "accepted_offer":
+            await self.state.log_action(
+                action_type="offer_accepted", agent="handler",
+                details={"prospect_id": prospect.id, "prospect_email": lead_email,
+                         "conversation_id": convo.id, "reply_preview": reply_text[:300],
+                         "handoff": handoff})
+            logger.info(f"Handler: {lead_email} said yes to your offer"
+                        + (f"; handed off ({'ok' if handoff.get('ok') else handoff.get('error')})."
+                           if handoff else "."))
 
         if intent not in AUTO_REPLY_INTENTS:
             logger.warning(f"Handler: No auto-reply policy for intent '{intent}'. Skipping reply.")
@@ -1197,8 +1218,11 @@ class Handler:
 
     async def _classify_intent(self, reply_text: str, prospect) -> str:
         """Ask the brain to classify the reply's intent."""
+        offer = str(getattr(getattr(getattr(self.config, "product", None), "offer", None), "entry", "") or "").strip()
+        accepted = (f'- "accepted_offer" — says yes to the offer in our email ("{offer}"): "sure, send it",\n'
+                    '  "yes please", "go ahead". A yes to the offer itself, not general interest.\n') if offer else ""
         prompt = f"""Classify this email reply into exactly ONE category:
-- "interested" — wants to learn more, open to a meeting, positive response
+{accepted}- "interested" — wants to learn more, open to a meeting, positive response
 - "objection" — has concerns but hasn't said no (price, timing, competition)
 - "not_interested" — a clear no, not now, or "we're all set"
 - "unsubscribe" — asks to stop being contacted, remove from list, opt out
@@ -1284,8 +1308,29 @@ Respond with ONLY the category label, nothing else."""
 
         return current_stage
 
+    async def _hand_off_once(self, prospect, reply_text: str) -> dict | None:
+        """Hand an accepted offer to sellbird.handoff, once per prospect."""
+        from sellbird.handoff import hand_off
+        key = HANDOFF_KEY + prospect.id
+        done = await self.state.get_setting(key)
+        if done:
+            try:
+                return json.loads(done)
+            except (TypeError, ValueError):
+                return None
+        company = None
+        if prospect.company_id:
+            try:
+                company = await self.state.get_company(prospect.company_id)
+            except Exception:
+                company = None
+        outcome = await hand_off(self.config, prospect, company, reply_text)
+        if outcome is not None:
+            await self.state.set_setting(key, json.dumps(outcome))
+        return outcome
+
     async def _generate_response(
-        self, intent: str, reply_text: str, prospect, convo: Conversation
+        self, intent: str, reply_text: str, prospect, convo: Conversation, handoff: dict | None = None
     ) -> str:
         """Generate an appropriate response based on intent."""
         history = conversation_history(convo.thread, prospect.full_name())
@@ -1301,7 +1346,7 @@ Respond with ONLY the category label, nothing else."""
         # Only an interested prospect (or a thread already closing) should be
         # moved to the configured next step. Everything else gets an answer,
         # not a pitch.
-        if intent == "interested" or convo.stage == "closing":
+        if (intent == "interested" or convo.stage == "closing") and intent != "accepted_offer":
             try:
                 zone = await recipient_zone(self.state, prospect, self.config)
             except Exception as e:
@@ -1355,7 +1400,20 @@ The prospect's intent is: {intent}
 
 Write a reply that:"""
 
-        if intent == "interested":
+        if intent == "accepted_offer":
+            offer = str(getattr(self.config.product.offer, "entry", "") or "")
+            prompt += f"""
+- They said yes to your offer ({offer}). Thank them in a few words and say what happens next.
+- One to three short sentences, under 60 words. No new pitch, no meeting ask."""
+            if handoff and handoff.get("ok") and handoff.get("result"):
+                prompt += f"""
+- Your system already started on it, and answered as below. If it holds a link, a date or a
+  next step, give it to them in plain words. Add nothing it doesn't say.
+{fence(handoff["result"], "your system's answer")}"""
+            else:
+                prompt += """
+- Say you're on it and will send it shortly. Don't promise a date or a time."""
+        elif intent == "interested":
             prompt += """
 - Acknowledges their interest warmly
 - Moves to the next step exactly as the NEXT STEP guidance says

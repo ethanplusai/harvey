@@ -1807,6 +1807,27 @@ async def undo_opt_out(prospect_id: str, request: Request):
     return {"success": True, "status": "replied"}
 
 
+@app.get("/api/offers/accepted")
+async def get_offers_accepted():
+    """People who said yes to your offer, newest first, with what the handoff
+    (sellbird.handoff) answered, so you or your coding agent can deliver it."""
+    rows = await query_db("""
+        SELECT c.id AS conversation_id, c.status, c.updated_at, c.prospect_id,
+               p.first_name, p.last_name, p.email, p.title, p.company, p.company_id
+        FROM conversations c LEFT JOIN prospects p ON c.prospect_id = p.id
+        WHERE c.intent = 'accepted_offer'
+        ORDER BY c.updated_at DESC LIMIT 100
+    """)
+    for row in rows:
+        done = await query_db("SELECT value FROM settings WHERE key = ?",
+                              ("handoff:" + str(row.get("prospect_id") or ""),))
+        try:
+            row["handoff"] = json.loads(done[0]["value"]) if done else None
+        except (TypeError, ValueError, KeyError):
+            row["handoff"] = None
+    return {"accepted": rows}
+
+
 @app.get("/api/conversations")
 async def get_conversations(awaiting: bool = False):
     rows = await query_db("""

@@ -201,6 +201,15 @@ than any other line, so work it out with the user in conversation. Don't pick it
 Without the MCP tools, do the same in conversation and have them paste the offer into
 Your company → Your offer.
 
+**When someone says yes to the offer.** Sellbird marks the reply "Said yes to your offer",
+stops their follow-ups and drafts a short reply for approval. Delivering the offer belongs
+to whatever the user sells, so Sellbird can hand the person to that system: one tool on
+another MCP server, set in `handoff` in the config file Sellbird reads (see
+`sellbird/handoff.py` for the fields: `mcp_url` or `mcp_command`, `token_env`, `tool`,
+`arguments` with `{company}`, `{email}`, `{website}`, `{reply}` and so on). Whatever that
+tool answers, such as a link, goes into the drafted reply. Without a handoff, the
+`offers_accepted` tool lists who said yes, so you can deliver it with the user's other tools.
+
 ### Step 4: Confirm Signals
 
 Sellbird ships a catalog of 29 signals it knows how to collect, all **proposed** and

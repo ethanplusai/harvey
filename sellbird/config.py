@@ -746,6 +746,16 @@ def load_email_rules(config) -> str:
     return text
 
 
+class HandoffConfig(BaseModel):
+    """Who gets a prospect who says yes to your offer (sellbird.handoff):
+    one tool on another system's MCP server."""
+    mcp_url: str = ""
+    mcp_command: list[str] = []
+    token_env: str = ""
+    tool: str = ""
+    arguments: dict = {}
+
+
 class SellbirdConfig(BaseModel):
     persona: PersonaConfig
     product: ProductConfig
@@ -755,6 +765,7 @@ class SellbirdConfig(BaseModel):
     brain: BrainConfig = BrainConfig()
     compliance: ComplianceConfig = ComplianceConfig()
     writer: WriterConfig = WriterConfig()
+    handoff: HandoffConfig = HandoffConfig()
     # The file it was loaded from, so a running Sellbird can re-read the
     # sending mode from that same file (refresh_sending_mode).
     _source_path: str | None = PrivateAttr(default=None)

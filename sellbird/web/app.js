@@ -83,6 +83,7 @@ const STATUS = {
   new:            ['New', 'active'],
   contacted:      ['Contacted', 'active'],
   replied:        ['Replied', 'good'],
+  accepted_offer: ['Said yes to your offer', 'good'],
   interested:     ['Interested', 'good'],
   meeting:        ['Meeting booked', 'note'],
   not_interested: ['Not interested', 'bad'],
