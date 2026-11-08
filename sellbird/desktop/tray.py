@@ -415,7 +415,6 @@ def _dark_bar() -> bool:
 
 
 # The menu-bar icon in points (macOS draws it at 2x on Retina screens).
-MENUBAR_PT = (31, 18)
 
 
 def draw_icon(state: str, dark: bool, width: int, height: int):
@@ -450,14 +449,90 @@ def make_icon(state: str, dark: bool | None = None):
     return draw_icon(state, _dark_bar() if dark is None else dark, 64, 64)
 
 
-def menubar_png(state: str, dark: bool, scale: int = 2) -> bytes:
-    """The macOS menu-bar icon as PNG bytes, MENUBAR_PT points at `scale`x."""
+MENUBAR_HEIGHT_PT = 18
+MENUBAR_BIRD_PT = 13.0      # about the height of the other menu-bar glyphs
+BRAND = "#244B62"           # Sellbird harbor blue
+_BADGE_FONT = "/System/Library/Fonts/SFNSRounded.ttf"
+
+
+def _badge_font(size: int):
+    from PIL import ImageFont
+    try:
+        f = ImageFont.truetype(_BADGE_FONT, size)
+        try:
+            f.set_variation_by_name("Bold")
+        except Exception:
+            pass
+        return f
+    except OSError:
+        return ImageFont.load_default()
+
+
+def draw_menubar(state: str, dark: bool, count: int = 0, scale: int = 2):
+    """The macOS menu-bar icon: the bird at the height of the other glyphs,
+    and beside it a dot in the state's color, or, when something waits on
+    you, a small bubble in that color with the count. Returns the image (at
+    ``scale``x) and its size in points."""
+    from PIL import Image, ImageDraw
+
+    ss = 4 * scale
+    H = MENUBAR_HEIGHT_PT * ss
+    bird_h = MENUBAR_BIRD_PT * ss
+    bird_w = BIRD_BOX[0] * bird_h / BIRD_BOX[1]
+    text = "" if not count else ("99+" if count > 99 else str(count))
+    font = _badge_font(int(6.6 * ss))
+    if text:
+        box = font.getbbox(text)
+        bh = 9.2 * ss
+        bw = max(bh, box[2] - box[0] + 5 * ss)
+    else:
+        bh = bw = 5.6 * ss
+    ring = 1.4 * ss
+    W = bird_w + bw * (0.9 if text else 0.55) + ring
+    image = Image.new("RGBA", (int(W), int(H)), (0, 0, 0, 0))
+    ImageDraw.Draw(image).polygon(bird_points(bird_w, bird_h, 0, (H - bird_h) / 2),
+                                  fill="#ffffff" if dark else "#1d1d1f")
+    x1, y1 = W - ring, H - ring * 0.6
+    x0, y0 = x1 - bw, y1 - bh
+    hole = Image.new("L", image.size, 0)  # a clear ring so the bubble reads over the bird
+    ImageDraw.Draw(hole).rounded_rectangle((x0 - ring, y0 - ring, x1 + ring, y1 + ring),
+                                           radius=(bh + 2 * ring) / 2, fill=255)
+    image.paste((0, 0, 0, 0), mask=hole)
+    draw = ImageDraw.Draw(image)
+    draw.rounded_rectangle((x0, y0, x1, y1), radius=bh / 2,
+                           fill=COLORS.get(state, COLORS["stopped"]))
+    if text:
+        box = font.getbbox(text)
+        draw.text((x0 + (bw - (box[2] - box[0])) / 2 - box[0],
+                   y0 + (bh - (box[3] - box[1])) / 2 - box[1]), text, font=font, fill="#ffffff")
+    out = image.resize((max(1, int(W / 4)), int(H / 4)), Image.LANCZOS)
+    return out, (W / ss, float(MENUBAR_HEIGHT_PT))
+
+
+def menubar_png(state: str, dark: bool, count: int = 0, scale: int = 2) -> tuple[bytes, tuple]:
+    """The menu-bar icon as PNG bytes at ``scale``x, and its size in points."""
     import io
 
-    image = draw_icon(state, dark, MENUBAR_PT[0] * scale, MENUBAR_PT[1] * scale)
+    image, size = draw_menubar(state, dark, count, scale)
     out = io.BytesIO()
     image.save(out, "png")
-    return out.getvalue()
+    return out.getvalue(), size
+
+
+def app_icon(size: int = 256):
+    """Sellbird's app icon: the white bird on a harbor-blue rounded square.
+    Notifications show it."""
+    from PIL import Image, ImageDraw
+
+    S = size * 4
+    image = Image.new("RGBA", (S, S), (0, 0, 0, 0))
+    draw = ImageDraw.Draw(image)
+    pad = S * 0.08
+    draw.rounded_rectangle((pad, pad, S - pad, S - pad), radius=S * 0.2, fill=BRAND)
+    bw = (S - 2 * pad) * 0.74
+    bh = bw * BIRD_BOX[1] / BIRD_BOX[0]
+    draw.polygon(bird_points(bw, bh, (S - bw) / 2, (S - bh) / 2 + S * 0.01), fill="#ffffff")
+    return image.resize((size, size), Image.LANCZOS)
 
 
 def _sharp_on_retina(icon) -> None:
@@ -471,12 +546,12 @@ def _sharp_on_retina(icon) -> None:
         import AppKit
         import Foundation
 
-        look = getattr(icon, "_sellbird_look", ("stopped", _dark_bar()))
+        look = getattr(icon, "_sellbird_look", ("stopped", _dark_bar(), 0))
         if getattr(icon, "_sellbird_drawn", None) == look and icon._icon_image:
             return
-        image = AppKit.NSImage.alloc().initWithData_(
-            Foundation.NSData(menubar_png(*look)))
-        image.setSize_(MENUBAR_PT)
+        png, size = menubar_png(*look)
+        image = AppKit.NSImage.alloc().initWithData_(Foundation.NSData(png))
+        image.setSize_(size)
         icon._icon_image = image
         icon._sellbird_drawn = look
         icon._status_item.button().setImage_(image)
@@ -486,16 +561,72 @@ def _sharp_on_retina(icon) -> None:
 
 # ── The tray app ──
 
-def _show_count(icon, count: int) -> None:
-    """The number waiting on you, beside the bird in the macOS menu bar.
-    Elsewhere (and if macOS refuses) the menu still shows it."""
-    item = getattr(icon, "_status_item", None)
-    if item is None:
-        return
-    try:
-        item.button().setTitle_(f" {count}" if count else "")
-    except Exception:
-        logger.debug("Count not shown in the menu bar")
+class MacNotifier:
+    """macOS notifications that show Sellbird's own icon, and open the
+    dashboard when clicked.
+
+    pystray posts through AppleScript, so macOS shows Script Editor's icon and
+    a click goes nowhere. A Python process has no app identity, so macOS
+    gives it no notification center until it has a bundle identifier; with
+    one, a notification can carry the Sellbird icon."""
+
+    BUNDLE_ID = "ai.sellbird.tray"
+
+    def __init__(self, center, image, delegate):
+        self.center, self.image, self.delegate = center, image, delegate
+
+    @classmethod
+    def create(cls, on_click):
+        """A notifier, or False when this Mac won't give us one."""
+        try:
+            import io
+
+            import AppKit
+            import Foundation
+
+            info = Foundation.NSBundle.mainBundle().infoDictionary()
+            if not info.get("CFBundleIdentifier"):
+                info["CFBundleIdentifier"] = cls.BUNDLE_ID
+            center = Foundation.NSUserNotificationCenter.defaultUserNotificationCenter()
+            if center is None:
+                return False
+            png = io.BytesIO()
+            app_icon(256).save(png, "png")
+            image = AppKit.NSImage.alloc().initWithData_(Foundation.NSData(png.getvalue()))
+
+            class _Delegate(Foundation.NSObject):
+                def userNotificationCenter_shouldPresentNotification_(self, c, n):
+                    return True
+
+                def userNotificationCenter_didActivateNotification_(self, c, n):
+                    try:
+                        on_click()
+                    finally:
+                        c.removeDeliveredNotification_(n)
+
+            delegate = _Delegate.alloc().init()
+            center.setDelegate_(delegate)
+            return cls(center, image, delegate)
+        except Exception as e:
+            logger.debug("No macOS notifier: %s", type(e).__name__)
+            return False
+
+    def notify(self, message: str) -> bool:
+        try:
+            import Foundation
+
+            note = Foundation.NSUserNotification.alloc().init()
+            note.setTitle_("Sellbird")
+            note.setInformativeText_(message)
+            try:  # the icon on the left; macOS has no public way to set it
+                note.setValue_forKey_(self.image, "_identityImage")
+            except Exception:
+                note.setContentImage_(self.image)
+            self.center.deliverNotification_(note)
+            return True
+        except Exception as e:
+            logger.debug("Notification not shown: %s", type(e).__name__)
+            return False
 
 
 def _autostart_on() -> bool:
@@ -543,12 +674,12 @@ class TrayApp:
         self.status = TrayStatus("stopped", "unknown")
         self.autostart_on = False
         self.icon = None
-        self._drawn: tuple[str, bool] | None = None
-        self._count_shown = None
+        self._drawn: tuple | None = None
         self._lock = threading.Lock()
         # Replies already seen. None until the first look, which notifies
         # nothing: only replies that arrive while the tray runs pop up.
         self._seen: set | None = None
+        self._mac = None   # MacNotifier, made on first use (False when unavailable)
 
     def refresh(self, *, autostart: bool = False) -> None:
         status = self.controller.status()
@@ -573,19 +704,21 @@ class TrayApp:
 
     def _apply(self, status: TrayStatus) -> None:
         if self.icon is not None:
-            look = (icon_state(status), _dark_bar())
-            if look != self._drawn:  # redraw only when the state or the bar's color changes
-                self.icon._sellbird_look = look
-                self.icon.icon = make_icon(*look)
-                self._drawn = look
             count = status.waiting if status.dashboard == "running" and not status.error else 0
-            if count != self._count_shown:
-                _show_count(self.icon, count)
-                self._count_shown = count
+            look = (icon_state(status), _dark_bar(), count)
+            if look != self._drawn:  # redraw only when the state, bar color or count changes
+                self.icon._sellbird_look = look
+                self.icon.icon = make_icon(look[0], look[1])
+                self._drawn = look
             self.icon.update_menu()
 
     def _notify(self, message: str) -> None:
         def show():
+            if self._mac is None and sys.platform == "darwin":
+                self._mac = MacNotifier.create(on_click=lambda: _spawn(self.controller.open_dashboard))
+            if self._mac:
+                if self._mac.notify(message):
+                    return
             if self.icon is not None:
                 try:
                     self.icon.notify(message, "Sellbird")

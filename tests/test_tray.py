@@ -213,18 +213,37 @@ def test_icon_is_the_bird_with_a_state_dot():
         assert all(abs(a - b) < 12 for a, b in zip(dot[:3], want)), state
 
 
-def test_menubar_icon_is_drawn_at_retina_size():
+def test_menubar_icon_is_drawn_at_retina_size_and_glyph_height():
     pytest.importorskip("PIL")
     import io
 
     from PIL import Image
 
-    from sellbird.desktop.tray import MENUBAR_PT, menubar_png
+    from sellbird.desktop.tray import MENUBAR_HEIGHT_PT, menubar_png
 
-    image = Image.open(io.BytesIO(menubar_png("running", True)))
-    # twice the point size, and wider than tall like the bird, not a 22px square
-    assert image.size == (MENUBAR_PT[0] * 2, MENUBAR_PT[1] * 2)
-    assert image.size[0] > image.size[1]
+    png, (w, h) = menubar_png("running", True)
+    image = Image.open(io.BytesIO(png))
+    assert h == MENUBAR_HEIGHT_PT and image.size[1] == h * 2
+    assert w > h   # wider than tall, like the bird
+
+
+def test_a_count_makes_the_icon_wider_with_a_bubble():
+    pytest.importorskip("PIL")
+    from sellbird.desktop.tray import draw_menubar
+
+    plain, (w0, _) = draw_menubar("running", True, 0)
+    three, (w3, _) = draw_menubar("running", True, 3)
+    many, (w99, _) = draw_menubar("running", True, 250)
+    assert w0 < w3 < w99
+
+
+def test_the_app_icon_is_the_white_bird_on_harbor_blue():
+    pytest.importorskip("PIL")
+    from sellbird.desktop.tray import app_icon
+
+    image = app_icon(128)
+    assert image.size == (128, 128) and image.getpixel((0, 0))[3] == 0
+    assert image.getpixel((20, 64))[:3] == (0x24, 0x4B, 0x62)
 
 
 # ── What's waiting on you, and new replies ────────────────────────────────
