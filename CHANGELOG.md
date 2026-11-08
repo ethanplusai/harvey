@@ -9,6 +9,7 @@ minor versions can still change behaviour.
 
 ### Changed
 
+- Seeding the signal catalog writes only a signal that is missing or whose catalog text changed. The dashboard seeds on every Today load, so this was a write per signal on every page view.
 - **The opt-out line takes any wording.** `compliance.opt_out_line` no longer
   has to ask for a keyword: "Not interested? Just let me know and I won't email
   you again." is the new default. Clear phrases are still caught by rule, and
