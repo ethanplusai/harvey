@@ -84,18 +84,18 @@ LEGACY_BATCH_CAP = 50
 
 # The built-in "how" lines each prompt ends with: email 1 is an observation
 # and a question, with no pitch. Operator email rules replace exactly these.
-PERSONAL_SHAPE = f"""- {FIRST_EMAIL_MAX_WORDS} words at most, and aim for 25-45. Every word you cut raises the
-  reply rate. One specific observation from the FACTS above, one question. No pitch,
-  no product name.
+PERSONAL_SHAPE = f"""- 60 words at most, and aim for 30-50. Every word you cut raises the reply rate.
+- One specific finding from the FACTS, what it likely costs them in one plain
+  sentence, then YOUR OFFER below as the one question. Don't name the product.
 - Write the actual text (no merge variables: you know their name/company).
 - No sign-off and no name at the end: Sellbird adds the sender's first name.
 - Subject: lowercase, 2-5 words."""
-SEQUENCE_SHAPE = f"""- Email 1: Personalized cold observation + one question. {FIRST_EMAIL_MAX_WORDS} words at most, aim for
-  25-45. No pitch.
-- Email 2: Follow-up 3 days later. Different angle, one concrete proof point. {FOLLOW_UP_MAX_WORDS} words
-  at most, aim for 20-40.
-- Email 3: Break-up email 4 days after that. {BREAKUP_MAX_WORDS} words at most, aim for 10-20.
-  Gracious, not guilt-tripping.
+SEQUENCE_SHAPE = f"""- Email 1: One specific finding about them, what it costs them, then YOUR OFFER below as
+  the one question. {FIRST_EMAIL_MAX_WORDS} words at most, aim for 30-50. Don't name the product.
+- Email 2: 3 days later. A different angle: one concrete proof point or result from the
+  product info, then the offer again or a short call as the ask. {FOLLOW_UP_MAX_WORDS} words at most, aim for 20-40.
+- Email 3: 4 days after that. Close the loop in one or two plain sentences, and leave
+  the offer open. {BREAKUP_MAX_WORDS} words at most, aim for 10-20. No guilt.
 - No sign-off and no name at the end of any email: Sellbird adds the sender's first name."""
 SEQUENCE_STYLE = """- Never be pushy or salesy. Be consultative and value-driven.
 - Subject lines: lowercase, 2-5 words."""
@@ -121,6 +121,24 @@ def operator_rules_block(rules: str) -> str:
         "conversation that never happened.\n"
         + rules
     )
+
+
+def offer_block(config) -> str:
+    """What email 1 offers: ``product.offer.entry``, the free, useful thing you
+    can really deliver (an audit, a mockup, a sample report).
+
+    Without one, email 1 can only ask a question, and a question alone gives
+    the reader nothing; so the writer falls back to that and says so."""
+    offer = getattr(getattr(config, "product", None), "offer", None)
+    entry = str(getattr(offer, "entry", "") or "").strip()
+    if not entry:
+        return ("\n\nYOUR OFFER: none set (product.offer.entry). End email 1 with one easy\n"
+                "question about the problem you found instead.")
+    return (f"\n\nYOUR OFFER for a first email: {entry}\n"
+            "Something free and useful you can really deliver. Email 1 offers it as the one\n"
+            "question, tied to what you found about them, in a few plain words. Offer only\n"
+            "this, as it's written here: don't say you already made or did something unless\n"
+            "it says so, and never promise anything else.")
 
 
 def footer_rule(config, rules: str) -> str:
@@ -498,6 +516,7 @@ class Writer:
             prompt += self._startup_playbook()
         prompt += await self._feedback_block([prospect.id])
         rules = getattr(self, "email_rules", "")
+        prompt += offer_block(self.config)
         prompt += operator_rules_block(rules)
         if rules:
             shape = (
@@ -595,6 +614,7 @@ Pricing: {self.config.product.pricing}"""
         # note about one person ("met her at the expo") must never reach it.
         prompt += await self._feedback_block([])
         rules = getattr(self, "email_rules", "")
+        prompt += offer_block(self.config)
         prompt += operator_rules_block(rules)
         if rules:
             shape = (

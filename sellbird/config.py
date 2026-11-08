@@ -42,7 +42,12 @@ class PersonaConfig(BaseModel):
 
 class OfferConfig(BaseModel):
     primary: str = ""
+    # What email 1 offers: free, useful, and something you can really deliver
+    # ("a mockup of your homepage with online booking"). The Writer builds the
+    # first email around it. `sellbird train` suggests entry_ideas and fills
+    # entry from the first when it's empty.
     entry: str = ""
+    entry_ideas: list[str] = []
     goal: str = "book_call"  # book_call, start_trial, get_reply
     booking_method: str = "calendar_link"  # calendar_link, suggest_times, ask_preference
     booking_url: str = ""

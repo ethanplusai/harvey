@@ -237,3 +237,33 @@ def test_writer_no_longer_reads_the_long_playbooks():
     from sellbird.brain import Brain
     src = inspect.getsource(Brain.load_skills_for_agent)
     assert '"writer": ["product_knowledge", "competitive_intel"]' in src
+
+
+# ── Email 1 is built around your offer ────────────────────────────────────
+
+def test_offer_block_uses_your_entry_offer():
+    from sellbird.agents.writer import offer_block
+    cfg = SimpleNamespace(product=SimpleNamespace(offer=SimpleNamespace(entry="a mockup of your homepage")))
+    block = offer_block(cfg)
+    assert "YOUR OFFER for a first email: a mockup of your homepage" in block
+    assert "don't say you already made" in block
+
+
+def test_without_an_offer_the_writer_asks_a_question():
+    from sellbird.agents.writer import offer_block
+    cfg = SimpleNamespace(product=SimpleNamespace(offer=SimpleNamespace(entry="")))
+    assert "none set" in offer_block(cfg)
+
+
+def test_training_suggests_offers_and_never_replaces_yours():
+    from sellbird.trainer import _offer_from, merge_trained_config
+    offer = _offer_from({"entry_offer_ideas": ["a homepage mockup", "a ranking report", ""]})
+    assert offer == {"entry": "a homepage mockup", "entry_ideas": ["a homepage mockup", "a ranking report"]}
+    learned = {"persona": {"company": "C"}, "product": {"name": "P", "offer": offer}}
+    mine = merge_trained_config(learned, {"persona": {"company": "C", "email": "a@c.com"},
+                                          "product": {"name": "P", "offer": {"entry": "my own audit"}}})
+    assert mine["product"]["offer"]["entry"] == "my own audit"
+    assert mine["product"]["offer"]["entry_ideas"] == ["a homepage mockup", "a ranking report"]
+    empty = merge_trained_config(learned, {"persona": {"company": "C", "email": "a@c.com"},
+                                           "product": {"name": "P", "offer": {"entry": ""}}})
+    assert empty["product"]["offer"]["entry"] == "a homepage mockup"
