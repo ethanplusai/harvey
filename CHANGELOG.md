@@ -33,6 +33,13 @@ minor versions can still change behaviour.
 
 ### Added
 
+- **Thinking with a Kimi membership.** `brain.provider: kimi` runs Sellbird's
+  brain on the Kimi Code CLI (`kimi -p --output-format stream-json`) under an
+  agent file with `tools: []`, an isolated `KIMI_CODE_HOME` that reuses the
+  operator's `kimi login`, and a fresh working directory per call. The CLI
+  reports no token usage, so the membership's calls count separately
+  (`kimi_calls`) without token rows, like the other subscriptions' budgets.
+  See [Thinking with Kimi](docs/kimi.md).
 - **Several sending inboxes.** Besides the main mailbox, connect Gmail,
   Microsoft 365 or SMTP inboxes you already own with
   `sellbird inboxes connect`. Their sign-ins and passwords live in the

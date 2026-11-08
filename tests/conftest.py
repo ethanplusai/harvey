@@ -50,6 +50,21 @@ def _stand_in_claude_cli(request, monkeypatch):
     claude_runtime.clear_cache()
 
 
+@pytest.fixture(autouse=True)
+def _stand_in_kimi_cli(monkeypatch):
+    """No real Kimi CLI on test runners: brain-level tests stub discovery and
+    the --help probe exactly like the Claude stand-in above."""
+    from sellbird import kimi_runtime
+
+    kimi_runtime.clear_cache()
+    monkeypatch.setattr(kimi_runtime, "find_kimi", lambda env=None: "kimi")
+    monkeypatch.setattr(kimi_runtime, "_probe_help",
+                        lambda exe: "\n".join(f"  {f} <value>   test"
+                                              for f in kimi_runtime.REQUIRED_FLAGS))
+    yield
+    kimi_runtime.clear_cache()
+
+
 import sellbird.humanize  # noqa: E402
 
 

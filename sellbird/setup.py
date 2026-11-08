@@ -122,6 +122,11 @@ def _check_codex_cli() -> bool:
     return shutil.which("codex") is not None
 
 
+def _check_kimi_cli() -> bool:
+    """Check if Kimi Code CLI is installed and accessible."""
+    return shutil.which("kimi") is not None
+
+
 async def _test_claude(brain: Brain) -> bool:
     """Test that the configured brain answers (Claude or Codex)."""
     response = await brain.think(
@@ -136,8 +141,9 @@ def _ask_brain_config() -> BrainConfig:
     _print_sellbird("I think with an AI subscription you already pay for:")
     print("    claude — your Claude plan, via Claude Code (default)")
     print("    codex  — your ChatGPT plan, via the Codex CLI")
+    print("    kimi   — your Kimi membership, via the Kimi Code CLI")
     while True:
-        provider = _ask("Which one? (claude/codex)", default="claude").lower()
+        provider = _ask("Which one? (claude/codex/kimi)", default="claude").lower()
         if provider == "codex":
             from sellbird.codex import CodexError, require_supported_platform
             try:
@@ -145,9 +151,12 @@ def _ask_brain_config() -> BrainConfig:
             except CodexError as e:
                 print(f"    ({e})")
                 continue
-        if provider in ("claude", "codex"):
+        if provider == "kimi" and not _check_kimi_cli():
+            print("    (the Kimi CLI wasn't found on PATH — install it and run 'kimi login' first)")
+            continue
+        if provider in ("claude", "codex", "kimi"):
             break
-        print("    (type claude or codex)")
+        print("    (type claude, codex or kimi)")
     if provider == "codex":
         from sellbird.codex import SUGGESTED_MODEL
         print(f"    {SUGGESTED_MODEL} is the Codex model Sellbird has verified as text-only")
@@ -850,7 +859,9 @@ class SetupWizard:
         # Show what's configured
         checks = {
             ("Codex CLI (ChatGPT plan)" if self.brain_config.provider == "codex"
+             else "Kimi Code CLI" if self.brain_config.provider == "kimi"
              else "Claude Code CLI"): (_check_codex_cli() if self.brain_config.provider == "codex"
+                                      else _check_kimi_cli() if self.brain_config.provider == "kimi"
                                       else _check_claude_cli()),
             "Instantly API": bool(self.env_vars.get("INSTANTLY_API_KEY")),
             "LinkedIn": bool(self.env_vars.get("LINKEDIN_EMAIL")),

@@ -1,10 +1,11 @@
 """Brain — Sellbird's thinking engine.
 
 Runs on the operator's Claude subscription (Claude Code headless, the
-default) or, when ``brain.provider: codex`` is configured, their ChatGPT
-subscription through an isolated Codex runtime (see sellbird/codex.py). The
-provider is fixed per Brain; a failing provider never falls back to the
-other one.
+default), their ChatGPT subscription through an isolated Codex runtime
+(``brain.provider: codex``, see sellbird/codex.py), or their Kimi
+membership through an isolated Kimi Code CLI runtime (``brain.provider:
+kimi``, see sellbird/kimi_runtime.py). The provider is fixed per Brain; a
+failing provider never falls back to another one.
 """
 
 import asyncio
@@ -40,7 +41,7 @@ _NON_RETRYABLE_PATTERNS = (
 )
 
 
-PROVIDER_LABELS = {"claude": "Claude", "codex": "Codex"}
+PROVIDER_LABELS = {"claude": "Claude", "codex": "Codex", "kimi": "Kimi"}
 
 # Settings key holding the brain's last health transition, for `sellbird
 # status` and the dashboard: {"provider", "status": "ok"|"paused", "reason",
@@ -75,6 +76,16 @@ def active_brain_status(raw: str, provider: str) -> dict:
     return status if status.get("provider") == provider else {}
 
 
+class _NullQuota:
+    """Kimi: the membership's quota is enforced server-side and the CLI
+    exposes no gauge; Sellbird's own call counting is the only meter."""
+    async def get_utilization(self):
+        return {}
+
+    def invalidate(self):
+        pass
+
+
 class BrainUnavailable(Exception):
     """The provider can't be used until the operator acts. Raised only where
     a caller must leave its input untouched for a later retry."""
@@ -106,6 +117,8 @@ class Brain:
                 model=self.model, reasoning_effort=self.config.reasoning_effort
             )
             self.quota = CodexQuotaClient(self.codex)
+        elif self.provider == "kimi":
+            self.quota = _NullQuota()
         else:
             # Lazy import avoids a cycle (quota -> usage -> state).
             from sellbird.integrations.quota import QuotaClient
@@ -138,6 +151,8 @@ class Brain:
         PROVIDER_RECHECK_SECONDS, so a persistent problem doesn't start
         runtimes every heartbeat.
         """
+        if self.provider == "kimi":
+            return await self._kimi_preflight()
         if self.provider != "codex":
             return await self._claude_preflight()
         from sellbird.codex import CodexError
@@ -194,9 +209,27 @@ class Brain:
             await self._mark_available()
         return ""
 
+    async def _kimi_preflight(self) -> str:
+        """Kimi: the installed CLI must support every isolation flag
+        (kimi_runtime.check_cli). Runs ``kimi --help`` only: no login
+        check, no model call. Returns "" or why calls are paused."""
+        from sellbird.kimi_runtime import KimiRuntimeError, check_cli
+
+        try:
+            await asyncio.to_thread(check_cli)
+        except KimiRuntimeError as e:
+            await self._mark_unavailable(e)
+            return self.unavailable
+        if self.unavailable:
+            await self._mark_available()
+        return ""
+
     def _fingerprint(self):
         if self.provider == "codex":
             return self.codex.fingerprint()
+        if self.provider == "kimi":
+            from sellbird.kimi_runtime import fingerprint
+            return fingerprint()
         from sellbird.claude_runtime import fingerprint
         return fingerprint()
 
@@ -265,6 +298,11 @@ class Brain:
         """
         if self.provider == "codex":
             return await self._think_codex(
+                prompt, session_id=session_id, timeout=timeout,
+                max_retries=max_retries, agent=agent, task=task,
+            )
+        if self.provider == "kimi":
+            return await self._think_kimi(
                 prompt, session_id=session_id, timeout=timeout,
                 max_retries=max_retries, agent=agent, task=task,
             )
@@ -391,6 +429,147 @@ class Brain:
                 logger.error(
                     "Claude CLI not found. Install it: https://code.claude.com/docs/en/setup"
                 )
+                return ""  # not retryable
+            except asyncio.CancelledError:
+                # Shutting down — kill the child so it doesn't orphan
+                if process is not None and process.returncode is None:
+                    try:
+                        process.kill()
+                    except ProcessLookupError:
+                        pass
+                raise
+            except Exception as e:
+                logger.error(f"Brain error: {e}")
+                last_error = str(e)
+                continue
+
+        logger.error(
+            f"Brain call failed after {max_retries + 1} attempts. "
+            f"Last error: {str(last_error)[:200]}"
+        )
+        return ""
+
+    async def _think_kimi(
+        self,
+        prompt: str,
+        session_id: str | None,
+        timeout: float,
+        max_retries: int,
+        agent: str,
+        task: str,
+    ) -> str:
+        """One isolated, tool-less Kimi Code CLI call per attempt (see
+        sellbird/kimi_runtime.py)."""
+        from sellbird import kimi_runtime
+
+        # Never start an unisolated call: a CLI missing any isolation flag
+        # pauses Kimi (like a Claude/Codex setup problem) until it's updated.
+        try:
+            executable = await asyncio.to_thread(kimi_runtime.check_cli)
+        except kimi_runtime.KimiRuntimeError as e:
+            logger.error(f"Kimi call not sent: {e}")
+            return ""
+
+        last_error = ""
+        for attempt in range(max_retries + 1):
+            if attempt > 0:
+                delay = RETRY_BASE_DELAY * (2 ** (attempt - 1))
+                logger.info(
+                    f"Retrying brain call in {delay:.0f}s "
+                    f"(attempt {attempt + 1}/{max_retries + 1})..."
+                )
+                await asyncio.sleep(delay)
+
+            process = None
+            try:
+                # The directory outlives the child: it's removed only after
+                # the process has exited (Windows can't delete a live cwd).
+                with kimi_runtime.isolated_cwd() as cwd:
+                    cmd = kimi_runtime.build_command(
+                        executable, prompt, model=self.model, session_id=session_id
+                    )
+                    process = await asyncio.create_subprocess_exec(
+                        *cmd,
+                        cwd=cwd,
+                        env=kimi_runtime.runtime_env(cwd),
+                        stdin=asyncio.subprocess.DEVNULL,
+                        stdout=asyncio.subprocess.PIPE,
+                        stderr=asyncio.subprocess.PIPE,
+                    )
+                    try:
+                        stdout, stderr = await asyncio.wait_for(
+                            process.communicate(),
+                            timeout=timeout,
+                        )
+                    except asyncio.TimeoutError:
+                        logger.error(
+                            f"Kimi call timed out after {timeout:.0f}s. Killing process.")
+                        try:
+                            process.kill()
+                            await process.wait()
+                        except ProcessLookupError:
+                            pass
+                        stdout = None
+                    except BaseException:
+                        # Shutting down: stop and reap the child before its
+                        # directory is removed, then let the cancellation
+                        # through (same discipline as the Claude path).
+                        try:
+                            process.kill()
+                        except ProcessLookupError:
+                            pass
+                        try:
+                            await asyncio.wait_for(process.wait(),
+                                                   timeout=KILL_REAP_SECONDS)
+                        except Exception as e:
+                            logger.warning(f"Kimi child not reaped on shutdown: {e!r}")
+                        raise
+                if stdout is None:
+                    last_error = "timeout"
+                    continue  # retry
+
+                if process.returncode != 0:
+                    error = stderr.decode(errors="replace").strip()
+                    logger.error(
+                        f"Kimi exited with code {process.returncode}: {error[:300]}"
+                    )
+                    last_error = error
+                    non_retryable = _NON_RETRYABLE_PATTERNS + ("kimi login",)
+                    if any(p in error.lower() for p in non_retryable):
+                        logger.error(
+                            "Non-retryable Kimi error (auth). "
+                            "Run 'kimi login' and restart Sellbird."
+                        )
+                        return ""
+                    continue  # retry transient failures
+
+                raw = stdout.decode(errors="replace").strip()
+                response, payload = kimi_runtime.parse_stream_json(raw)
+
+                # Usage accounting must never break the response path.
+                try:
+                    await self.state.increment_usage(provider="kimi")
+                except Exception as e:
+                    logger.warning(f"Failed to record usage counter: {e}")
+                try:
+                    await self._record_usage(payload, agent=agent, task=task,
+                                             label=session_id or "")
+                except Exception as e:
+                    logger.warning(f"Failed to record usage event: {e}")
+
+                if payload and payload.get("is_error"):
+                    # The CLI reported an API error inside a successful exit;
+                    # that text is not the model's answer, so no caller may
+                    # use it as one.
+                    logger.error(f"Kimi reported an error: {response[:300]}")
+                    last_error = response
+                    continue
+
+                logger.debug(f"Brain response: {response[:200]}...")
+                return response
+
+            except FileNotFoundError:
+                logger.error(f"Kimi CLI not found. {kimi_runtime.INSTALL_HINT}")
                 return ""  # not retryable
             except asyncio.CancelledError:
                 # Shutting down — kill the child so it doesn't orphan

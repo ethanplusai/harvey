@@ -25,10 +25,13 @@ from sellbird.untrusted import UNTRUSTED_RULE, fence
 
 logger = logging.getLogger("sellbird.humanize")
 
+_DEFAULT_SKILL_PATH = Path.home() / ".claude" / "skills" / "humanizer" / "SKILL.md"
+if not _DEFAULT_SKILL_PATH.exists():
+    _DEFAULT_SKILL_PATH = Path.home() / ".kimi-code" / "skills" / "humanizer" / "SKILL.md"
 SKILL_PATH = Path(
     os.getenv(
         "SELLBIRD_HUMANIZER_SKILL",
-        str(Path.home() / ".claude" / "skills" / "humanizer" / "SKILL.md"),
+        str(_DEFAULT_SKILL_PATH),
     )
 )
 MERGE_VAR = re.compile(r"\{\{\s*\w+\s*\}\}")

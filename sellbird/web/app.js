@@ -1472,15 +1472,21 @@ async function loadLogs() {
 function brainCallChips(data) {
   const chip = (label, n) => '<span class="chip">' + label + ' calls today <b>' + escHtml(String(n || 0)) + '</b></span>';
   const codex = data.codex_calls_today || 0;
+  const kimi = data.kimi_calls_today || 0;
   const st = data.brain_status || {};
+  const providerName = st.provider === 'codex' ? 'Codex'
+    : st.provider === 'kimi' ? 'Kimi' : 'Brain';
   // A paused brain must not look healthy: say so, and why.
   const paused = st.status === 'paused'
     ? '<span class="chip" title="' + escHtml(st.reason || '') + '">' +
-      escHtml(st.provider === 'codex' ? 'Codex' : 'Brain') + ' <b>paused</b>: ' +
+      escHtml(providerName) + ' <b>paused</b>: ' +
       escHtml((st.reason || '').slice(0, 120)) + '</span>'
     : '';
   if (data.brain_provider === 'codex') {
     return paused + chip('Codex', codex) + (data.claude_calls_today ? chip('Claude', data.claude_calls_today) : '');
+  }
+  if (data.brain_provider === 'kimi') {
+    return paused + chip('Kimi', kimi) + (data.claude_calls_today ? chip('Claude', data.claude_calls_today) : '');
   }
   return paused + chip('Claude', data.claude_calls_today) + (codex ? chip('Codex', codex) : '');
 }
