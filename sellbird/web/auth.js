@@ -18,7 +18,11 @@ const AUTH_TOKEN_RE = /^[A-Za-z0-9_-]{43,128}$/;
 (function takeFragmentToken() {
   const hash = window.location.hash || '';
   if (!hash) return;
-  const token = new URLSearchParams(hash.slice(1)).get('token');
+  const params = new URLSearchParams(hash.slice(1));
+  const token = params.get('token');
+  // A link can name where to open: a tab, and a conversation to show
+  // (the menu-bar app's notifications do).
+  window._openAt = {tab: params.get('tab') || '', focus: params.get('focus') || ''};
   history.replaceState(null, '', window.location.pathname + window.location.search);
   if (token && AUTH_TOKEN_RE.test(token)) setAuthToken(token);
 })();

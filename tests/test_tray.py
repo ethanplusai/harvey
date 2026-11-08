@@ -273,10 +273,10 @@ def test_only_new_replies_notify_and_a_burst_becomes_one_summary():
     seen = {("c1", 2)}
     old = Reply(("c1", 2), "A", "", "old")
     new = Reply(("c2", 3), "B", "", "new")
-    assert new_reply_messages(seen, [old, new]) == ["B replied: “new”"]
+    assert new_reply_messages(seen, [old, new]) == [("B replied: “new”", "c2")]
     assert new_reply_messages(seen, [old, new]) == []          # never twice
     burst = [Reply((f"x{i}", 1), "C", "", "hi") for i in range(5)]
-    assert new_reply_messages(seen, burst) == ["5 new replies. Open Sellbird to read them."]
+    assert new_reply_messages(seen, burst) == [("5 new replies. Open Sellbird to read them.", "")]
 
 
 def test_the_first_look_sets_a_baseline_and_later_replies_pop_up():
@@ -295,12 +295,12 @@ def test_the_first_look_sets_a_baseline_and_later_replies_pop_up():
     shown = []
     controller = Controller()
     app = TrayApp(controller, pystray=None, autostart=lambda: False, ui=lambda fn: fn())
-    app._notify = shown.append
+    app._notify = lambda message, conversation=None: shown.append((message, conversation))
     app.refresh()
     assert shown == []                                   # nothing old pops up at start
     controller.rows.append(Reply(("c2", 1), "Mike", "Summit Roofing", "Sure, send it"))
     app.refresh()
-    assert shown == ["Mike at Summit Roofing replied: “Sure, send it”"]
+    assert shown == [("Mike at Summit Roofing replied: “Sure, send it”", "c2")]
 
 
 # ── Branded notifications through the Sellbird helper app ────────────────
@@ -348,3 +348,33 @@ def test_the_dashboard_link_goes_in_a_private_file_not_on_the_command_line(tmp_p
     assert all("secret" not in a for a in launched[0])
     assert (tmp_path / "notify-link").read_text().endswith("#token=secret")
     assert (tmp_path / "notify-link").stat().st_mode & 0o777 == 0o600
+
+
+def test_a_reply_notification_opens_that_conversation(tmp_path):
+    from sellbird.desktop.tray import TrayApp, TrayStatus
+
+    class Controller:
+        data_dir = tmp_path
+
+        def status(self):
+            return TrayStatus("running", "running")
+
+        def dashboard_link(self):
+            return "http://127.0.0.1:5555/#token=t"
+
+    class Mac:
+        def __init__(self):
+            self.links = []
+
+        def notify(self, message, link):
+            self.links.append(link)
+            return True
+
+    app = TrayApp(Controller(), pystray=None, autostart=lambda: False, ui=lambda fn: fn())
+    app._mac = Mac()
+    app._notify("Mike replied", conversation="c 2")
+    app._notify("5 new replies", conversation="")
+    app._notify("Sellbird started.")
+    assert app._mac.links == ["http://127.0.0.1:5555/#token=t&tab=conversations&focus=c%202",
+                              "http://127.0.0.1:5555/#token=t&tab=conversations",
+                              "http://127.0.0.1:5555/#token=t"]

@@ -24,6 +24,7 @@ import sys
 import threading
 import time
 import webbrowser
+from urllib.parse import quote
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Callable, Literal
@@ -283,7 +284,7 @@ class TrayController:
             return ""
         from sellbird.mcp_server import base_url
         token = _read_user_token(self.data_dir)
-        return base_url(info.host, info.port) + (f"#token={token}" if token else "")
+        return base_url(info.host, info.port) + (f"#token={token}" if token else "#")
 
     def open_dashboard(self) -> bool:
         if self._base() is None:
@@ -335,14 +336,15 @@ def reply_message(reply: Reply) -> str:
     return f"{who} {verb}: \u201c{text}\u201d"
 
 
-def new_reply_messages(seen: set, replies: list[Reply], limit: int = 3) -> list[str]:
-    """Messages for replies not in ``seen`` (which this updates). More than
-    ``limit`` at once become one summary instead of a burst."""
+def new_reply_messages(seen: set, replies: list[Reply], limit: int = 3) -> list[tuple[str, str]]:
+    """(message, conversation id) for replies not in ``seen`` (which this
+    updates). More than ``limit`` at once become one summary, with no single
+    conversation to open."""
     new = [r for r in replies if r.key not in seen]
     seen.update(r.key for r in replies)
     if len(new) > limit:
-        return [f"{len(new)} new replies. Open Sellbird to read them."]
-    return [reply_message(r) for r in new]
+        return [(f"{len(new)} new replies. Open Sellbird to read them.", "")]
+    return [(reply_message(r), r.key[0]) for r in new]
 
 
 def menu_items(status: TrayStatus, autostart_on: bool) -> list[MenuRow]:
@@ -758,8 +760,8 @@ class TrayApp:
         if self._seen is None:
             self._seen = {r.key for r in replies}
             return
-        for message in new_reply_messages(self._seen, replies):
-            self._notify(message)
+        for message, conversation in new_reply_messages(self._seen, replies):
+            self._notify(message, conversation=conversation)
 
     def _apply(self, status: TrayStatus) -> None:
         if self.icon is not None:
@@ -771,12 +773,19 @@ class TrayApp:
                 self._drawn = look
             self.icon.update_menu()
 
-    def _notify(self, message: str) -> None:
+    def _notify(self, message: str, conversation: str | None = None) -> None:
+        """Show ``message``. A reply's notification (``conversation`` given,
+        "" for a summary of several) opens Conversations when clicked, at
+        that conversation; anything else opens the dashboard."""
         def show():
             if self._mac is None and sys.platform == "darwin":
                 self._mac = MacNotifier.create(self.controller.data_dir)
             if self._mac:
-                if self._mac.notify(message, self.controller.dashboard_link()):
+                link = self.controller.dashboard_link()
+                if link and conversation is not None:
+                    link += "&tab=conversations" + (f"&focus={quote(conversation, safe='')}"
+                                                    if conversation else "")
+                if self._mac.notify(message, link):
                     return
             if self.icon is not None:
                 try:
