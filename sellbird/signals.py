@@ -387,13 +387,30 @@ SIGNAL_CATALOG: list[dict] = [
 ]
 
 
+_SEEDED_FIELDS = ("label", "description", "category", "value_type", "collector", "cost_note")
+
+
+def _seeded(row: dict | None, sig: dict) -> bool:
+    """The stored row already says what the catalog says (status is the user's, not compared)."""
+    if row is None:
+        return False
+    if any((row.get(f) or "") != (sig.get(f) or "") for f in _SEEDED_FIELDS):
+        return False
+    return float(row.get("confidence_floor") or 0.0) == float(sig.get("confidence_floor", 0.0))
+
+
 async def seed_signal_catalog(state) -> int:
     """Register the catalog as PROPOSED signals awaiting user confirmation.
 
     Idempotent, and never overrides a decision the user already made: an
-    existing signal keeps its confirmed/rejected status.
+    existing signal keeps its confirmed/rejected status. Only a signal that is
+    missing, or whose catalog text changed, is written: the dashboard calls this
+    on every load, and one read is far cheaper than a write per signal.
     """
+    have = {row["code"]: row for row in await state.get_signal_codes()}
     for sig in SIGNAL_CATALOG:
+        if _seeded(have.get(sig["code"]), sig):
+            continue
         await state.upsert_signal_code(
             sig["code"],
             label=sig["label"],
