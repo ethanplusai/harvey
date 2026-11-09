@@ -687,6 +687,8 @@ class Sender:
             cumulative_days = 0
             new_rows = 0
             for step in campaign.sequence:
+                if step.step > 1 and not getattr(self.config.channels.email, "follow_ups", True):
+                    continue    # first email only; a reply is still answered
                 cumulative_days += max(0, step.delay_days)
                 send_at = now + timedelta(days=cumulative_days)
                 if window is not None:
