@@ -7,6 +7,14 @@ minor versions can still change behaviour.
 
 ## [Unreleased]
 
+### Added
+
+- **An Italian `compliance.opt_out_line` passes validation.** "Non ti
+  interessa? Rispondi pure e non ti scriverò più." is accepted, like the
+  English, Spanish and Hebrew lines already were, so an Italian sender no
+  longer needs a bilingual footer. A sign-off like "A presto!" is still
+  refused. Italian replies are still read by the model, not by rule.
+
 ### Changed
 
 - Seeding the signal catalog writes only a signal that is missing or whose catalog text changed. The dashboard seeds on every Today load, so this was a write per signal on every page view.

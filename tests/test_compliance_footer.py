@@ -949,3 +949,30 @@ def test_an_opt_out_line_has_to_say_the_emails_can_stop():
         assert ComplianceConfig(opt_out_line=good).opt_out_line == good
     # Leaving the line off is still the operator's choice.
     assert ComplianceConfig(opt_out_line="").opt_out_line == ""
+
+
+# ── Italian opt-out line ──
+
+@pytest.mark.parametrize("line", [
+    "Non ti interessa? Rispondi pure e non ti scriverò più.",
+    "Non Le interessa? Mi basta una riga di risposta e non La contatterò più.",
+    "Se non volete ricevere altre email, rispondete e vi rimuovo dalla lista.",
+    "Scrivete STOP e non vi disturberò più.",
+    "Per non ricevere più mie email basta rispondere.",
+    "Rispondi \"disiscrivimi\" e smetterò di scriverti.",
+    "Per annullare l'iscrizione rispondi a questa email.",
+])
+def test_an_italian_opt_out_line_is_accepted(line):
+    assert ComplianceConfig(opt_out_line=line).opt_out_line == line
+
+
+@pytest.mark.parametrize("line", [
+    "Cordiali saluti",
+    "A presto!",
+    "Buona giornata e grazie per il tempo.",
+    "Un caro saluto da Roma",
+])
+def test_an_italian_sign_off_is_not_an_opt_out_line(line):
+    from pydantic import ValidationError
+    with pytest.raises(ValidationError):
+        ComplianceConfig(opt_out_line=line)
