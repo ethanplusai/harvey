@@ -696,6 +696,19 @@ class WriterConfig(BaseModel):
     # The FACTS rule, the send gate and do-not-contact still apply. A file
     # that is set but can't be read stops writing until it's fixed.
     email_rules: str = ""
+    # Give the Writer what the free homepage signals found (no structured
+    # data, a site untouched for months, ...) so an email
+    # can name one concrete thing to change. They come from an automated read
+    # of one page and can be wrong (a booking widget that loads late is
+    # missed), so check a draft's claim against the site before approving it.
+    # false = the Writer never sees them.
+    site_facts: bool = True
+    # true = write a first email only for a prospect with something concrete to
+    # build its one tip on: a finding from site_facts, a startup fact, a signal
+    # or the Scout's research notes. Anyone without is marked "no_tip" and not
+    # written for, instead of getting a draft that says it has no advice. Set
+    # the prospect back to "new" to try again, once more is known about it.
+    require_tip: bool = False
 
     @field_validator("email_rules", mode="before")
     @classmethod

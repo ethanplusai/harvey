@@ -7,8 +7,32 @@ minor versions can still change behaviour.
 
 ## [Unreleased]
 
+### Added
+
+- **`writer.require_tip: true` skips prospects with nothing to build a tip
+  on.** A first email is meant to name one concrete thing the sender would
+  change; with no finding about the company, the draft could only say it had no
+  advice. With the option on, the Writer writes only for a prospect with a site
+  finding, a startup fact, a signal or the Scout's notes, and marks the others
+  `no_tip` (not left `new`, which makes the heartbeat retry them every cycle).
+  Set one back to `new` to try again. Off by default. The company's location
+  is also in the Writer's facts now.
+
 ### Changed
 
+- **The writer sees what Sellbird read off a company's own site.** The free
+  homepage signals (no structured data, a site untouched for six months, a very
+  small sitemap, AI crawlers blocked) were collected but
+  never reached the writer's prompt, so an email asked to name one concrete
+  thing to change had nothing true to name and said it hadn't looked. Findings
+  that are true now go in as fact lines, each saying how it was found and that
+  the check can miss things; a signal checked and found fine is left out. "No
+  online booking" is not passed on: a homepage read misses widgets that load
+  late, and it called a bookable business unbookable too often.
+  Those findings come from one page and can be wrong, so `writer.site_facts:
+  false` turns them off, and `CLAUDE.md` and the approval guide now tell
+  Claude to offer a browser check of each draft's claims before the user
+  approves.
 - Seeding the signal catalog writes only a signal that is missing or whose catalog text changed. The dashboard seeds on every Today load, so this was a write per signal on every page view.
 - **The opt-out line takes any wording.** `compliance.opt_out_line` no longer
   has to ask for a keyword: "Not interested? Just let me know and I won't email
