@@ -47,6 +47,11 @@ REVIEW_NEXT_REPLY_KEY = "review_next_reply:"
 # Outbox error prefix for an email autopilot held for a human (gate.
 # autopilot_review): approve-all skips these, they're approved one by one.
 HELD_FOR_REVIEW = "held for your review: "
+# "Send now" requests live in settings under SEND_NOW_PREFIX + the outbox id.
+# One that nothing has acted on within SEND_NOW_TTL (sending paused, no
+# mailbox connected, Sellbird not running) lapses instead of firing later.
+SEND_NOW_PREFIX = "send_now:"
+SEND_NOW_TTL = timedelta(minutes=15)
 # Set while the heartbeat holds sending because replies couldn't all be read
 # (JSON: since, last_seen, reason), so Today and `sellbird status` can say so.
 SENDS_HELD_KEY = "sends_held"
@@ -1371,6 +1376,55 @@ class StateManager:
                 )
             await db.commit()
             return cursor.rowcount
+
+    async def request_send_now(self, item_id: str) -> bool:
+        """Ask for one approved email to go out at the next heartbeat, even
+        past the daily cap and the send window. False if it isn't approved.
+
+        The heartbeat is still the only sender and still runs every other
+        check (suppression, opt-out, stop-on-reply, the address's status)."""
+        now = _utcnow().isoformat()
+        async with self._connect() as db:
+            cursor = await db.execute(
+                "UPDATE outbox SET send_at = ?, updated_at = ? "
+                "WHERE id = ? AND status = 'approved'",
+                (now, now, item_id),
+            )
+            if not cursor.rowcount:
+                return False
+            await db.execute(
+                "INSERT INTO settings (key, value, updated_at) "
+                "VALUES (?, ?, CURRENT_TIMESTAMP) "
+                "ON CONFLICT(key) DO UPDATE SET value = excluded.value, "
+                "updated_at = CURRENT_TIMESTAMP",
+                (SEND_NOW_PREFIX + item_id, now),
+            )
+            await db.commit()
+            return True
+
+    async def send_now_ids(self) -> set[str]:
+        """Outbox ids with a live "send now" request. Lapsed ones are dropped."""
+        cutoff = (_utcnow() - SEND_NOW_TTL).isoformat()
+        async with self._connect() as db:
+            await db.execute(
+                "DELETE FROM settings WHERE substr(key, 1, ?) = ? AND value < ?",
+                (len(SEND_NOW_PREFIX), SEND_NOW_PREFIX, cutoff),
+            )
+            await db.commit()
+            async with db.execute(
+                "SELECT key FROM settings WHERE substr(key, 1, ?) = ?",
+                (len(SEND_NOW_PREFIX), SEND_NOW_PREFIX),
+            ) as cursor:
+                return {row[0][len(SEND_NOW_PREFIX):] for row in await cursor.fetchall()}
+
+    async def clear_send_now(self, item_ids) -> None:
+        """Forget these requests: each is acted on once."""
+        async with self._connect() as db:
+            await db.executemany(
+                "DELETE FROM settings WHERE key = ?",
+                [(SEND_NOW_PREFIX + item_id,) for item_id in item_ids],
+            )
+            await db.commit()
 
     async def note_sends_held(self, reason: str):
         """The heartbeat held sending this cycle. Keeps when it started."""

@@ -271,6 +271,7 @@ function actionText(a) {
     case 'manual_send': return 'You marked a contact as emailed by hand';
     case 'manual_send_undone': return 'You undid a hand-sent mark';
     case 'outbox_edited': return 'You edited a draft';
+    case 'outbox_send_now': return 'You sent an approved email now';
     case 'conversation_status':
       return d.to === 'closed' ? 'You closed a conversation'
         : d.from === 'needs_human' ? 'You handed a conversation back to Sellbird' : 'You reopened a conversation';
@@ -1702,6 +1703,10 @@ async function loadOutbox() {
     table('Approved &amp; scheduled', data.approved, [
       ['To', r => r.to_email], ['Step', r => r.step], ['Subject', r => r.subject],
       ['Sends', r => r.status === 'sending' ? badge(r.status) : escHtml(formatDate(r.send_at)), true, true],
+      ['', r => r.status === 'approved'
+        ? '<button class="btn btn-secondary btn-sm" onclick="outboxSendNow(' + jsq(r.id) + ')" ' +
+          'title="Send this email within seconds, past the daily cap and send window.">' +
+          'Send now</button>' : '', false, true],
     ]) +
     table('Recently sent', data.sent, [
       ['To', r => r.to_email], ['Step', r => r.step], ['Subject', r => r.subject],
@@ -2006,6 +2011,48 @@ async function outboxAct(id, action) {
   const data = await api('/api/outbox/' + encodeURIComponent(id) + '/' + action, {method: 'POST'});
   if (data && data.success) showToast(action === 'approve' ? 'Approved — will send on schedule.' : 'Rejected.', 'success');
   else showToast(failMsg(data, 'Action failed.'), 'error');
+  loadOutbox();
+}
+
+// Send now goes past the daily cap and the send window, which protect a new
+// mailbox, so it warns first. "Don't warn me again" is kept in this browser.
+const SEND_NOW_WARNING_OFF_KEY = 'sellbird-send-now-warning-off';
+
+function sendNowWarningOff() {
+  try { return localStorage.getItem(SEND_NOW_WARNING_OFF_KEY) === '1'; } catch { return false; }
+}
+
+function outboxSendNow(id) {
+  if (deskBusy()) return;
+  if (sendNowWarningOff()) { confirmSendNow(id, false); return; }
+  const dialog = document.getElementById('send-now-dialog');
+  dialog.innerHTML =
+    '<div class="modal-head"><div><h3 id="send-now-title">Send this email now?</h3></div>' +
+      '<button class="btn btn-ghost btn-sm btn-icon" onclick="closeSendNowDialog()" aria-label="Close">' + icon('close') + '</button></div>' +
+    '<div class="modal-body"><p>It goes out within seconds, even if today\'s daily cap is used up or it is ' +
+      'outside the recipient\'s send window. Sending past those limits can hurt a new mailbox\'s reputation. ' +
+      'Opt-outs, replies and the address check still apply.</p>' +
+      '<label class="check"><input type="checkbox" id="send-now-skip-warning"> Don\'t warn me again</label></div>' +
+    '<div class="modal-foot"><button class="btn btn-secondary" onclick="closeSendNowDialog()">Cancel</button>' +
+      '<button class="btn btn-primary" onclick="confirmSendNow(' + jsq(id) + ', true)">Send now</button></div>';
+  dialog.showModal();
+}
+
+function closeSendNowDialog() {
+  const dialog = document.getElementById('send-now-dialog');
+  if (dialog.open) dialog.close();
+}
+
+async function confirmSendNow(id, fromDialog) {
+  if (fromDialog) {
+    if (document.getElementById('send-now-skip-warning').checked) {
+      try { localStorage.setItem(SEND_NOW_WARNING_OFF_KEY, '1'); } catch { /* private mode */ }
+    }
+    closeSendNowDialog();
+  }
+  const data = await api('/api/outbox/' + encodeURIComponent(id) + '/send-now', {method: 'POST'});
+  if (data && data.success) showToast('Sending now. It goes out within seconds if Sellbird is running.', 'success');
+  else showToast(failMsg(data, 'Couldn\'t send that email now.'), 'error');
   loadOutbox();
 }
 

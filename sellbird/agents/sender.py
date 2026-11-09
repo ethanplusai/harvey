@@ -898,9 +898,13 @@ class Sender:
         # stays the ceiling on everything sent in a day.
         per_cycle = MAX_SENDS_PER_CYCLE * (len(inboxes.sendable()) if inboxes else 1)
         budget = min(per_cycle, max_daily - sent_today)
-        if budget <= 0:
+        # Emails the operator asked to send now: they go past the daily cap
+        # and the send window, nothing else.
+        send_now_ids = await self.state.send_now_ids()
+        if budget <= 0 and not send_now_ids:
             logger.info(f"Sender: daily send cap reached ({sent_today}/{max_daily}).")
             return
+        budget = max(budget, 0)
         # Cold email has its own cap under the warmup ramp; replies don't.
         # Counted from local midnight, the day the ramp counts in.
         cold_cap = cold_daily_cap(self.config.channels.email)
@@ -942,6 +946,14 @@ class Sender:
                 due + extra,
                 key=lambda i: (i.get("send_at") or "", i.get("created_at") or ""),
             )
+        send_now_items = [
+            item for item in [await self.state.get_outbox_item(i) for i in send_now_ids]
+            if item and item["status"] == "approved"
+        ]
+        if send_now_items:
+            requested = {item["id"] for item in send_now_items}
+            due = send_now_items + [item for item in due if item["id"] not in requested]
+            budget += len(send_now_items)
         if not due:
             return
 
@@ -972,6 +984,7 @@ class Sender:
                 break
             if self.cold_only and item["kind"] != "sequence":
                 continue  # quiet hours: replies wait for the operator's hours
+            send_now = item["id"] in send_now_ids
             provider, inbox = self.provider, None
             if inboxes is not None:
                 route = await inboxes.route(item)
@@ -983,13 +996,13 @@ class Sender:
                     inbox_waits[route.reason] = inbox_waits.get(route.reason, 0) + 1
                     continue
                 inbox = inboxes.get(route.mailbox_id)
-                if inbox.sent_this_cycle >= MAX_SENDS_PER_CYCLE:
+                if inbox.sent_this_cycle >= MAX_SENDS_PER_CYCLE and not send_now:
                     continue
-                if item["kind"] == "sequence" and inbox.cold_left <= 0:
+                if item["kind"] == "sequence" and inbox.cold_left <= 0 and not send_now:
                     held_cold += 1
                     continue
                 provider = inbox.provider
-            elif item["kind"] == "sequence" and sent_cold >= cold_left:
+            elif item["kind"] == "sequence" and sent_cold >= cold_left and not send_now:
                 held_cold += 1
                 continue
             needs_check = self.precleared is not None and item["kind"] == "sequence"
@@ -1013,7 +1026,7 @@ class Sender:
             names = await self._recipient_names(prospect) if needs_check else ("", "")
             # Cold email waits for the recipient's send window, however
             # late it was approved; replies don't.
-            if (window is not None and item["kind"] == "sequence"
+            if (window is not None and item["kind"] == "sequence" and not send_now
                     and await self._outside_window(
                         item, await self._zone_or_default(prospect, given=country, names=names),
                         window)):
@@ -1093,7 +1106,7 @@ class Sender:
                 # Precleared found where the recipient is, and nothing else
                 # had: their own window applies from now on.
                 if (window is not None and window.recipient_timezone and clearance.country
-                        and not prospect.timezone):
+                        and not prospect.timezone and not send_now):
                     zone = await self._zone_or_default(prospect, clearance.country)
                     if zone and await self._outside_window(item, zone, window):
                         outside_window += 1
@@ -1220,6 +1233,7 @@ class Sender:
             if self.send_pacing and sent < budget:
                 await asyncio.sleep(random.uniform(*SEND_JITTER_SECONDS))
 
+        await self.state.clear_send_now(send_now_ids)
         self.compliance_held = compliance_paused
         for reason, count in inbox_waits.items():
             logger.info(f"Sender: {count} email(s) wait: {reason}.")

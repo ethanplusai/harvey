@@ -1490,6 +1490,19 @@ async def mark_prospect_sent(prospect_id: str, request: Request):
         return JSONResponse({"success": False, "message": str(e)}, status_code=500)
 
 
+@app.post("/api/outbox/{item_id}/send-now")
+async def outbox_send_now(item_id: str):
+    try:
+        state = _state()
+        await state.init_db()
+        if not await state.request_send_now(item_id):
+            return _refuse("Only an approved email that hasn't gone out yet can be sent now.")
+        await state.log_action("outbox_send_now", "dashboard", {"outbox_id": item_id})
+        return {"success": True}
+    except Exception as e:
+        return JSONResponse({"success": False, "message": str(e)}, status_code=500)
+
+
 @app.post("/api/outbox/{item_id}/reject")
 async def outbox_reject(item_id: str):
     try:

@@ -1110,6 +1110,7 @@ dialog.modal::backdrop { background: rgb(0 0 0 / 0.45); }
 .modal-section { padding-top: var(--sp-4); margin-top: var(--sp-4); border-top: 1px solid var(--line); }
 .modal-section h4 { font-size: var(--fs-ui); font-weight: 600; margin-bottom: var(--sp-2); }
 .modal-section p { font-size: var(--fs-ui); color: var(--text-2); line-height: 1.55; }
+.modal-body .check { display: flex; align-items: center; gap: var(--sp-2); margin-top: var(--sp-3); font-size: var(--fs-ui); }
 .modal-stats { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: var(--sp-2); }
 .modal-stats .inset { padding: var(--sp-3); }
 .modal-stats .k { font-size: var(--fs-caption); color: var(--text-3); }

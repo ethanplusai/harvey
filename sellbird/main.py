@@ -62,6 +62,7 @@ CYCLE_TIMEOUT_SECONDS = 600
 # multi-hour asyncio.wait_for left Sellbird silently stalled well past when
 # quiet hours actually ended.
 QUIET_HOURS_POLL_SECONDS = 300
+SEND_NOW_POLL_SECONDS = 5
 
 # Phase-1 tasks that read replies; sending waits for all of them to succeed.
 REPLY_READERS = ("handle_replies", "read_replies")
@@ -247,6 +248,31 @@ async def _interruptible_sleep(seconds: float, stop_event: asyncio.Event) -> boo
         return True
     except asyncio.TimeoutError:
         return False
+
+
+async def _sleep_until_next_cycle(seconds: float, stop_event: asyncio.Event,
+                                  state: StateManager) -> bool:
+    """Sleep up to `seconds`, waking at once on shutdown or when the operator
+    asks to send an email now (the dashboard's Send now button).
+
+    Returns True if a shutdown was requested during the sleep.
+    """
+    # Requests this cycle already saw and left (sending paused, say) don't
+    # wake it again; only a new click does.
+    seen = await state.send_now_ids()
+
+    async def new_request():
+        while not await state.send_now_ids() - seen:
+            await asyncio.sleep(SEND_NOW_POLL_SECONDS)
+
+    sleeper = asyncio.ensure_future(_interruptible_sleep(seconds, stop_event))
+    watcher = asyncio.ensure_future(new_request())
+    try:
+        await asyncio.wait({sleeper, watcher}, return_when=asyncio.FIRST_COMPLETED)
+        return sleeper.result() if sleeper.done() else False
+    finally:
+        for task in (sleeper, watcher):
+            task.cancel()
 
 
 def send_hold_reason(unread: list, paused: str, read_problem: str) -> str | None:
@@ -481,7 +507,7 @@ async def heartbeat(stop_event: asyncio.Event | None = None):
             logger.info(
                 f"Cycle complete. Sleeping for {config.usage.heartbeat_interval_minutes} minutes."
             )
-            if await _interruptible_sleep(interval, stop_event):
+            if await _sleep_until_next_cycle(interval, stop_event, state):
                 break
 
         except (KeyboardInterrupt, asyncio.CancelledError):

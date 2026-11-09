@@ -7,6 +7,14 @@ minor versions can still change behaviour.
 
 ## [Unreleased]
 
+### Added
+
+- **Send now on approved emails.** Each row in the Outbox's "Approved & scheduled"
+  table has a button that sends the email within seconds, past the daily cap and the
+  send window. It warns first (with a "Don't warn me again" box), and the running
+  Sellbird wakes at once to send it, so it is still the only sender. Suppression,
+  opt-outs, stop-on-reply and the address check still apply.
+
 ### Changed
 
 - Seeding the signal catalog writes only a signal that is missing or whose catalog text changed. The dashboard seeds on every Today load, so this was a write per signal on every page view.
