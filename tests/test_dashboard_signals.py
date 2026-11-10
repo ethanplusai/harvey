@@ -551,3 +551,29 @@ def test_signals_api_marks_numeric_signals_for_the_range_ui(client):
     data = client.get("/api/signals").json()
     sigs = {s["code"]: s for g in data["groups"] for s in g["signals"]}
     assert sigs["SERP_RANK"]["value_type"] == "num"
+
+
+@pytest.mark.asyncio
+async def test_reseeding_writes_only_what_changed(tmp_path, monkeypatch):
+    """Today seeds on every load: once the catalog is stored, seeding again writes nothing.
+    A catalog text change is still written, and a user's decision is still kept."""
+    from sellbird.signals import seed_signal_catalog
+    state = StateManager(db_path=str(tmp_path / "s.db"))
+    await state.init_db()
+    await seed_signal_catalog(state)
+    code = SIGNAL_CATALOG[0]["code"]
+    await state.set_signal_status(code, "confirmed")
+    writes = []
+    real = state.upsert_signal_code
+
+    async def counted(c, **kw):
+        writes.append(c)
+        await real(c, **kw)
+    monkeypatch.setattr(state, "upsert_signal_code", counted)
+    await seed_signal_catalog(state)
+    assert writes == []
+    monkeypatch.setitem(SIGNAL_CATALOG[0], "label", "A new label")
+    await seed_signal_catalog(state)
+    assert writes == [code]
+    row = next(r for r in await state.get_signal_codes() if r["code"] == code)
+    assert (row["label"], row["status"]) == ("A new label", "confirmed")
