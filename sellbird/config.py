@@ -3,6 +3,7 @@
 import logging
 import os
 import re
+import unicodedata
 from contextlib import contextmanager
 from contextvars import ContextVar
 from datetime import date as _date, time as _time
@@ -454,6 +455,8 @@ OPT_OUT_WORDS = ("no thanks", "no thank you", "unsubscribe", "stop", "remove me"
                  "opt out")
 HEBREW_OPT_OUT_WORDS = ("הסר", "הסירו", "הסרה", "לא תודה", "הסירו אותי", "תורידו אותי")
 SPANISH_OPT_OUT_WORDS = ("no gracias", "baja", "darme de baja")
+FRENCH_OPT_OUT_WORDS = ("non merci", "non, merci", "arrêt", "désabonner", "désabonnement",
+                        "désabonnez-moi", "retirez-moi")
 # Wording that tells people the emails can stop, in any phrasing. An
 # opt_out_line must say so somehow: one that reads like a sign-off ("Cheers!")
 # gives nobody a way out, which is worse than leaving the line off on purpose.
@@ -470,6 +473,34 @@ _SAYS_IT_STOPS_ES_RE = re.compile(
     r"(?:\bbaja\b|no,?\s+gracias|dejar[ée]?\s+de|dejo\s+de|no\s+(?:le|te|les)\s+(?:escribir|volver|molestar)"
     r"|no\s+volver[ée]|eliminar|quitar|\bparar\b)",
     re.IGNORECASE)
+# French, matched with accents removed (see _fold_accents): "Pas intéressé?
+# Répondez-moi et je ne vous écrirai plus", "Répondez ARRÊT pour vous désabonner".
+_SAYS_IT_STOPS_FR_RE = re.compile(
+    r"(?:desabonn|desinscri|\barret(?:e|er|ez|erai|erons)?\b|\bnon,?\s+merci\b"
+    r"|\bpas\s+interess"
+    r"|\bn(?:e\s+|')(?:vous\s+|t'|te\s+)?(?:ecri|contact|relanc|envo|enverr|derang|sollicit"
+    r"|importun|recevr)\w*\s+(?:plus|jamais|pas\s+(?:a|de)\s+nouveau)\b"
+    r"|\bne\s+plus\s+(?:jamais\s+)?(?:vous\s+|t'|te\s+|m'|me\s+)?(?:ecrire|contacter|relancer"
+    r"|recevoir|solliciter|deranger|etre\s+(?:contacte|sollicite|relance))"
+    r"|\bne\s+(?:voulez|souhaitez|desirez|veux|veut)\s+(?:plus|pas)\s+(?:\w+\s+){0,2}?"
+    r"(?:recevoir|courriels?|messages?|nouvelles)"
+    r"|\b(?:retir|enlev|supprim|ray)\w*\s+(?:\w+\s+){0,3}?(?:de|d'|des)\s*"
+    r"(?:(?:la|ma|notre|votre|vos|nos|mes|cette|ses)\s+)?(?:listes?|envois?|base|infolettre|courriels)"
+    r"|\blaiss\w*\s+tranquilles?"
+    r"|\bplus\s+(?:jamais\s+)?(?:de\s+)?(?:courriels?|messages?|nouvelles)\s+de\s+(?:ma|notre)\s+part)",
+    re.IGNORECASE)
+# "Click" in French: "cliquez ici pour vous désabonner".
+_FRENCH_CLICK_RE = re.compile(r"\bcliqu(?:ez|er|e)\b", re.IGNORECASE)
+
+
+def _fold_accents(text: str) -> str:
+    """Latin accents dropped and curly apostrophes made straight, so French
+    reads the same typed with or without them."""
+    text = text.replace("\u2019", "'").replace("\u2018", "'")
+    return "".join(c for c in unicodedata.normalize("NFD", text)
+                   if not (unicodedata.combining(c) and ord(c) < 0x370))
+
+
 # "Click" in Hebrew: a footer has no link to click.
 _HEBREW_CLICK_RE = re.compile(r"(?<!\w)ו?(?:לחצו|לחצי|לחץ\s+(?:כאן|על)|הקליקו|הקליקי|הקלק)(?!\w)")
 
@@ -531,14 +562,15 @@ class ComplianceConfig(BaseModel):
         lowered = v.lower()
         if not v:
             return v
+        folded = _fold_accents(v)
         if (any(bit in lowered for bit in ("http", "www.", "click", "@"))
-                or _HEBREW_CLICK_RE.search(v)):
+                or _HEBREW_CLICK_RE.search(v) or _FRENCH_CLICK_RE.search(folded)):
             raise ValueError(
                 "opt_out_line can't contain a link or an email address: cold email "
                 "allows one link, and opting out must be as simple as replying."
             )
         if not (_SAYS_IT_STOPS_RE.search(v) or _SAYS_IT_STOPS_HE_RE.search(v)
-                or _SAYS_IT_STOPS_ES_RE.search(v)):
+                or _SAYS_IT_STOPS_ES_RE.search(v) or _SAYS_IT_STOPS_FR_RE.search(folded)):
             raise ValueError(
                 "opt_out_line doesn't tell people they can stop these emails. Say so in "
                 "any words (\"Not interested? Just let me know and I won't email you "
