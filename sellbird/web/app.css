@@ -1137,3 +1137,6 @@ dialog.modal::backdrop { background: rgb(0 0 0 / 0.45); }
 .notice.good { background: var(--good-bg); color: var(--good); }
 .notice.bad { background: var(--bad-bg); color: var(--bad); }
 .notice.info { background: var(--surface-2); color: var(--text-2); }
+
+/* A conversation opened from a notification */
+.convo-card.convo-focus { outline: 2px solid var(--accent); outline-offset: 2px; transition: outline-color .6s; }

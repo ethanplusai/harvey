@@ -3,6 +3,7 @@
 import argparse
 import builtins
 import json
+import sys
 
 import httpx
 import pytest
@@ -213,15 +214,199 @@ def test_icon_is_the_bird_with_a_state_dot():
         assert all(abs(a - b) < 12 for a, b in zip(dot[:3], want)), state
 
 
-def test_menubar_icon_is_drawn_at_retina_size():
+def test_menubar_icon_is_drawn_at_retina_size_and_glyph_height():
     pytest.importorskip("PIL")
     import io
 
     from PIL import Image
 
-    from sellbird.desktop.tray import MENUBAR_PT, menubar_png
+    from sellbird.desktop.tray import MENUBAR_HEIGHT_PT, menubar_png
 
-    image = Image.open(io.BytesIO(menubar_png("running", True)))
-    # twice the point size, and wider than tall like the bird, not a 22px square
-    assert image.size == (MENUBAR_PT[0] * 2, MENUBAR_PT[1] * 2)
-    assert image.size[0] > image.size[1]
+    png, (w, h) = menubar_png("running", True)
+    image = Image.open(io.BytesIO(png))
+    assert h == MENUBAR_HEIGHT_PT and image.size[1] == h * 2
+    assert w > h   # wider than tall, like the bird
+
+
+def test_a_count_makes_the_icon_wider_with_a_bubble():
+    pytest.importorskip("PIL")
+    from sellbird.desktop.tray import draw_menubar
+
+    plain, (w0, _) = draw_menubar("running", True, 0)
+    three, (w3, _) = draw_menubar("running", True, 3)
+    many, (w99, _) = draw_menubar("running", True, 250)
+    assert w0 < w3 < w99
+
+
+def test_the_app_icon_is_the_white_bird_on_harbor_blue():
+    pytest.importorskip("PIL")
+    from sellbird.desktop.tray import app_icon
+
+    image = app_icon(128)
+    assert image.size == (128, 128) and image.getpixel((0, 0))[3] == 0
+    assert image.getpixel((20, 64))[:3] == (0x24, 0x4B, 0x62)
+
+
+# ── What's waiting on you, and new replies ────────────────────────────────
+
+from sellbird.desktop.tray import Reply, new_reply_messages, reply_message, waiting_label
+
+
+def test_the_menu_says_what_waits_on_you():
+    from sellbird.desktop.tray import TrayStatus, menu_items
+    status = TrayStatus("running", "running", needs_you=2, to_approve=1)
+    assert waiting_label(status) == "2 replies need you · 1 email to approve"
+    rows = menu_items(status, False)
+    assert rows[1].label == "2 replies need you · 1 email to approve" and rows[1].action == "open"
+    assert waiting_label(TrayStatus("running", "running")) == ""
+    assert all("need" not in r.label for r in menu_items(TrayStatus("running", "running"), False))
+
+
+def test_a_reply_notification_names_who_and_quotes_them():
+    r = Reply(("c1", 2), "Mike Ross", "Summit Roofing", "Sure, send it over.\nThanks")
+    assert reply_message(r) == "Mike Ross at Summit Roofing replied: “Sure, send it over. Thanks”"
+    yes = Reply(("c1", 2), "Mike Ross", "", "x" * 200, intent="accepted_offer")
+    message = reply_message(yes)
+    assert message.startswith("Mike Ross said yes to your offer:") and message.endswith("...”")
+
+
+def test_only_new_replies_notify_and_a_burst_becomes_one_summary():
+    seen = {("c1", 2)}
+    old = Reply(("c1", 2), "A", "", "old")
+    new = Reply(("c2", 3), "B", "", "new")
+    assert new_reply_messages(seen, [old, new]) == [("B replied: “new”", "c2")]
+    assert new_reply_messages(seen, [old, new]) == []          # never twice
+    burst = [Reply((f"x{i}", 1), "C", "", "hi") for i in range(5)]
+    assert new_reply_messages(seen, burst) == [("5 new replies. Open Sellbird to read them.", "")]
+
+
+def test_the_first_look_sets_a_baseline_and_later_replies_pop_up():
+    from sellbird.desktop.tray import TrayApp, TrayStatus
+
+    class Controller:
+        def __init__(self):
+            self.rows = [Reply(("c1", 2), "A", "", "old")]
+
+        def status(self):
+            return TrayStatus("running", "running", needs_you=1)
+
+        def replies(self):
+            return list(self.rows)
+
+    shown = []
+    controller = Controller()
+    app = TrayApp(controller, pystray=None, autostart=lambda: False, ui=lambda fn: fn())
+    app._notify = lambda message, conversation=None: shown.append((message, conversation))
+    app.refresh()
+    assert shown == []                                   # nothing old pops up at start
+    controller.rows.append(Reply(("c2", 1), "Mike", "Summit Roofing", "Sure, send it"))
+    app.refresh()
+    assert shown == [("Mike at Summit Roofing replied: “Sure, send it”", "c2")]
+
+
+# ── Branded notifications through the Sellbird helper app ────────────────
+
+def test_without_swift_or_a_prebuilt_binary_the_helper_is_not_built(tmp_path, monkeypatch):
+    import shutil as sh
+    from sellbird.desktop import tray
+    monkeypatch.setattr(sh, "which", lambda name: None)
+    monkeypatch.setattr(tray, "prebuilt_notifier", lambda: None)
+    assert tray.build_notifier(tmp_path / "Sellbird.app") is False
+    assert tray.MacNotifier.create(tmp_path, app=tmp_path / "Sellbird.app") is False
+
+
+def test_the_helper_is_built_once_per_version(tmp_path, monkeypatch):
+    from pathlib import Path
+    pytest.importorskip("PIL")
+    import shutil as sh
+    from sellbird.desktop import tray
+    calls = []
+
+    def run(cmd, **kw):
+        calls.append(cmd[0])
+        if cmd[0] == "/usr/bin/swiftc":
+            Path(cmd[3]).write_text("binary")
+        if cmd[0] == "iconutil":
+            Path(cmd[5]).write_text("icns")
+        return type("R", (), {"returncode": 0})()
+
+    monkeypatch.setattr(sh, "which", lambda name: "/usr/bin/swiftc")
+    monkeypatch.setattr(tray, "prebuilt_notifier", lambda: None)
+    app = tmp_path / "Sellbird.app"
+    assert tray.build_notifier(app, run=run)
+    plist = (app / "Contents" / "Info.plist").read_text()
+    assert "ai.sellbird.notifier" in plist and "<string>Sellbird</string>" in plist
+    assert (app / "Contents" / "MacOS" / "sellbird-notify").is_file()
+    built = len(calls)
+    assert tray.build_notifier(app, run=run) and len(calls) == built   # same version: no rebuild
+
+
+@pytest.mark.skipif(sys.platform == "win32", reason="POSIX file modes; the notifier is macOS-only")
+def test_the_dashboard_link_goes_in_a_private_file_not_on_the_command_line(tmp_path, monkeypatch):
+    import subprocess as sp
+    from sellbird.desktop.tray import MacNotifier
+    launched = []
+    monkeypatch.setattr(sp, "Popen", lambda args, **kw: launched.append(args))
+    notifier = MacNotifier(tmp_path / "Sellbird.app", tmp_path / "notify-link")
+    assert notifier.notify("Mike replied", "http://127.0.0.1:5555/#token=secret")
+    assert all("secret" not in a for a in launched[0])
+    assert (tmp_path / "notify-link").read_text().endswith("#token=secret")
+    assert (tmp_path / "notify-link").stat().st_mode & 0o777 == 0o600
+
+
+def test_a_reply_notification_opens_that_conversation(tmp_path):
+    from sellbird.desktop.tray import TrayApp, TrayStatus
+
+    class Controller:
+        data_dir = tmp_path
+
+        def status(self):
+            return TrayStatus("running", "running")
+
+        def dashboard_link(self):
+            return "http://127.0.0.1:5555/#token=t"
+
+    class Mac:
+        def __init__(self):
+            self.links = []
+
+        def notify(self, message, link):
+            self.links.append(link)
+            return True
+
+    app = TrayApp(Controller(), pystray=None, autostart=lambda: False, ui=lambda fn: fn())
+    app._mac = Mac()
+    app._notify("Mike replied", conversation="c 2")
+    app._notify("5 new replies", conversation="")
+    app._notify("Sellbird started.")
+    assert app._mac.links == ["http://127.0.0.1:5555/#token=t&tab=conversations&focus=c%202",
+                              "http://127.0.0.1:5555/#token=t&tab=conversations",
+                              "http://127.0.0.1:5555/#token=t"]
+
+
+def test_the_shipped_notifier_matches_its_source():
+    # Rebuild sellbird/desktop/notifier/sellbird-notify (see docs/menu-bar.md)
+    # whenever main.swift changes, or every Mac without Xcode loses branding.
+    from sellbird.desktop.tray import prebuilt_notifier
+    assert prebuilt_notifier() is not None
+
+
+def test_a_mac_without_swift_uses_the_shipped_notifier(tmp_path, monkeypatch):
+    pytest.importorskip("PIL")
+    import shutil as sh
+    from sellbird.desktop import tray
+    monkeypatch.setattr(sh, "which", lambda name: None)
+    ran = []
+
+    def run(cmd, **kw):
+        ran.append(cmd[0])
+        if cmd[0] == "iconutil":
+            from pathlib import Path
+            Path(cmd[5]).write_text("icns")
+        return type("R", (), {"returncode": 0})()
+
+    app = tmp_path / "Sellbird.app"
+    assert tray.build_notifier(app, run=run)
+    binary = app / "Contents" / "MacOS" / "sellbird-notify"
+    assert binary.read_bytes() == tray.NOTIFIER_PREBUILT.read_bytes()
+    assert "swiftc" not in " ".join(ran)

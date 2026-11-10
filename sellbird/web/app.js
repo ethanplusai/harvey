@@ -2555,7 +2555,18 @@ async function loadConversations() {
   // Open on "Needs you" only when something needs you.
   if (_convoFilter === 'needs' && !data.some(CONVO_FILTERS[0][2]))
     _convoFilter = data.some(CONVO_FILTERS[1][2]) ? 'open' : 'all';
+  const focus = window._openAt && window._openAt.focus;
+  if (focus && data.some(c => String(c.id) === focus)) _convoFilter = 'all';
   renderConversations();
+  if (focus) {
+    window._openAt.focus = '';
+    const card = document.getElementById('convo-' + focus);
+    if (card) {
+      card.classList.add('convo-focus');
+      card.scrollIntoView({block: 'start', behavior: 'smooth'});
+      setTimeout(() => card.classList.remove('convo-focus'), 4000);
+    }
+  }
 }
 
 function setConvoFilter(f) { _convoFilter = f; renderConversations(); }
@@ -2605,7 +2616,7 @@ function convoCard(c) {
     : '';
   const name = [c.first_name, c.last_name].filter(Boolean).join(' ') || c.company || 'Unknown';
   const stage = own(STAGE_LABELS, c.stage) ? '<span class="tag">' + STAGE_LABELS[c.stage] + '</span>' : '';
-  return '<div class="convo-card"><div class="convo-head">' +
+  return '<div class="convo-card" id="convo-' + escHtml(String(c.id)) + '"><div class="convo-head">' +
     '<span class="avatar">' + initials(c.first_name, c.last_name) + '</span>' +
     '<div><h3>' + escHtml(name) + '</h3><div class="sub">' +
       escHtml([c.company, c.prospect_email].filter(Boolean).join(' · ')) + ' · ' + relTime(c.updated_at) + '</div></div>' +
@@ -3089,6 +3100,8 @@ async function loadActivity() {
 
 loadRenameNotice();
 loadToday();
+// Opened from a link that names a tab (a notification): go straight there.
+if (window._openAt && window._openAt.tab && document.getElementById(window._openAt.tab)) goTab(window._openAt.tab);
 loadTrend();
 loadFunnel();
 loadSetupStatus();

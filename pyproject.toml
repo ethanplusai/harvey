@@ -66,4 +66,4 @@ data-files = {"share/sellbird" = ["sellbird.yaml", ".env.example"], "share/sellb
 # The dashboard's HTML/CSS/JS are real files served from disk, and its fonts
 # are vendored so a local tool renders correctly with the network off.
 [tool.setuptools.package-data]
-sellbird = ["web/*", "web/fonts/*"]
+sellbird = ["web/*", "web/fonts/*", "desktop/notifier/*.swift", "desktop/notifier/sellbird-notify", "desktop/notifier/*.source-sha256"]

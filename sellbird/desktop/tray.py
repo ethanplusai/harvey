@@ -18,11 +18,13 @@ from __future__ import annotations
 
 import json
 import logging
+import os
 import subprocess
 import sys
 import threading
 import time
 import webbrowser
+from urllib.parse import quote
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Callable, Literal
@@ -57,6 +59,24 @@ class TrayStatus:
     loop: Literal["running", "stopped", "unknown"]
     sending_paused: str = ""
     error: str = ""
+    # What's waiting on you, from Today: conversations Sellbird handed to you
+    # and emails waiting for your approval.
+    needs_you: int = 0
+    to_approve: int = 0
+
+    @property
+    def waiting(self) -> int:
+        return self.needs_you + self.to_approve
+
+
+@dataclass(frozen=True)
+class Reply:
+    """The newest message in a conversation, when the prospect wrote it."""
+    key: tuple[str, int]          # (conversation id, messages in the thread)
+    name: str
+    company: str
+    text: str
+    intent: str = ""
 
 
 @dataclass(frozen=True)
@@ -192,8 +212,39 @@ class TrayController:
             return TrayStatus("starting" if starting else "stopped", "unknown")
         if code in (401, 403):
             return TrayStatus("running", "unknown", error=SIGNED_OUT)
+        _, today = self._call("GET", "/api/today")
+        stats = today.get("stats") if isinstance(today.get("stats"), dict) else {}
         return TrayStatus("running", "running" if loop.get("running") else "stopped",
-                          sending_paused=loop.get("sending_paused") or "")
+                          sending_paused=loop.get("sending_paused") or "",
+                          needs_you=int(stats.get("needs_human") or 0),
+                          to_approve=int(stats.get("outbox_pending") or 0))
+
+    def replies(self) -> list[Reply] | None:
+        """Each conversation whose newest message is the prospect's, or None
+        when the dashboard can't be read."""
+        base = self._base()
+        if base is None:
+            return None
+        token = _read_user_token(self.data_dir)
+        try:
+            with self._client(base) as http:
+                r = http.get("/api/conversations", headers={"Authorization": f"Bearer {token}"})
+            rows = r.json() if r.status_code == 200 else None
+        except (httpx.HTTPError, OSError, ValueError):
+            return None
+        if not isinstance(rows, list):
+            return None
+        out = []
+        for row in rows:
+            if not isinstance(row, dict):
+                continue
+            thread = row.get("thread") or []
+            if not thread or not isinstance(thread[-1], dict) or thread[-1].get("sender") != "prospect":
+                continue
+            name = " ".join(x for x in (row.get("first_name"), row.get("last_name")) if x) or "Someone"
+            out.append(Reply((str(row.get("id")), len(thread)), name, row.get("company") or "",
+                             str(thread[-1].get("content") or ""), row.get("intent") or ""))
+        return out
 
     def start_dashboard(self) -> str:
         """Start the dashboard unless one is up, and wait a little for it."""
@@ -226,13 +277,22 @@ class TrayController:
     def resume_sending(self) -> str:
         return self._post("/api/sending/resume", "Sending resumed.")
 
-    def open_dashboard(self) -> bool:
+    def dashboard_link(self, tab: str = "") -> str:
+        """The dashboard's address with your token, or "" when it isn't running."""
         info = dashboard_instance.read(self.data_dir)
-        if info is None or self._base() is None:
-            return False
+        if info is None:
+            return ""
         from sellbird.mcp_server import base_url
         token = _read_user_token(self.data_dir)
-        self._opener(base_url(info.host, info.port) + (f"#token={token}" if token else ""))
+        return base_url(info.host, info.port) + (f"#token={token}" if token else "#")
+
+    def open_dashboard(self) -> bool:
+        if self._base() is None:
+            return False
+        link = self.dashboard_link()
+        if not link:
+            return False
+        self._opener(link)
         return True
 
 
@@ -256,10 +316,43 @@ def icon_state(status: TrayStatus) -> str:
     return "paused" if status.sending_paused else "running"
 
 
+def waiting_label(status: TrayStatus) -> str:
+    """"2 replies need you · 8 emails to approve", or "" when nothing waits."""
+    parts = []
+    if status.needs_you:
+        parts.append(f"{status.needs_you} {'reply needs' if status.needs_you == 1 else 'replies need'} you")
+    if status.to_approve:
+        parts.append(f"{status.to_approve} {'email' if status.to_approve == 1 else 'emails'} to approve")
+    return " · ".join(parts)
+
+
+def reply_message(reply: Reply) -> str:
+    """The notification for one new reply."""
+    who = f"{reply.name} at {reply.company}" if reply.company else reply.name
+    text = " ".join(reply.text.split())
+    if len(text) > 90:
+        text = text[:87].rstrip() + "..."
+    verb = "said yes to your offer" if reply.intent == "accepted_offer" else "replied"
+    return f"{who} {verb}: \u201c{text}\u201d"
+
+
+def new_reply_messages(seen: set, replies: list[Reply], limit: int = 3) -> list[tuple[str, str]]:
+    """(message, conversation id) for replies not in ``seen`` (which this
+    updates). More than ``limit`` at once become one summary, with no single
+    conversation to open."""
+    new = [r for r in replies if r.key not in seen]
+    seen.update(r.key for r in replies)
+    if len(new) > limit:
+        return [(f"{len(new)} new replies. Open Sellbird to read them.", "")]
+    return [(reply_message(r), r.key[0]) for r in new]
+
+
 def menu_items(status: TrayStatus, autostart_on: bool) -> list[MenuRow]:
     up = status.dashboard == "running" and not status.error
-    rows = [MenuRow(f"Sellbird: {state_label(status)}", None, False),
-            MenuRow("Open dashboard", "open", status.dashboard == "running")]
+    rows = [MenuRow(f"Sellbird: {state_label(status)}", None, False)]
+    if up and status.waiting:
+        rows.append(MenuRow(waiting_label(status), "open", True))
+    rows.append(MenuRow("Open dashboard", "open", status.dashboard == "running"))
     if status.loop == "running":
         rows.append(MenuRow("Stop Sellbird", "stop_loop", up))
     else:
@@ -334,7 +427,6 @@ def _dark_bar() -> bool:
 
 
 # The menu-bar icon in points (macOS draws it at 2x on Retina screens).
-MENUBAR_PT = (31, 18)
 
 
 def draw_icon(state: str, dark: bool, width: int, height: int):
@@ -369,14 +461,96 @@ def make_icon(state: str, dark: bool | None = None):
     return draw_icon(state, _dark_bar() if dark is None else dark, 64, 64)
 
 
-def menubar_png(state: str, dark: bool, scale: int = 2) -> bytes:
-    """The macOS menu-bar icon as PNG bytes, MENUBAR_PT points at `scale`x."""
+MENUBAR_HEIGHT_PT = 18
+MENUBAR_BIRD_PT = 13.0      # about the height of the other menu-bar glyphs
+BRAND = "#244B62"           # Sellbird harbor blue
+_BADGE_FONTS = ("/System/Library/Fonts/SFNSRounded.ttf",   # macOS
+                "C:/Windows/Fonts/segoeuib.ttf")            # Windows: Segoe UI Bold
+
+
+def _badge_font(size: int):
+    from PIL import ImageFont
+    for path in _BADGE_FONTS:
+        try:
+            f = ImageFont.truetype(path, size)
+        except OSError:
+            continue
+        try:
+            f.set_variation_by_name("Bold")
+        except Exception:
+            pass
+        return f
+    try:
+        return ImageFont.load_default(size)   # Pillow 10.1+: a scalable fallback
+    except TypeError:
+        return ImageFont.load_default()
+
+
+def draw_menubar(state: str, dark: bool, count: int = 0, scale: int = 2):
+    """The macOS menu-bar icon: the bird at the height of the other glyphs,
+    and beside it a dot in the state's color, or, when something waits on
+    you, a small bubble in that color with the count. Returns the image (at
+    ``scale``x) and its size in points."""
+    from PIL import Image, ImageDraw
+
+    ss = 4 * scale
+    H = MENUBAR_HEIGHT_PT * ss
+    bird_h = MENUBAR_BIRD_PT * ss
+    bird_w = BIRD_BOX[0] * bird_h / BIRD_BOX[1]
+    text = "" if not count else ("99+" if count > 99 else str(count))
+    font = _badge_font(int(6.6 * ss))
+    if text:
+        box = font.getbbox(text)
+        bh = 9.2 * ss
+        bw = max(bh, box[2] - box[0] + 5 * ss)
+    else:
+        bh = bw = 5.6 * ss
+    ring = 1.4 * ss
+    W = bird_w + bw * (0.9 if text else 0.55) + ring
+    image = Image.new("RGBA", (int(W), int(H)), (0, 0, 0, 0))
+    ImageDraw.Draw(image).polygon(bird_points(bird_w, bird_h, 0, (H - bird_h) / 2),
+                                  fill="#ffffff" if dark else "#1d1d1f")
+    x1, y1 = W - ring, H - ring * 0.6
+    x0, y0 = x1 - bw, y1 - bh
+    hole = Image.new("L", image.size, 0)  # a clear ring so the bubble reads over the bird
+    ImageDraw.Draw(hole).rounded_rectangle((x0 - ring, y0 - ring, x1 + ring, y1 + ring),
+                                           radius=(bh + 2 * ring) / 2, fill=255)
+    image.paste((0, 0, 0, 0), mask=hole)
+    draw = ImageDraw.Draw(image)
+    draw.rounded_rectangle((x0, y0, x1, y1), radius=bh / 2,
+                           fill=COLORS.get(state, COLORS["stopped"]))
+    if text:
+        box = font.getbbox(text)
+        draw.text((x0 + (bw - (box[2] - box[0])) / 2 - box[0],
+                   y0 + (bh - (box[3] - box[1])) / 2 - box[1]), text, font=font, fill="#ffffff")
+    out = image.resize((max(1, int(W / 4)), int(H / 4)), Image.LANCZOS)
+    return out, (W / ss, float(MENUBAR_HEIGHT_PT))
+
+
+def menubar_png(state: str, dark: bool, count: int = 0, scale: int = 2) -> tuple[bytes, tuple]:
+    """The menu-bar icon as PNG bytes at ``scale``x, and its size in points."""
     import io
 
-    image = draw_icon(state, dark, MENUBAR_PT[0] * scale, MENUBAR_PT[1] * scale)
+    image, size = draw_menubar(state, dark, count, scale)
     out = io.BytesIO()
     image.save(out, "png")
-    return out.getvalue()
+    return out.getvalue(), size
+
+
+def app_icon(size: int = 256):
+    """Sellbird's app icon: the white bird on a harbor-blue rounded square.
+    Notifications show it."""
+    from PIL import Image, ImageDraw
+
+    S = size * 4
+    image = Image.new("RGBA", (S, S), (0, 0, 0, 0))
+    draw = ImageDraw.Draw(image)
+    pad = S * 0.08
+    draw.rounded_rectangle((pad, pad, S - pad, S - pad), radius=S * 0.2, fill=BRAND)
+    bw = (S - 2 * pad) * 0.74
+    bh = bw * BIRD_BOX[1] / BIRD_BOX[0]
+    draw.polygon(bird_points(bw, bh, (S - bw) / 2, (S - bh) / 2 + S * 0.01), fill="#ffffff")
+    return image.resize((size, size), Image.LANCZOS)
 
 
 def _sharp_on_retina(icon) -> None:
@@ -390,12 +564,12 @@ def _sharp_on_retina(icon) -> None:
         import AppKit
         import Foundation
 
-        look = getattr(icon, "_sellbird_look", ("stopped", _dark_bar()))
+        look = getattr(icon, "_sellbird_look", ("stopped", _dark_bar(), 0))
         if getattr(icon, "_sellbird_drawn", None) == look and icon._icon_image:
             return
-        image = AppKit.NSImage.alloc().initWithData_(
-            Foundation.NSData(menubar_png(*look)))
-        image.setSize_(MENUBAR_PT)
+        png, size = menubar_png(*look)
+        image = AppKit.NSImage.alloc().initWithData_(Foundation.NSData(png))
+        image.setSize_(size)
         icon._icon_image = image
         icon._sellbird_drawn = look
         icon._status_item.button().setImage_(image)
@@ -404,6 +578,145 @@ def _sharp_on_retina(icon) -> None:
 
 
 # ── The tray app ──
+
+NOTIFIER_SOURCE = Path(__file__).with_name("notifier") / "main.swift"
+# Built from NOTIFIER_SOURCE for Apple silicon and Intel and shipped with
+# Sellbird, so a Mac without Xcode still gets branded notifications. The
+# .source-sha256 file names the source it was built from: when the source
+# changes and the binary isn't rebuilt, it's ignored and swiftc builds one.
+NOTIFIER_PREBUILT = NOTIFIER_SOURCE.with_name("sellbird-notify")
+
+
+def prebuilt_notifier() -> Path | None:
+    """The shipped notifier binary, when it matches the source next to it."""
+    import hashlib
+    stamp = NOTIFIER_PREBUILT.with_name("sellbird-notify.source-sha256")
+    try:
+        built_from = stamp.read_text(encoding="utf-8").strip()
+        # A Windows checkout may turn the source's line endings into CRLF.
+        source = hashlib.sha256(NOTIFIER_SOURCE.read_bytes().replace(b"\r\n", b"\n")).hexdigest()
+    except OSError:
+        return None
+    return NOTIFIER_PREBUILT if NOTIFIER_PREBUILT.is_file() and built_from == source else None
+NOTIFIER_ID = "ai.sellbird.notifier"
+_LSREGISTER = ("/System/Library/Frameworks/CoreServices.framework/Frameworks/"
+               "LaunchServices.framework/Support/lsregister")
+_INFO_PLIST = """<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0"><dict>
+<key>CFBundleIdentifier</key><string>{id}</string>
+<key>CFBundleName</key><string>Sellbird</string>
+<key>CFBundleDisplayName</key><string>Sellbird</string>
+<key>CFBundleExecutable</key><string>sellbird-notify</string>
+<key>CFBundleIconFile</key><string>Sellbird</string>
+<key>CFBundlePackageType</key><string>APPL</string>
+<key>CFBundleVersion</key><string>{version}</string>
+<key>LSUIElement</key><true/>
+</dict></plist>
+"""
+
+
+def notifier_version() -> str:
+    """Changes whenever the helper's source or icon would."""
+    import hashlib
+    h = hashlib.sha256(NOTIFIER_SOURCE.read_bytes())
+    h.update(BRAND.encode() + BIRD_PATH.encode())
+    return h.hexdigest()[:12]
+
+
+def build_notifier(app: Path, run=subprocess.run) -> bool:
+    """Build ``app``: a tiny macOS app named Sellbird, with the bird as its
+    icon, that posts notifications (sellbird/desktop/notifier/main.swift).
+
+    macOS shows a notification with the icon of the app that sent it, and
+    only lets a real, signed app send one: from Python they came out as
+    "python3" or Script Editor. Needs the Swift compiler (Xcode or its
+    command-line tools) only when the shipped binary (NOTIFIER_PREBUILT) is
+    missing or out of date; without either it keeps the old style."""
+    import shutil
+    import tempfile
+
+    version = notifier_version()
+    stamp = app / "Contents" / "sellbird-version"
+    if stamp.is_file() and stamp.read_text(encoding="utf-8").strip() == version:
+        return True
+    prebuilt = prebuilt_notifier()
+    swiftc = None if prebuilt else shutil.which("swiftc")
+    if prebuilt is None and swiftc is None:
+        return False
+    with tempfile.TemporaryDirectory() as tmp:
+        work = Path(tmp) / "Sellbird.app"
+        (work / "Contents" / "MacOS").mkdir(parents=True)
+        (work / "Contents" / "Resources").mkdir()
+        iconset = Path(tmp) / "Sellbird.iconset"
+        iconset.mkdir()
+        for px in (16, 32, 64, 128, 256, 512, 1024):
+            image = app_icon(px)
+            if px <= 512:
+                image.save(iconset / f"icon_{px}x{px}.png")
+            if px >= 32:
+                image.save(iconset / f"icon_{px // 2}x{px // 2}@2x.png")
+        binary = work / "Contents" / "MacOS" / "sellbird-notify"
+        steps = [["iconutil", "-c", "icns", str(iconset), "-o",
+                  str(work / "Contents" / "Resources" / "Sellbird.icns")]]
+        if prebuilt:
+            shutil.copy2(prebuilt, binary)
+            binary.chmod(0o755)
+        else:
+            steps.insert(0, [swiftc, "-O", "-o", str(binary), str(NOTIFIER_SOURCE)])
+        (work / "Contents" / "Info.plist").write_text(
+            _INFO_PLIST.format(id=NOTIFIER_ID, version=version), encoding="utf-8")
+        for step in steps:
+            if run(step, capture_output=True).returncode != 0:
+                logger.debug("Notifier build step failed: %s", step[0])
+                return False
+        (work / "Contents" / "sellbird-version").write_text(version, encoding="utf-8")
+        if app.exists():
+            shutil.rmtree(app)
+        app.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copytree(work, app)
+    # Ad-hoc signed and registered, so macOS knows Sellbird by name and icon.
+    run(["codesign", "--force", "--deep", "-s", "-", str(app)], capture_output=True)
+    run([_LSREGISTER, "-f", str(app)], capture_output=True)
+    return True
+
+
+class MacNotifier:
+    """Posts notifications through the Sellbird helper app (build_notifier),
+    so they show Sellbird's name and icon, and a click opens the dashboard."""
+
+    def __init__(self, app: Path, link_file: Path):
+        self.app, self.link_file = app, link_file
+
+    @classmethod
+    def create(cls, data_dir: Path, app: Path | None = None):
+        """A notifier, or False when this Mac can't build the helper."""
+        # One helper per user, where macOS lets an app send notifications
+        # (from a temporary or project folder it refuses them outright).
+        app = app or (Path.home() / "Library" / "Application Support" / "sellbird" / "Sellbird.app")
+        try:
+            if not build_notifier(app):
+                return False
+        except Exception as e:
+            logger.debug("Notifier not built: %s", type(e).__name__)
+            return False
+        return cls(app, Path(data_dir) / "notify-link")
+
+    def notify(self, message: str, link: str = "") -> bool:
+        """Post ``message``. ``link`` (the dashboard, with its token) is kept
+        in a file only you can read, not on a command line others could see."""
+        try:
+            if link:
+                self.link_file.write_text(link, encoding="utf-8")
+                os.chmod(self.link_file, 0o600)
+            subprocess.Popen(["open", "-n", "-g", str(self.app), "--args", message,
+                              str(self.link_file) if link else ""],
+                             stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            return True
+        except Exception as e:
+            logger.debug("Notification not shown: %s", type(e).__name__)
+            return False
+
 
 def _autostart_on() -> bool:
     from sellbird.desktop import login_item
@@ -450,8 +763,12 @@ class TrayApp:
         self.status = TrayStatus("stopped", "unknown")
         self.autostart_on = False
         self.icon = None
-        self._drawn: tuple[str, bool] | None = None
+        self._drawn: tuple | None = None
         self._lock = threading.Lock()
+        # Replies already seen. None until the first look, which notifies
+        # nothing: only replies that arrive while the tray runs pop up.
+        self._seen: set | None = None
+        self._mac = None   # MacNotifier, made on first use (False when unavailable)
 
     def refresh(self, *, autostart: bool = False) -> None:
         status = self.controller.status()
@@ -461,18 +778,43 @@ class TrayApp:
             if autostart_on is not None:
                 self.autostart_on = autostart_on
         self._ui(lambda: self._apply(status))
+        if status.dashboard == "running" and not status.error:
+            self._check_replies()
+
+    def _check_replies(self) -> None:
+        replies = self.controller.replies()
+        if replies is None:
+            return
+        if self._seen is None:
+            self._seen = {r.key for r in replies}
+            return
+        for message, conversation in new_reply_messages(self._seen, replies):
+            self._notify(message, conversation=conversation)
 
     def _apply(self, status: TrayStatus) -> None:
         if self.icon is not None:
-            look = (icon_state(status), _dark_bar())
-            if look != self._drawn:  # redraw only when the state or the bar's color changes
+            count = status.waiting if status.dashboard == "running" and not status.error else 0
+            look = (icon_state(status), _dark_bar(), count)
+            if look != self._drawn:  # redraw only when the state, bar color or count changes
                 self.icon._sellbird_look = look
-                self.icon.icon = make_icon(*look)
+                self.icon.icon = make_icon(look[0], look[1])
                 self._drawn = look
             self.icon.update_menu()
 
-    def _notify(self, message: str) -> None:
+    def _notify(self, message: str, conversation: str | None = None) -> None:
+        """Show ``message``. A reply's notification (``conversation`` given,
+        "" for a summary of several) opens Conversations when clicked, at
+        that conversation; anything else opens the dashboard."""
         def show():
+            if self._mac is None and sys.platform == "darwin":
+                self._mac = MacNotifier.create(self.controller.data_dir)
+            if self._mac:
+                link = self.controller.dashboard_link()
+                if link and conversation is not None:
+                    link += "&tab=conversations" + (f"&focus={quote(conversation, safe='')}"
+                                                    if conversation else "")
+                if self._mac.notify(message, link):
+                    return
             if self.icon is not None:
                 try:
                     self.icon.notify(message, "Sellbird")
