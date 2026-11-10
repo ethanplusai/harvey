@@ -464,19 +464,25 @@ def make_icon(state: str, dark: bool | None = None):
 MENUBAR_HEIGHT_PT = 18
 MENUBAR_BIRD_PT = 13.0      # about the height of the other menu-bar glyphs
 BRAND = "#244B62"           # Sellbird harbor blue
-_BADGE_FONT = "/System/Library/Fonts/SFNSRounded.ttf"
+_BADGE_FONTS = ("/System/Library/Fonts/SFNSRounded.ttf",   # macOS
+                "C:/Windows/Fonts/segoeuib.ttf")            # Windows: Segoe UI Bold
 
 
 def _badge_font(size: int):
     from PIL import ImageFont
-    try:
-        f = ImageFont.truetype(_BADGE_FONT, size)
+    for path in _BADGE_FONTS:
+        try:
+            f = ImageFont.truetype(path, size)
+        except OSError:
+            continue
         try:
             f.set_variation_by_name("Bold")
         except Exception:
             pass
         return f
-    except OSError:
+    try:
+        return ImageFont.load_default(size)   # Pillow 10.1+: a scalable fallback
+    except TypeError:
         return ImageFont.load_default()
 
 
@@ -587,7 +593,8 @@ def prebuilt_notifier() -> Path | None:
     stamp = NOTIFIER_PREBUILT.with_name("sellbird-notify.source-sha256")
     try:
         built_from = stamp.read_text(encoding="utf-8").strip()
-        source = hashlib.sha256(NOTIFIER_SOURCE.read_bytes()).hexdigest()
+        # A Windows checkout may turn the source's line endings into CRLF.
+        source = hashlib.sha256(NOTIFIER_SOURCE.read_bytes().replace(b"\r\n", b"\n")).hexdigest()
     except OSError:
         return None
     return NOTIFIER_PREBUILT if NOTIFIER_PREBUILT.is_file() and built_from == source else None

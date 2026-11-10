@@ -3,6 +3,7 @@
 import argparse
 import builtins
 import json
+import sys
 
 import httpx
 import pytest
@@ -340,6 +341,7 @@ def test_the_helper_is_built_once_per_version(tmp_path, monkeypatch):
     assert tray.build_notifier(app, run=run) and len(calls) == built   # same version: no rebuild
 
 
+@pytest.mark.skipif(sys.platform == "win32", reason="POSIX file modes; the notifier is macOS-only")
 def test_the_dashboard_link_goes_in_a_private_file_not_on_the_command_line(tmp_path, monkeypatch):
     import subprocess as sp
     from sellbird.desktop.tray import MacNotifier
