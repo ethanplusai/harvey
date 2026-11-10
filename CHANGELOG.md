@@ -33,6 +33,16 @@ minor versions can still change behaviour.
 
 ### Added
 
+- **Owners on French-language sites.** Finding the decision maker now reads
+  Québec French: propriétaire, président(e), PDG, président-directeur
+  général, fondateur/fondatrice, directeur/directrice général(e) and
+  associé(e), with or without accents. A feminine title satisfies its
+  masculine ICP entry ("Présidente" for "Président"), and an ICP written
+  only in French still targets the owner. Sentences such as "fondée par…",
+  "notre président et fondateur, …" and "… est propriétaire de l'entreprise"
+  are read, names with accents and hyphens (Marie-Ève, Côté) count as
+  names, and the site's "Équipe", "À propos" and "Nous joindre" pages are
+  followed. Before, these sites fell back to the published info@ address.
 - **A menu-bar app.** `sellbird tray` (macOS menu bar, Windows tray)
   starts the dashboard when needed, starts and stops Sellbird, pauses and
   resumes sending and opens the dashboard unlocked. `sellbird autostart
