@@ -15,7 +15,8 @@ minor versions can still change behaviour.
   advice. With the option on, the Writer writes only for a prospect with a site
   finding, a startup fact, a signal or the Scout's notes, and marks the others
   `no_tip` (not left `new`, which makes the heartbeat retry them every cycle).
-  Set one back to `new` to try again. Off by default. The company's location
+  The dashboard shows them as "Nothing to write about yet", `sellbird status`
+  counts them, and `sellbird retry-writes --no-tip` puts them back in line. Off by default. The company's location
   is also in the Writer's facts now.
 - **An Italian `compliance.opt_out_line` passes validation.** "Non ti
   interessa? Rispondi pure e non ti scriverò più." is accepted, like the

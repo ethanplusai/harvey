@@ -772,8 +772,8 @@ class WriterConfig(BaseModel):
     # true = write a first email only for a prospect with something concrete to
     # build its one tip on: a finding from site_facts, a startup fact, a signal
     # or the Scout's research notes. Anyone without is marked "no_tip" and not
-    # written for, instead of getting a draft that says it has no advice. Set
-    # the prospect back to "new" to try again, once more is known about it.
+    # written for, instead of getting a draft that says it has no advice. Put
+    # them back with `sellbird retry-writes --no-tip`, once more is known.
     require_tip: bool = False
 
     @field_validator("email_rules", mode="before")
