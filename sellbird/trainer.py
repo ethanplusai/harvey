@@ -16,10 +16,9 @@ from urllib.parse import urljoin, urlparse
 import httpx
 import yaml
 from bs4 import BeautifulSoup
-from dotenv import load_dotenv
 
 from sellbird.brain import Brain
-from sellbird.config import BrainConfig, load_brain_config
+from sellbird.config import BrainConfig, load_brain_config, load_env_file
 from sellbird.public_http import UnsafeURLError, public_http_client
 from sellbird.state import StateManager
 
@@ -474,7 +473,7 @@ class Trainer:
         3. Extract product info, ICP, objections, competitive intel
         4. Generate complete config + product knowledge skill
         """
-        load_dotenv()
+        load_env_file()
         await self.state.init_db()
 
         url = _normalize_start_url(url)

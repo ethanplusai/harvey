@@ -122,7 +122,7 @@ def env_file(tmp_path, monkeypatch):
     # setenv first so the key the command loads is removed again afterwards.
     monkeypatch.setenv("PRECLEARED_API_KEY", "")
     monkeypatch.delenv("PRECLEARED_API_KEY")
-    monkeypatch.setattr("dotenv.load_dotenv", lambda *a, **k: False)
+    monkeypatch.setattr(config_mod, "load_dotenv", lambda *a, **k: False)
     monkeypatch.setattr(dashboard, "load_dotenv", lambda *a, **k: False)
     configured(monkeypatch, enabled=True, country="GB")
     return env

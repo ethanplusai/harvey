@@ -189,6 +189,13 @@ minor versions can still change behaviour.
 
 ### Fixed
 
+- **`SELLBIRD_HOME` reads that folder's `.env`.** With the home folder
+  outside the checkout, most commands searched for `.env` upward from the
+  installed package instead, so the home folder's keys (SMTP login, API keys)
+  were silently ignored and the inbox showed "not connected". Every command,
+  training included, now reads `<home>/.env`. A plain checkout and Docker read
+  the same file as before; a checkout with no `.env` of its own no longer
+  picks one up from a folder above it.
 - **Instantly's daily cap counts your local day, not UTC** (from #177 by
   @solvejet-team), so the cap resets at your midnight.
 
