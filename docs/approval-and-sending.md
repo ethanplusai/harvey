@@ -6,6 +6,8 @@ By default **every outgoing email waits for your approval.** Sellbird is a copil
 
 The dashboard's Outbox is a decisions desk: one email fills the pane, the rest wait in a rail, and you work the queue with `A` approve, `R` reject, `J`/`K` to move. That shape is deliberate — a wall of stacked drafts invites a single approve-all reflex, which is exactly the review the approval ladder exists to force.
 
+An approved email goes out at its scheduled time. **Send now** on its row in the Outbox's "Approved & scheduled" table sends it within seconds instead, past the daily cap and the send window, which protect a new mailbox's reputation, so it asks first (tick "Don't warn me again" to stop the question in that browser). A running `sellbird run` wakes at once and sends it, so Sellbird is still the only sender. Suppression, opt-outs, stop-on-reply and the address's status still apply, and a click that finds Sellbird not running lapses after 15 minutes rather than firing later.
+
 ```bash
 sellbird outbox                 # review from the terminal
 sellbird outbox --approve-all

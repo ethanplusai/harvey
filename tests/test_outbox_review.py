@@ -234,3 +234,16 @@ def test_a_closed_role_shows_as_not_hiring_to_the_reviewer(client):
     signals = client.get("/api/outbox").json()["pending"][0]["context"]["signals"]
     hiring = [v for k, v in signals.items() if "hiring" in k.lower() or k == "HIRING_ROLE"]
     assert hiring == ["no"]
+
+
+def test_send_now_requests_an_approved_email(client):
+    state, item_id = asyncio.run(_seed(client.db_path, status="approved"))
+    assert client.post(f"/api/outbox/{item_id}/send-now").json()["success"] is True
+    assert asyncio.run(state.send_now_ids()) == {item_id}
+
+
+@pytest.mark.parametrize("status", ["pending_review", "sent", "rejected"])
+def test_send_now_only_applies_to_approved_emails(client, status):
+    state, item_id = asyncio.run(_seed(client.db_path, status=status))
+    assert client.post(f"/api/outbox/{item_id}/send-now").json().get("success") is not True
+    assert asyncio.run(state.send_now_ids()) == set()
