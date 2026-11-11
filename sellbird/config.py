@@ -989,9 +989,20 @@ def load_brain_config(config_path: str | None = None) -> BrainConfig:
         )
 
 
+def load_env_file() -> None:
+    """Load the home folder's ``.env`` into the environment.
+
+    The file is ``PROJECT_ROOT / ".env"``: the checkout for a clone, /app in
+    Docker, ``SELLBIRD_HOME`` when that is set. A bare ``load_dotenv()`` would
+    search upward from this module instead, so a home folder outside the
+    checkout never had its keys read. Values already in the environment win.
+    """
+    load_dotenv(PROJECT_ROOT / ".env")
+
+
 def load_env() -> EnvConfig:
-    """Load environment variables from .env file."""
-    load_dotenv()
+    """Load environment variables from the home folder's .env file."""
+    load_env_file()
     env = EnvConfig(
         instantly_api_key=os.getenv("INSTANTLY_API_KEY", "").strip(),
         dataforseo_login=os.getenv("DATAFORSEO_LOGIN", "").strip(),

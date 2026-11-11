@@ -822,15 +822,12 @@ def cmd_warmup(args):
     """Check whether the sending domain is ready for cold email."""
     import os
 
-    from dotenv import load_dotenv
-
     from sellbird import deliverability as d
     from sellbird.agents.handler import BOUNCE_COUNT_KEY
-    from sellbird.config import ConfigError, load_config
-    from sellbird.paths import PROJECT_ROOT
+    from sellbird.config import ConfigError, load_config, load_env_file
     from sellbird.state import StateManager
 
-    load_dotenv(PROJECT_ROOT / ".env")
+    load_env_file()
     try:
         config = load_config()
     except ConfigError as e:
@@ -913,15 +910,12 @@ def cmd_trulyinbox(args):
     """Connect TrulyInbox, record another warmup service, or show the status."""
     import getpass
 
-    from dotenv import load_dotenv
-
     from sellbird import deliverability as d
-    from sellbird.config import ConfigError, load_config
+    from sellbird.config import ConfigError, load_config, load_env_file
     from sellbird.integrations import trulyinbox as ti
-    from sellbird.paths import PROJECT_ROOT
     from sellbird.state import StateManager
 
-    load_dotenv(PROJECT_ROOT / ".env")
+    load_env_file()
     try:
         config = load_config()
     except ConfigError as e:
@@ -990,14 +984,12 @@ def cmd_precleared_key(args):
     """
     import os
 
-    from dotenv import load_dotenv
-
+    from sellbird.config import load_env_file
     from sellbird.dashboard import _write_env_file
     from sellbird.integrations.precleared import GET_KEY_URL, create_free_key
-    from sellbird.paths import PROJECT_ROOT
     from sellbird.setup import _read_env_file
 
-    load_dotenv(PROJECT_ROOT / ".env")
+    load_env_file()
     if (_read_env_file().get("PRECLEARED_API_KEY", "").strip("'\" ")
             or os.getenv("PRECLEARED_API_KEY", "").strip()):
         print("\n  You already have a Precleared key (PRECLEARED_API_KEY), so Sellbird kept it.")
