@@ -1021,6 +1021,145 @@ class TinyFish(DiscoveryProvider):
         return out
 
 
+class Keenable(DiscoveryProvider):
+    """Keenable web search: free with no account or key, at 10 searches a
+    second and 1,000 an hour per IP address. An optional KEENABLE_API_KEY
+    lifts those limits. Like TinyFish, its ordering isn't Google's and takes
+    no location, so it finds businesses but records no SERP_RANK.
+    """
+    key = "keenable"
+    label = "Keenable"
+    kind = "serp"
+    rank_codes = ()
+    blurb = ("Free web search with no signup and no key. Finds businesses by "
+             "phrase; it records no search rank, since its ordering isn't Google's.")
+    cost_note = "free"
+    free_tier = "no account or key: 10 searches a second, 1,000 an hour"
+    signup_url = "https://keenable.ai/console"
+    env_keys = ()
+    caveat = ("Works without a key. Without one Sellbird stays under 1,000 searches an "
+              "hour (one per phrase, up to 50 results); an optional KEENABLE_API_KEY "
+              "in .env lifts the limits. No SERP_RANK: use Serper or DataForSEO SERP "
+              "for rank signals.")
+
+    PUBLIC_ENDPOINT = "https://api.keenable.ai/v1/search/public"
+    KEYED_ENDPOINT = "https://api.keenable.ai/v1/search"
+    # Keyless: 10 a second and 1,000 an hour per IP, with a little room.
+    MIN_INTERVAL = 0.2
+    HOURLY_LIMIT = 990
+    MAX_RESULTS = 50
+
+    def __init__(self):
+        self._last_call = 0.0
+        self._calls: list[float] = []      # this hour's keyless calls, oldest first
+        self._lock: tuple | None = None     # (event loop, its lock)
+
+    async def _pace(self, keyed: bool):
+        """Space requests out, and without a key stop before the hour's
+        allowance is spent rather than collecting 429s."""
+        loop = asyncio.get_running_loop()
+        if self._lock is None or self._lock[0] is not loop:
+            self._lock = (loop, asyncio.Lock())
+        async with self._lock[1]:
+            now = time.monotonic()
+            if not keyed:
+                self._calls = [t for t in self._calls if now - t < 3600]
+                if len(self._calls) >= self.HOURLY_LIMIT:
+                    minutes = int((3600 - (now - self._calls[0])) // 60) + 1
+                    raise ProviderExhausted(
+                        "Keenable allows 1,000 searches an hour without a key and this "
+                        f"hour's are used up. Run again in about {minutes} minutes, or "
+                        "set KEENABLE_API_KEY in .env.")
+            wait = self._last_call + self.MIN_INTERVAL - now
+            if self._last_call and wait > 0:
+                await asyncio.sleep(wait)
+            self._last_call = time.monotonic()
+            if not keyed:
+                self._calls.append(self._last_call)
+
+    def estimate(self, queries: list[DiscoveryQuery]) -> float:
+        return 0.0
+
+    async def fetch(self, client: httpx.AsyncClient, env: dict,
+                    query: DiscoveryQuery) -> list[Business]:
+        api_key = (env.get("keenable_api_key") or "").strip()
+        headers = {"Accept": "application/json", "X-Keenable-Title": "Sellbird"}
+        if api_key:
+            headers["X-API-Key"] = api_key
+        endpoint = self.KEYED_ENDPOINT if api_key else self.PUBLIC_ENDPOINT
+        keyword = query.keyword()
+        # One request per phrase: Keenable has no pages, it returns up to 50.
+        body = {"query": keyword,
+                "max_results": max(1, min(query.depth, self.MAX_RESULTS))}
+
+        r = None
+        for attempt in range(2):
+            await self._pace(bool(api_key))
+            try:
+                r = await client.post(endpoint, headers=headers, json=body)
+            except httpx.HTTPError as e:
+                if attempt == 0:
+                    await asyncio.sleep(1.0)
+                    continue
+                raise RuntimeError(f"Keenable search unreachable: {e}") from e
+            if r.status_code == 429:
+                retry_after = 2.0
+                try:
+                    retry_after = float(r.headers.get("Retry-After", "2"))
+                except (ValueError, TypeError):
+                    pass
+                if attempt == 0:
+                    await asyncio.sleep(min(60.0, max(1.0, retry_after)))
+                    continue
+                raise ProviderExhausted(
+                    "Keenable: rate limited (without a key it allows 10 searches a "
+                    "second and 1,000 an hour). Try again later, or set KEENABLE_API_KEY.")
+            break
+
+        if r is None:
+            raise RuntimeError("Keenable: request failed")
+        if r.status_code in (401, 403):
+            raise ProviderExhausted(
+                f"Keenable refused the API key (HTTP {r.status_code}). Check "
+                "KEENABLE_API_KEY in .env, or remove it to search without one.")
+        r.raise_for_status()
+
+        try:
+            data = r.json()
+        except ValueError as e:
+            raise RuntimeError("Keenable sent an unexpected answer (not JSON)") from e
+        if not isinstance(data, dict):
+            raise RuntimeError("Keenable sent an unexpected answer (not an object)")
+        items = data.get("results") or []
+        if not isinstance(items, list):
+            raise RuntimeError("Keenable sent an unexpected answer (results not a list)")
+
+        out: list[Business] = []
+        for item in items:
+            if not isinstance(item, dict):
+                continue
+            url = item.get("url") or ""
+            domain = normalize_domain(url) if isinstance(url, str) else ""
+            if not domain:
+                continue
+            title = item.get("title") or ""
+            if not isinstance(title, str):
+                title = ""
+            out.append(Business(
+                name=business_name(title, domain),
+                raw_title=title,
+                domain=domain,
+                website=url,
+                location=query.location,
+                rank=None,
+                has_website=True,
+                source_url=url,
+                provider=self.key,
+                keyword=keyword,
+            ))
+        return out
+
+
 class OpenStreetMap(DiscoveryProvider):
     """Genuinely free, no account, no key. Honest about what that costs you.
 
@@ -1469,6 +1608,7 @@ PROVIDERS: dict[str, DiscoveryProvider] = {
         Serper(),
         ScavioMaps(),
         ScavioSearch(),
+        Keenable(),
     )
 }
 

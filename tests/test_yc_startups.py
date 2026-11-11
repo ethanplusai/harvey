@@ -120,6 +120,7 @@ def test_the_yc_preset_needs_a_search_provider():
     assert preset_problem("yc", "dataforseo_listings")
     assert preset_problem("yc", "serper") is None
     assert preset_problem("yc", "tinyfish") is None
+    assert preset_problem("yc", "keenable") is None
     assert preset_problem("yc", "dataforseo_serp") is None
     assert preset_problem("", "osm") is None
     assert preset_problem("nope", "serper")

@@ -1743,3 +1743,176 @@ async def test_osm_maps_spanish_business_terms():
     assert provider._tags("comercio al mayor") == ["shop=wholesale"]
     assert provider._tags("mayorista") == ["shop=wholesale"]
     assert provider._tags("mayor's office") == []
+
+
+# ── Keenable: keyless web search ──
+
+KEENABLE_RESPONSE = {"results": [
+    {"title": "Summit Roofing | Denver Roof Replacement",
+     "url": "https://summitroofing.example/services",
+     "description": "", "snippet": "Trusted local roofers serving Denver metro...\n" * 50,
+     "acquired_at": "2026-11-01T00:00:00Z"},
+    None, "junk", {"title": "no url"}, {"url": {"not": "a string"}},
+    {"title": ["not", "a", "string"], "url": "https://apexroofing.example"},
+]}
+
+
+@pytest.mark.asyncio
+async def test_keenable_searches_without_a_key():
+    provider = D.Keenable()
+    assert provider.estimate([D.DiscoveryQuery(term="roofer")]) == 0.0
+    seen = {}
+
+    def handler(request):
+        seen["url"] = str(request.url)
+        seen["method"] = request.method
+        seen["headers"] = request.headers
+        seen["body"] = json.loads(request.content)
+        return httpx.Response(200, json=KEENABLE_RESPONSE)
+
+    async with _client(handler) as client:
+        out = await provider.fetch(client, {}, D.DiscoveryQuery(term="roofer", location="Denver"))
+
+    assert seen["method"] == "POST"
+    assert seen["url"] == "https://api.keenable.ai/v1/search/public"
+    assert seen["headers"]["x-keenable-title"] == "Sellbird"
+    assert "x-api-key" not in seen["headers"]
+    assert seen["body"] == {"query": "roofer Denver", "max_results": 30}
+    # Malformed items are skipped; the good ones are kept.
+    assert [b.domain for b in out] == ["summitroofing.example", "apexroofing.example"]
+    assert out[0].rank is None
+    assert out[0].provider == "keenable"
+    assert out[0].keyword == "roofer Denver"
+    assert out[0].website == "https://summitroofing.example/services"
+    assert out[1].raw_title == ""
+
+
+@pytest.mark.asyncio
+async def test_keenable_with_a_key_uses_the_keyed_endpoint():
+    seen = {}
+
+    def handler(request):
+        seen["url"] = str(request.url)
+        seen["key"] = request.headers.get("x-api-key")
+        seen["title"] = request.headers.get("x-keenable-title")
+        return httpx.Response(200, json={"results": []})
+
+    async with _client(handler) as client:
+        out = await D.Keenable().fetch(client, {"keenable_api_key": " fixture "},
+                                       D.DiscoveryQuery(term="roofer"))
+    assert out == []
+    assert seen == {"url": "https://api.keenable.ai/v1/search",
+                    "key": "fixture", "title": "Sellbird"}
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("depth,expected", [(10, 10), (30, 30), (100, 50), (0, 1)])
+async def test_keenable_depth_is_one_request_of_up_to_50(depth, expected):
+    calls = []
+
+    def handler(request):
+        calls.append(json.loads(request.content)["max_results"])
+        return httpx.Response(200, json={"results": []})
+
+    async with _client(handler) as client:
+        await D.Keenable().fetch(client, {}, D.DiscoveryQuery(term="roofer", depth=depth))
+    assert calls == [expected]
+
+
+def test_keenable_needs_no_key_and_measures_no_rank():
+    menu = {m["key"]: m for m in D.provider_menu({})}
+    assert menu["keenable"]["configured"] is True
+    assert menu["keenable"]["needs_key"] is False
+    assert menu["keenable"]["cost_note"] == "free"
+    assert "1,000 an hour" in menu["keenable"]["free_tier"]
+    assert "KEENABLE_API_KEY" in menu["keenable"]["caveat"]
+    assert D.Keenable().rank_codes == ()
+    assert D.DEFAULT_PROVIDER == "osm"
+
+
+@pytest.mark.asyncio
+async def test_keenable_rate_limit_retries_once_then_stops_the_run():
+    calls = 0
+
+    def handler(request):
+        nonlocal calls
+        calls += 1
+        if calls == 1:
+            return httpx.Response(429, headers={"Retry-After": "1"})
+        return httpx.Response(200, json=KEENABLE_RESPONSE)
+
+    async with _client(handler) as client:
+        out = await D.Keenable().fetch(client, {}, D.DiscoveryQuery(term="roofer"))
+    assert calls == 2 and len(out) == 2
+
+    async with _client(lambda r: httpx.Response(429)) as client:
+        with pytest.raises(D.ProviderExhausted, match="1,000 an hour"):
+            await D.Keenable().fetch(client, {}, D.DiscoveryQuery(term="roofer"))
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("status", [401, 403])
+async def test_keenable_refused_key_stops_the_run(status):
+    async with _client(lambda r: httpx.Response(status, json={"detail": "fixture"})) as client:
+        with pytest.raises(D.ProviderExhausted, match="KEENABLE_API_KEY"):
+            await D.Keenable().fetch(client, {"keenable_api_key": "bad"},
+                                     D.DiscoveryQuery(term="roofer"))
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("body", [["not", "an", "object"], {"results": {"a": 1}}])
+async def test_keenable_unexpected_body_is_an_error_not_a_crash(body):
+    async with _client(lambda r: httpx.Response(200, json=body)) as client:
+        with pytest.raises(RuntimeError, match="unexpected"):
+            await D.Keenable().fetch(client, {}, D.DiscoveryQuery(term="roofer"))
+
+
+@pytest.mark.asyncio
+async def test_keenable_paces_its_requests(monkeypatch):
+    waits = []
+
+    async def _sleep(seconds):
+        waits.append(seconds)
+    monkeypatch.setattr(D.asyncio, "sleep", _sleep)
+    provider = D.Keenable()
+    async with _client(lambda r: httpx.Response(200, json={"results": []})) as client:
+        for term in ("roofer", "plumber", "dentist"):
+            await provider.fetch(client, {}, D.DiscoveryQuery(term=term))
+    assert len(waits) == 2
+    assert all(0 < w <= D.Keenable.MIN_INTERVAL for w in waits)
+
+
+@pytest.mark.asyncio
+async def test_keenable_stops_before_the_keyless_hour_is_spent():
+    provider = D.Keenable()
+    calls = 0
+
+    def handler(request):
+        nonlocal calls
+        calls += 1
+        return httpx.Response(200, json={"results": []})
+
+    async with _client(handler) as client:
+        with pytest.raises(D.ProviderExhausted, match="KEENABLE_API_KEY"):
+            for _ in range(D.Keenable.HOURLY_LIMIT + 5):
+                await provider.fetch(client, {}, D.DiscoveryQuery(term="roofer"))
+        assert calls == D.Keenable.HOURLY_LIMIT
+        # With a key the keyless allowance doesn't apply.
+        await provider.fetch(client, {"keenable_api_key": "fixture"},
+                             D.DiscoveryQuery(term="roofer"))
+    assert calls == D.Keenable.HOURLY_LIMIT + 1
+
+
+@pytest.mark.asyncio
+async def test_keenable_runs_with_no_key_in_env(state, config, register, monkeypatch):
+    provider = register(D.Keenable())
+    real_client = httpx.AsyncClient
+    monkeypatch.setattr(D.httpx, "AsyncClient", lambda **kw: real_client(
+        transport=httpx.MockTransport(lambda r: httpx.Response(200, json=KEENABLE_RESPONSE)),
+        **kw))
+    monkeypatch.setattr("sellbird.config.load_env", lambda: EnvConfig())
+    report = await D.run_discovery(state, config, provider.key,
+                                   [D.DiscoveryQuery(term="roofer", location="Denver")])
+    assert report.stopped == "" and report.errors == []
+    assert report.found == 2 and report.new_companies == 2
+    assert not [o for o in await state.get_observations() if o["signal_code"] == "SERP_RANK"]
