@@ -80,11 +80,35 @@ class BrainUnavailable(Exception):
     a caller must leave its input untouched for a later retry."""
 
 
+def _read_knowledge(folder: str, name: str) -> str:
+    """``<home>/<folder>/<name>.md``, or the shipped copy when the home has
+    none (a home with no prompts folder, such as a hosted workspace, still
+    gets Sellbird's own prompts and skills). Raises FileNotFoundError when
+    neither exists."""
+    own = getattr(current_home(), f"{folder}_dir") / f"{name}.md"
+    try:
+        return read_user_text(own)
+    except FileNotFoundError:
+        from sellbird.home import bundled_defaults
+        shipped = bundled_defaults()
+        if shipped is None or (shipped / folder / f"{name}.md") == own:
+            raise
+        return read_user_text(shipped / folder / f"{name}.md")
+
+
 class Brain:
-    def __init__(self, state: StateManager, brain_config=None):
+    def __init__(self, state: StateManager, brain_config=None, transport=None):
+        """``transport``, when given, replaces the Claude and Codex CLIs: an
+        ``async transport(prompt, *, agent, task, timeout, expect_json) -> str``
+        that returns the model's text ("" on failure). It may carry a
+        ``paused_reason`` attribute (str) to pause calls the way a usage limit
+        does. This is the public seam a server running Sellbird for others
+        (the hosted product's API brain) plugs into, instead of overriding
+        ``think``."""
         from sellbird.config import BrainConfig
 
         self.state = state
+        self.transport = transport
         self.config = brain_config or BrainConfig()
         self.provider = self.config.provider
         self.model = self.config.model
@@ -118,6 +142,10 @@ class Brain:
     @property
     def paused_reason(self) -> str:
         """Why calls are currently being skipped ("" when they aren't)."""
+        transport_paused = str(getattr(self.transport, "paused_reason", "") or "") \
+            if self.transport is not None else ""
+        if transport_paused:
+            return transport_paused
         if self.unavailable:
             return self.unavailable
         if time.monotonic() < self._usage_limited_until:
@@ -263,6 +291,9 @@ class Brain:
         ``agent``/``task`` label the call in the usage_events ledger so the
         dashboard can attribute tokens and cost to specific work.
         """
+        if self.transport is not None:
+            return await self._think_transport(prompt, expect_json=expect_json,
+                                               timeout=timeout, agent=agent, task=task)
         if self.provider == "codex":
             return await self._think_codex(
                 prompt, session_id=session_id, timeout=timeout,
@@ -673,16 +704,30 @@ class Brain:
         calls = await self.check_usage()
         return calls < max_daily_calls
 
+    async def _think_transport(self, prompt: str, *, expect_json: bool, timeout: float,
+                               agent: str, task: str) -> str:
+        """One call through ``self.transport``. Never raises."""
+        if self.paused_reason:
+            return ""
+        try:
+            text = await asyncio.wait_for(
+                self.transport(prompt, agent=agent, task=task, timeout=timeout,
+                               expect_json=expect_json),
+                timeout=timeout)
+        except Exception as e:  # the transport's failure, or the timeout
+            logger.warning(f"Brain transport call failed ({agent}/{task}): {type(e).__name__}: {e}")
+            return ""
+        return str(text or "")
+
     def load_prompt(self, prompt_name: str, **kwargs) -> str:
         """Load a prompt template from the prompts/ directory and fill in variables."""
-        prompt_file = current_home().prompts_dir / f"{prompt_name}.md"
         try:
-            template = read_user_text(prompt_file)
+            template = _read_knowledge("prompts", prompt_name)
         except FileNotFoundError:
-            logger.warning(f"Prompt file not found: {prompt_file}")
+            logger.warning(f"Prompt file not found: {prompt_name}.md")
             return ""
         except OSError as e:
-            logger.error(f"Could not read prompt file {prompt_file}: {e}")
+            logger.error(f"Could not read prompt file {prompt_name}.md: {e}")
             return ""
         for key, value in kwargs.items():
             template = template.replace(f"{{{{{key}}}}}", str(value))
@@ -696,14 +741,13 @@ class Brain:
 
     def load_skill(self, skill_name: str) -> str:
         """Load a skill knowledge file from the skills/ directory."""
-        skill_file = current_home().skills_dir / f"{skill_name}.md"
         try:
-            return read_user_text(skill_file)
+            return _read_knowledge("skills", skill_name)
         except FileNotFoundError:
-            logger.warning(f"Skill file not found: {skill_file}")
+            logger.warning(f"Skill file not found: {skill_name}.md")
             return ""
         except OSError as e:
-            logger.error(f"Could not read skill file {skill_file}: {e}")
+            logger.error(f"Could not read skill file {skill_name}.md: {e}")
             return ""
 
     def load_skills_for_agent(self, agent_name: str) -> str:
@@ -716,7 +760,10 @@ class Brain:
         # and loaded by every agent that needs product context
         skill_map = {
             "scout": ["prospecting_tactics", "lead_qualification", "account_navigation", "signal_playbook", "product_knowledge"],
-            "writer": ["email_frameworks", "signal_playbook", "sales_methodology", "offer_strategy", "product_knowledge", "competitive_intel"],
+            # The writer gets a short prompt (prompts/writer.md) and only the part of
+            # signal_playbook that fits each prospect (Writer._signal_guide): long
+            # playbooks bury the few rules that matter for a 40-word email.
+            "writer": ["product_knowledge", "competitive_intel"],
             "handler": ["objection_handling", "sales_methodology", "offer_strategy", "product_knowledge", "competitive_intel"],
             "sender": ["email_frameworks", "product_knowledge"],
             "linkedin": ["linkedin_outreach", "prospecting_tactics", "product_knowledge"],

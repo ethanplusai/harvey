@@ -159,16 +159,88 @@ def test_no_switches_off_a_check_that_was_on_and_keeps_its_settings(files, monke
     assert saved(files.config)["sender_country"] == "US"
 
 
-def test_sender_country_must_be_gb_or_us_and_blank_skips(files, monkeypatch, capsys):
-    asked = script(monkeypatch, yes_no=[True], answers=["DE", ""])
+def test_sender_country_must_be_one_precleared_covers_and_blank_skips(files, monkeypatch, capsys):
+    asked = script(monkeypatch, yes_no=[True], answers=["BR", ""])
     wizard = setup.SetupWizard()
     wizard._setup_compliance()
     finish(wizard)
 
-    assert len(asked.questions) == 2  # asked again after DE, then skipped: no key question
-    assert "type GB or US" in capsys.readouterr().out
+    assert len(asked.questions) == 2  # asked again after BR, then skipped: no key question
+    out = capsys.readouterr().out
+    assert "type one of GB, US, CA, DE, FR, AU, IE, NL, ES, IT, LV, AE, EG, QA" in out
+    assert "I'll leave the check off for now" in out
     assert wizard.precleared is None
     assert saved(files.config)["enabled"] is False
+
+
+@pytest.mark.parametrize("typed, code", [
+    ("de", "DE"), ("CA", "CA"), ("uae", "AE"), ("qa", "QA"), ("ie", "IE"),
+])
+def test_any_of_precleared_s_fourteen_sender_countries_is_accepted(files, monkeypatch, typed, code):
+    asked = script(monkeypatch, yes_no=[True, False], answers=[typed, "", ""])
+    wizard = setup.SetupWizard()
+    wizard._setup_compliance()
+    finish(wizard)
+
+    assert len(asked.questions) == 3  # country, prospects, key: no re-ask
+    assert "two-letter code" in asked.questions[0].prompt
+    assert saved(files.config)["enabled"] is True
+    assert saved(files.config)["sender_country"] == code
+    # The saved config loads: the config model takes the same fourteen.
+    client = PreclearedClient.from_config(
+        load_config(str(files.config)), SimpleNamespace(precleared_api_key=""))
+    assert client.sender_country == code
+
+
+def test_a_saved_country_precleared_no_longer_takes_is_asked_again(files, monkeypatch):
+    # A stale or mistyped setting is never offered as the default.
+    set_precleared(files.config, enabled=True, sender_country="XX")
+    asked = script(monkeypatch, yes_no=[None, False], answers=["nl", "", ""])
+    wizard = setup.SetupWizard()
+    wizard._setup_compliance()
+    finish(wizard)
+
+    assert asked.questions[0].default == ""
+    assert "blank to skip" in asked.questions[0].prompt
+    assert saved(files.config)["sender_country"] == "NL"
+
+
+def test_uk_timezone_recommends_the_check_and_offers_gb(files, monkeypatch, capsys):
+    asked = script(monkeypatch, yes_no=[True, False], answers=["", "", ""])
+    wizard = setup.SetupWizard()
+    wizard.config = {"usage": {"quiet_hours": {"timezone": "Europe/London"}}}
+    wizard._setup_compliance()
+    finish(wizard)
+
+    out = capsys.readouterr().out
+    assert "Recommended for a UK sender like you" in out
+    assert asked.yes_no[0] == ("Turn on the cold-email check?", False)  # still their call
+    assert asked.questions[0].default == "GB"  # Enter takes GB
+    assert saved(files.config)["sender_country"] == "GB"
+
+
+def test_uk_timezone_is_also_read_from_the_saved_config(files, monkeypatch, capsys):
+    data = yaml.safe_load(files.config.read_text())
+    data["usage"]["quiet_hours"]["timezone"] = "Europe/London"
+    files.config.write_text(yaml.safe_dump(data, sort_keys=False))
+    asked = script(monkeypatch, yes_no=[False], answers=[])
+    wizard = setup.SetupWizard()
+    wizard._setup_compliance()
+
+    assert "Recommended for a UK sender like you" in capsys.readouterr().out
+    assert asked.questions == []
+
+
+def test_other_timezones_get_no_recommendation_and_no_default_country(files, monkeypatch, capsys):
+    asked = script(monkeypatch, yes_no=[True, False], answers=["us", "", ""])
+    wizard = setup.SetupWizard()
+    wizard.config = {"usage": {"quiet_hours": {"timezone": "America/New_York"}}}
+    wizard._setup_compliance()
+    finish(wizard)
+
+    assert "Recommended for a UK sender" not in capsys.readouterr().out
+    assert asked.questions[0].default == ""
+    assert saved(files.config)["sender_country"] == "US"
 
 
 def test_prospect_country_is_checked_and_norway_stays_a_string(files, monkeypatch, capsys):

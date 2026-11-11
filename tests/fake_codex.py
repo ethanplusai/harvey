@@ -145,7 +145,7 @@ def answer_for(prompt):
         return "interested" if "pricing" in low else "question"
     if '"delay_days"' in prompt:
         return json.dumps([
-            {"step": 1, "subject": "quick question", "delay_days": 0,
+            {"step": 1, "subject": "front desk", "delay_days": 0,
              "body": "Hi {{first_name}}, how does {{company}} handle this today?"},
             {"step": 2, "subject": "another angle", "delay_days": 3,
              "body": "{{first_name}}, one more thought on this. Worth a look?"},
@@ -153,7 +153,7 @@ def answer_for(prompt):
              "body": "Last note from me, {{first_name}}. Should I stop here?"},
         ])
     if '{"subject": "...", "body": "..."}' in prompt:
-        return json.dumps({"subject": "quick question",
+        return json.dumps({"subject": "front desk",
                            "body": "Hi Jane, how does Acme handle this today?"})
     if "respond only with valid json" in low:
         return json.dumps({"ok": True, "summary": "fixture"})

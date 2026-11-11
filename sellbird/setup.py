@@ -12,8 +12,8 @@ import yaml
 from pydantic import ValidationError
 
 from sellbird.brain import Brain
-from sellbird.config import BrainConfig, normalize_prospect_country
-from sellbird.integrations.precleared import GET_KEY_URL, create_free_key
+from sellbird.config import COUNTRY_ALIASES, BrainConfig, normalize_prospect_country
+from sellbird.integrations.precleared import GET_KEY_URL, SENDER_COUNTRIES, create_free_key
 from sellbird.state import StateManager
 
 logger = logging.getLogger("sellbird.setup")
@@ -101,6 +101,33 @@ def _current_precleared() -> dict:
     return section if isinstance(section, dict) else {}
 
 
+def _sender_country(value, strict: bool = True) -> str:
+    """A typed or saved sender country as its two-letter code ("uk" -> "GB").
+
+    With ``strict`` (saved values), anything Precleared doesn't take becomes
+    "", so a stale or mistyped setting is asked again rather than offered as
+    the default. Without it (typed answers), the code comes back as typed so
+    the caller can tell a wrong code from a blank one.
+    """
+    code = str(value or "").strip().upper()
+    code = COUNTRY_ALIASES.get(code, code)
+    if strict and code not in SENDER_COUNTRIES:
+        return ""
+    return code
+
+
+def _saved_timezone() -> str:
+    """usage.quiet_hours.timezone in the file setup writes to, or ""."""
+    try:
+        data = yaml.safe_load(read_user_text(_config_file()))
+    except (OSError, yaml.YAMLError):
+        return ""
+    usage = data.get("usage") if isinstance(data, dict) else None
+    quiet = usage.get("quiet_hours") if isinstance(usage, dict) else None
+    zone = quiet.get("timezone") if isinstance(quiet, dict) else None
+    return str(zone or "").strip()
+
+
 def _save_precleared(config: dict, answers: dict) -> None:
     """Lay the setup answers over config's compliance.precleared, keeping the rest."""
     compliance = config.get("compliance")
@@ -110,6 +137,31 @@ def _save_precleared(config: dict, answers: dict) -> None:
     if not isinstance(section, dict):
         section = compliance["precleared"] = {}
     section.update(answers)
+
+
+def _merge_answers(existing: dict, answers: dict) -> None:
+    """Lay manual setup answers over existing config, skipping blank answers so
+    they never wipe values already in the file."""
+    for key, value in answers.items():
+        if isinstance(value, dict) and isinstance(existing.get(key), dict):
+            _merge_answers(existing[key], value)
+        elif value not in ("", [], {}, None):
+            existing[key] = value
+
+
+def _product_configured() -> bool:
+    """Whether the config names a real company and product, not the shipped
+    placeholders (the same test the dashboard uses)."""
+    try:
+        data = yaml.safe_load(read_user_text(_config_file()))
+    except (OSError, yaml.YAMLError):
+        return False
+    if not isinstance(data, dict):
+        return False
+    persona = data.get("persona") if isinstance(data.get("persona"), dict) else {}
+    product = data.get("product") if isinstance(data.get("product"), dict) else {}
+    return (persona.get("company") not in (None, "", "Your Company")
+            and product.get("name") not in (None, "", "Your Product"))
 
 
 def _check_claude_cli() -> bool:
@@ -186,6 +238,9 @@ class SetupWizard:
         self.precleared: dict | None = None
         # Whether _write_config saved the config, for the summary.
         self.config_saved = False
+        # True when step 5 was answered by hand: self.config then holds
+        # persona/product/icp that are not in sellbird.yaml yet.
+        self.manual_product = False
 
     async def run(self):
         """Run the full interactive setup."""
@@ -579,6 +634,7 @@ class SetupWizard:
             },
         }
 
+        self.manual_product = True
         _print_sellbird("Got it. I have everything I need about your product.")
 
     def _setup_behavior(self):
@@ -645,18 +701,33 @@ class SetupWizard:
 
         _print_sellbird("Perfect. All configured.")
 
+    def _timezone(self) -> str:
+        """The timezone this run of setup chose (step 6), else the saved one."""
+        usage = self.config.get("usage") if isinstance(self.config, dict) else None
+        quiet = usage.get("quiet_hours") if isinstance(usage, dict) else None
+        zone = quiet.get("timezone") if isinstance(quiet, dict) else None
+        return str(zone or "").strip() or _saved_timezone()
+
     def _setup_compliance(self):
         """Offer the optional per-recipient check through Precleared.
 
         Off unless the user says yes. Re-running setup offers the saved
         answers as the defaults, so pressing Enter never switches it off.
+        A sender in a UK timezone is told the check is recommended, and GB
+        is offered as their country; the check still waits for their yes.
         """
         current = _current_precleared()
         was_on = current.get("enabled") is True
+        uk_sender = self._timezone() == "Europe/London"
         _print_sellbird("Before the first email to anyone new, I can ask Precleared")
         _print_sellbird("(precleared.dev) which cold-email rules apply to them. A UK")
         _print_sellbird("sole trader needs consent where a limited company doesn't,")
         _print_sellbird("and the address alone won't tell you which. Totally optional.")
+        if uk_sender:
+            # Recommended, not switched on: the check stays opt-in (#93).
+            _print_sellbird("Recommended for a UK sender like you: under PECR, whether a cold")
+            _print_sellbird("email is allowed turns on who the recipient is (a company or a")
+            _print_sellbird("sole trader), and Precleared looks each one up on Companies House.")
         print("\n  Anything that isn't a clear yes waits in the Outbox with the reason.")
         print("  It checks mail sent through Gmail, Microsoft 365 or SMTP, not Instantly.")
         print("  Precleared receives each new recipient's address, your country, how")
@@ -673,25 +744,25 @@ class SetupWizard:
             _print_sellbird(f"compliance.precleared in {_config_file().name}.")
             return
 
-        saved_country = str(current.get("sender_country") or "").strip().upper()
-        if saved_country not in ("GB", "US"):
-            saved_country = ""
+        saved_country = _sender_country(current.get("sender_country"))
+        # A UK timezone makes GB the likely answer; Enter takes it.
+        default_country = saved_country or ("GB" if uk_sender else "")
+        codes = ", ".join(SENDER_COUNTRIES)
         while True:
-            country = _ask(
-                "Where is your business based? (GB or US"
-                + (")" if saved_country else "; blank to skip)"),
-                default=saved_country,
+            country = _sender_country(_ask(
+                "Where is your business based? (two-letter code, e.g. GB or US"
+                + (")" if default_country else "; blank to skip)"),
+                default=default_country,
                 required=False,
-            ).upper()
-            country = {"UK": "GB", "USA": "US"}.get(country, country)
-            if country in ("GB", "US"):
+            ), strict=False)
+            if country in SENDER_COUNTRIES:
                 break
             if not country:
                 self.precleared = {"enabled": False} if was_on else None
-                _print_sellbird("Precleared needs a sender based in the UK or US,")
-                _print_sellbird("so I'll leave the check off for now.")
+                _print_sellbird("Precleared takes a sender based in one of these countries:")
+                _print_sellbird(f"{codes}. I'll leave the check off for now.")
                 return
-            print("    (type GB or US, or leave it blank to skip)")
+            print(f"    (type one of {codes}, or leave it blank to skip)")
 
         try:
             saved_prospects = normalize_prospect_country(current.get("prospect_country"))
@@ -811,9 +882,16 @@ class SetupWizard:
             logger.info(f"Wrote {config_file}")
             self.config_saved = True
         elif self.config:
-            # Config already exists (from trainer), update behavior settings only
+            # Config already exists (shipped or from trainer): update behavior
+            # settings, plus product answers when they were entered by hand
             try:
                 existing = yaml.safe_load(read_user_text(config_file)) or {}
+                if self.manual_product:
+                    for section in ("persona", "product", "icp"):
+                        if section in self.config:
+                            if not isinstance(existing.get(section), dict):
+                                existing[section] = {}
+                            _merge_answers(existing[section], self.config[section])
                 existing["usage"] = self.config.get("usage", existing.get("usage", {}))
                 existing["brain"] = self.config["brain"]
                 if "LINKEDIN_EMAIL" in self.env_vars:
@@ -855,7 +933,7 @@ class SetupWizard:
             "Instantly API": bool(self.env_vars.get("INSTANTLY_API_KEY")),
             "LinkedIn": bool(self.env_vars.get("LINKEDIN_EMAIL")),
             "Cloudflare Crawl": bool(self.env_vars.get("CLOUDFLARE_ACCOUNT_ID")),
-            "Product trained": _config_file().exists(),
+            "Product trained": _product_configured(),
             "Cold-email check (Precleared)": bool(
                 self.config_saved and self.precleared and self.precleared.get("enabled")),
         }

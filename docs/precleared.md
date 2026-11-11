@@ -5,7 +5,9 @@ Before the first cold email to anyone new, Sellbird can ask
 address. The answer turns on facts the address does not show: a UK sole
 trader needs consent where a limited company does not. Precleared looks them
 up live (Companies House, the domain, the website) and applies the rules of
-the recipient's country.
+the recipient's country: the UK, US, Canada, Germany, France, Australia,
+Ireland, the Netherlands, Spain, Italy, Latvia, the UAE, Egypt and Qatar. The
+sender can be based in any of those fourteen countries too.
 
 Off by default. One check per address, for mail sent through Gmail,
 Microsoft 365 or SMTP. Instantly campaigns and replies are never checked.
@@ -19,7 +21,7 @@ wins):
 compliance:
   precleared:
     enabled: true
-    sender_country: "GB"        # GB or US
+    sender_country: "GB"        # GB, US, CA, DE, FR, AU, IE, NL, ES, IT, LV, AE, EG or QA
     address_source: "unknown"   # unless copied from the businesses' own sites
     prospect_country: ""        # e.g. "US" if all prospects are in one country
 ```
@@ -82,8 +84,14 @@ from it).
   cancelled, and a later first email to the same address meets the cached
   verdict, with no second check.
 - **unknown.** A fact could not be established, usually the recipient's
-  country. The item fails the same way, but the verdict is not cached, so a
-  re-queued address is asked again.
+  country, sometimes a register that answered too slowly. The email is held,
+  not failed: the Outbox shows what would settle it (set `prospect_country`
+  if your prospects are all in one country, or give the company a location
+  or its company number) and Sellbird asks again, after six hours the first
+  time and then after a day. The third unknown answer on the same facts
+  fails the email as `consent_needed` and `blocked` do; a change to those
+  facts starts the count again. Nothing is cached for `unknown`, so a
+  re-queued address is asked afresh.
 
 ## When the check is held up
 
@@ -102,7 +110,7 @@ notice, and so does switching the check off.
 |---|---|
 | None | 10, shared per public IP address |
 | Free key | 25 |
-| Any new key, first 14 days | 100 |
+| Any new key, its first 14 days (counted from its first check) | 100 |
 
 Beyond that a key draws on a prepaid pack, and Sellbird shows the checkout
 link when one runs out. `sellbird precleared-key` gets a free key for your email
@@ -132,7 +140,9 @@ Sellbird cannot hold single emails there.
 
 **Why do I get unknown?** Usually the recipient's country could not be worked
 out, and Sellbird was not sure of it either (see "What is sent"). If your
-prospects are all in one country, set `prospect_country`.
+prospects are all in one country, set `prospect_country`; each held email is
+asked about again at its next try (within a day) and goes out if the answer
+is then `ok_to_email`.
 
 **Why do so many UK addresses come back consent_needed?** Often Precleared
 could not find the company behind the domain on the register, so it could not

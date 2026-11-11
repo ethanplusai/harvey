@@ -15,6 +15,7 @@
 <!-- One icon set: 24px grid, 1.75 stroke, currentColor. -->
 <svg width="0" height="0" style="position:absolute" aria-hidden="true">
   <defs>
+    <symbol id="i-company" viewBox="0 0 24 24"><path d="M4 21V8l8-5 8 5v13"/><path d="M9 21v-6h6v6"/><path d="M4 21h16"/></symbol>
     <symbol id="i-today" viewBox="0 0 24 24"><path d="M3 10.5 12 3l9 7.5"/><path d="M5.5 9v11h13V9"/><path d="M10 20v-5h4v5"/></symbol>
     <symbol id="i-signals" viewBox="0 0 24 24"><circle cx="12" cy="12" r="2"/><path d="M16.2 7.8a6 6 0 0 1 0 8.4M7.8 16.2a6 6 0 0 1 0-8.4M19.1 4.9a10 10 0 0 1 0 14.2M4.9 19.1a10 10 0 0 1 0-14.2"/></symbol>
     <symbol id="i-discover" viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></symbol>
@@ -78,6 +79,7 @@
     <div class="nav-group">
       <div class="nav-label">Work</div>
       <button class="active" onclick="showTab('today', this)"><svg class="icon" aria-hidden="true"><use href="#i-today"/></svg><span class="label">Today</span><span class="nav-count" id="nav-today"></span></button>
+      <button onclick="showTab('company', this)"><svg class="icon" aria-hidden="true"><use href="#i-company"/></svg><span class="label">Your company</span><span class="nav-count" id="nav-company"></span></button>
       <button onclick="showTab('outbox', this)"><svg class="icon" aria-hidden="true"><use href="#i-outbox"/></svg><span class="label">Outbox</span><span class="nav-count" id="nav-outbox"></span></button>
       <button onclick="showTab('inboxes', this)"><svg class="icon" aria-hidden="true"><use href="#i-inboxes"/></svg><span class="label">Inboxes</span></button>
       <button onclick="showTab('conversations', this)"><svg class="icon" aria-hidden="true"><use href="#i-conversations"/></svg><span class="label">Conversations</span><span class="nav-count" id="nav-conversations"></span></button>
@@ -159,6 +161,17 @@
 </div>
 
 <!-- Signals: the confirmation gate -->
+<!-- Your company: everything Sellbird writes from (sellbird.offer) -->
+<div id="company" class="section">
+  <div class="section-head">
+    <div>
+      <h2>Your company</h2>
+      <p>Everything Sellbird writes from: what you sell, who you sell to, the offer every first email ends with, and who it's from. Edit any of it here, or talk it through with your coding agent.</p>
+    </div>
+  </div>
+  <div id="company-body" class="company-body"><p class="desc">Loading...</p></div>
+</div>
+
 <div id="signals" class="section">
   <div class="section-head">
     <div>

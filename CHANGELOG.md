@@ -7,8 +7,23 @@ minor versions can still change behaviour.
 
 ## [Unreleased]
 
+### Added
+
+- **`channels.email.follow_ups: false` sends no follow-ups.** A campaign then
+  stages only its first email on Gmail, Microsoft and SMTP, so steps 2 and 3
+  can't go to someone who never answered. Replies are read and answered as
+  before. On by default, so nothing changes unless you turn it off.
+
 ### Changed
 
+- **The cold-email check takes a sender based in any of Precleared's
+  fourteen countries.** `compliance.precleared.sender_country` accepts GB, US,
+  CA, DE, FR, AU, IE, NL, ES, IT, LV, AE, EG and QA (`UK`, `USA` and `UAE` are
+  read as their codes), where it took only GB or US; `sellbird setup` asks for
+  a two-letter code and lists them when the answer isn't one. A sender whose
+  timezone is Europe/London is told the check is recommended for them and
+  offered GB as their country; it still waits for their yes. The docs say a
+  new key's 14 days at 100 checks a day start at its first check.
 - Seeding the signal catalog writes only a signal that is missing or whose catalog text changed. The dashboard seeds on every Today load, so this was a write per signal on every page view.
 - **The opt-out line takes any wording.** `compliance.opt_out_line` no longer
   has to ask for a keyword: "Not interested? Just let me know and I won't email
@@ -17,6 +32,14 @@ minor versions can still change behaviour.
   say the emails can stop, however it's worded, so a sign-off like "Cheers!" is
   refused; `""` leaves the line off on purpose. A link or an email address is
   still refused.
+- **An `unknown` answer from the cold-email check holds the email instead of
+  failing it.** Precleared answers `unknown` when a fact can't be established,
+  usually the recipient's country, sometimes a register that was too slow.
+  That email now waits in the Outbox with what would settle it (set
+  `prospect_country`, or give the company a location or number) and is asked
+  about again, after six hours and then after a day; the third unknown on the
+  same facts fails it as before. Rejecting or sending the email clears the
+  note, as for an address the check couldn't reach.
 
 ### Security
 
@@ -43,6 +66,7 @@ minor versions can still change behaviour.
   are read, names with accents and hyphens (Marie-Ève, Côté) count as
   names, and the site's "Équipe", "À propos" and "Nous joindre" pages are
   followed. Before, these sites fell back to the published info@ address.
+- **French opt-outs.** `compliance.opt_out_line` accepts French wording ("Pas intéressé? Répondez-moi simplement et je ne vous écrirai plus."), with or without accents; before, a French line failed validation and the whole config wouldn't load. Replies saying "non merci", "ARRÊT", "désabonnez-moi", "ne m'écrivez plus" or "pas intéressé" are caught by rule like the English, Hebrew and Spanish ones, and "Envoyé de mon iPhone" no longer hides a bare opt-out.
 - **A menu-bar app.** `sellbird tray` (macOS menu bar, Windows tray)
   starts the dashboard when needed, starts and stops Sellbird, pauses and
   resumes sending and opens the dashboard unlocked. `sellbird autostart

@@ -191,20 +191,24 @@ _SPLIT_WORDS = sorted((w for w in _GENERIC_NAME_WORDS | {"with", "your"}
 
 def _split_stem(stem: str) -> list[str]:
     """managementharbor → [management, harbor]; kqresidential → [kq, residential]."""
-    parts, buf, i = [], "", 0
-    while i < len(stem):
-        word = next((w for w in _SPLIT_WORDS if stem.startswith(w, i)), "")
-        if word:
-            if buf:
-                parts.append(buf)
-                buf = ""
+    # Find every occurrence of every split word in one sweep; scanning the
+    # words longest-first keeps the longest word for each start position.
+    starts: dict[int, str] = {}
+    for w in _SPLIT_WORDS:
+        i = stem.find(w)
+        while i >= 0:
+            starts.setdefault(i, w)
+            i = stem.find(w, i + 1)
+    parts, start = [], 0
+    for i in sorted(starts):
+        if i >= start:
+            if start < i:
+                parts.append(stem[start:i])
+            word = starts[i]
             parts.append(word)
-            i += len(word)
-        else:
-            buf += stem[i]
-            i += 1
-    if buf:
-        parts.append(buf)
+            start = i + len(word)
+    if start < len(stem):
+        parts.append(stem[start:])
     return parts
 
 

@@ -50,9 +50,16 @@ def test_a_free_key_is_asked_for_with_only_the_address_country_and_use():
     assert "authorization" not in request.headers
 
 
+@pytest.mark.parametrize("country", ["DE", "ae", "QA"])
+def test_any_of_the_fourteen_sender_countries_goes_with_the_request(country):
+    seen = []
+    create_free_key("jo@example.com", country=country, transport=answer(seen=seen))
+    assert json.loads(seen[0].content)["country"] == country.upper()
+
+
 def test_a_country_precleared_does_not_take_is_left_out():
     seen = []
-    create_free_key("jo@example.com", country="DE", transport=answer(seen=seen))
+    create_free_key("jo@example.com", country="BR", transport=answer(seen=seen))
     assert "country" not in json.loads(seen[0].content)
 
 

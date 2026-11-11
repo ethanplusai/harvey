@@ -16,6 +16,10 @@ from datetime import datetime, timezone
 
 from sellbird.brain import Brain
 from sellbird.config import EmailRulesError, SellbirdConfig, compliance_of, load_email_rules
+from sellbird.email_style import (
+    BREAKUP_MAX_WORDS, FIRST_EMAIL_MAX_WORDS, FOLLOW_UP_MAX_WORDS,
+    style_problems, tidy, with_sign_off,
+)
 from sellbird.humanize import humanize, humanizer_enabled
 from sellbird.integrations.mail_provider import NATIVE_PROVIDERS
 from sellbird.models.campaign import Campaign, EmailStep
@@ -35,6 +39,44 @@ WRITE_ATTEMPTS_KEY = "write_attempts:"
 # Merge variables that name a person; a company inbox has none of them.
 PERSON_VAR = re.compile(r"\{\{\s*(first_?name|last_?name|title)\s*\}\}", re.IGNORECASE)
 
+# Which signal_playbook sections a prospect's facts call for, by heading
+# prefix and the words in the facts that point to them.
+_SIGNAL_SECTIONS = (
+    ("### Hiring signal", ("hiring", "job post", "is hiring", "open role", "careers")),
+    ("#### Using a job posting", ("hiring", "job post", "open role")),
+    ("### Tech-stack signal", ("tools detected", "uses ", "built on", "shopify", "hubspot", "wordpress")),
+    ("### Funding signal", ("raised", "funding", "seed", "series a", "series b", "y combinator", "accelerator")),
+    ("### New-domain", ("new domain", "registered", "just launched", "new business")),
+    ("### Search-rank signal", ("searched", "search", "came up", "ranks", "google", "maps", "local pack")),
+)
+
+
+def _sections(markdown: str) -> dict[str, str]:
+    """Each heading line of ``markdown`` mapped to the text under it."""
+    out, head, lines = {}, "", []
+    for line in markdown.split("\n"):
+        if line.startswith("#"):
+            if head:
+                out[head] = "\n".join(lines).strip()
+            head, lines = line.strip(), []
+        else:
+            lines.append(line)
+    if head:
+        out[head] = "\n".join(lines).strip()
+    return out
+
+
+# Any merge variable, for checking a rewrite kept the draft's own.
+MERGE_VAR = re.compile(r"\{\{\s*\w+\s*\}\}")
+
+
+def _names(prospect) -> list[str]:
+    """Text that belongs to the prospect (their name, their company), so the
+    style rules never read "Elevate Fitness" as an AI tell."""
+    return [n for n in (getattr(prospect, "company", ""), getattr(prospect, "first_name", ""),
+                        getattr(prospect, "last_name", ""), getattr(prospect, "title", "")) if n]
+
+
 # Native mode: one Claude call per prospect for email 1, so batches stay
 # small — the rest of the 'new' pool is picked up on later cycles.
 NATIVE_BATCH_CAP = 8
@@ -42,13 +84,19 @@ LEGACY_BATCH_CAP = 50
 
 # The built-in "how" lines each prompt ends with: email 1 is an observation
 # and a question, with no pitch. Operator email rules replace exactly these.
-PERSONAL_SHAPE = """- Under 75 words. One specific observation from the FACTS above, one
-  question. No pitch, no product name.
-- Write the actual text (no merge variables — you know their name/company).
+PERSONAL_SHAPE = f"""- 60 words at most, and aim for 30-50. Every word you cut raises the reply rate.
+- One specific finding from the FACTS, what it likely costs them in one plain
+  sentence, then YOUR OFFER below as the one question. Don't name the product.
+- Write the actual text (no merge variables: you know their name/company).
+- No sign-off and no name at the end: Sellbird adds the sender's first name.
 - Subject: lowercase, 2-5 words."""
-SEQUENCE_SHAPE = """- Email 1: Personalized cold observation + one question. Under 75 words. No pitch.
-- Email 2: Follow-up 3 days later. Different angle, one concrete proof point. Under 75 words.
-- Email 3: Break-up email 4 days after that. Under 40 words. Gracious, not guilt-tripping."""
+SEQUENCE_SHAPE = f"""- Email 1: One specific finding about them, what it costs them, then YOUR OFFER below as
+  the one question. {FIRST_EMAIL_MAX_WORDS} words at most, aim for 30-50. Don't name the product.
+- Email 2: 3 days later. A different angle: one concrete proof point or result from the
+  product info, then the offer again or a short call as the ask. {FOLLOW_UP_MAX_WORDS} words at most, aim for 20-40.
+- Email 3: 4 days after that. Close the loop in one or two plain sentences, and leave
+  the offer open. {BREAKUP_MAX_WORDS} words at most, aim for 10-20. No guilt.
+- No sign-off and no name at the end of any email: Sellbird adds the sender's first name."""
 SEQUENCE_STYLE = """- Never be pushy or salesy. Be consultative and value-driven.
 - Subject lines: lowercase, 2-5 words."""
 # Why the Writer stopped: Today and `sellbird status` show it.
@@ -64,7 +112,7 @@ def operator_rules_block(rules: str) -> str:
     if not rules:
         return ""
     return (
-        "\n\nOPERATOR'S EMAIL RULES — written by the person running Sellbird. For\n"
+        "\n\nOPERATOR'S EMAIL RULES, written by the person running Sellbird. For\n"
         "length, structure, what to say about the product, links, subject lines\n"
         "and sign-off, these replace the STRICT EMAIL RULES and skills above\n"
         "wherever the two disagree. They never override the FACTS rule: what you\n"
@@ -73,6 +121,24 @@ def operator_rules_block(rules: str) -> str:
         "conversation that never happened.\n"
         + rules
     )
+
+
+def offer_block(config) -> str:
+    """What email 1 offers: ``product.offer.entry``, the free, useful thing you
+    can really deliver (an audit, a mockup, a sample report).
+
+    Without one, email 1 can only ask a question, and a question alone gives
+    the reader nothing; so the writer falls back to that and says so."""
+    offer = getattr(getattr(config, "product", None), "offer", None)
+    entry = str(getattr(offer, "entry", "") or "").strip()
+    if not entry:
+        return ("\n\nYOUR OFFER: none set (product.offer.entry). End email 1 with one easy\n"
+                "question about the problem you found instead.")
+    return (f"\n\nYOUR OFFER for a first email: {entry}\n"
+            "Something free and useful you can really deliver. Email 1 offers it as the one\n"
+            "question, tied to what you found about them, in a few plain words. Offer only\n"
+            "this, as it's written here: don't say you already made or did something unless\n"
+            "it says so, and never promise anything else.")
 
 
 def footer_rule(config, rules: str) -> str:
@@ -122,6 +188,16 @@ class Writer:
 
         # Load foundational skills for this agent
         self.skills = self.brain.load_skills_for_agent("writer")
+        # The offer can change in the dashboard while Sellbird runs: use the
+        # one saved now, not the one read at startup. A hosted workspace's
+        # config comes from its own store, never a file, so it's left alone.
+        from sellbird.workspace_home import current_home
+        if not current_home().hosted:
+            try:
+                from sellbird.config import load_config
+                self.config.product.offer = load_config().product.offer
+            except Exception:
+                pass
         try:
             self.email_rules = load_email_rules(self.config)
         except EmailRulesError as e:
@@ -313,6 +389,9 @@ class Writer:
 
         drafted = 0
         for (prospect, _), draft in zip(pending, polished):
+            draft = await self._keep_to_rules(draft, step=1, names=_names(prospect))
+            if draft is None:
+                continue
             item_id = await self.state.add_outbox_item(
                 prospect_id=prospect.id,
                 campaign_id=campaign_id,
@@ -339,6 +418,29 @@ class Writer:
         a raise it announced; see sellbird.startups), else None."""
         return await startup_facts(getattr(self, "state", None), company_id)
 
+    def _signal_guide(self, facts: str) -> str:
+        """The parts of skills/signal_playbook.md that fit these facts ("" when
+        none do, or the playbook is missing).
+
+        The whole playbook covers hiring, funding, tools, search rank and new
+        domains; one prospect has one or two of those, and the rest is noise
+        in a prompt for a 40-word email."""
+        load = getattr(self.brain, "load_skill", None)
+        text = load("signal_playbook") if load else ""
+        if not isinstance(text, str) or not text.strip():
+            return ""
+        sections = _sections(text)
+        low = facts.lower()
+        wanted = ["## The core rule"]
+        for heading, words in _SIGNAL_SECTIONS:
+            if any(w in low for w in words):
+                wanted += [h for h in sections if h.startswith(heading)]
+        if len(wanted) == 1:
+            wanted.append("## When you have no real signal")
+        body = "\n\n".join(f"{h}\n{sections[h]}" for h in dict.fromkeys(wanted) if h in sections)
+        body = body.replace(" \u2014 ", ", ").replace("\u2014", ", ")
+        return "\n\nUSING THEIR SIGNAL\n" + body if body else ""
+
     def _startup_playbook(self) -> str:
         """skills/selling_to_startups.md, for startup prospects ("" if absent)."""
         text = self.brain.load_skill("selling_to_startups") if hasattr(self.brain, "load_skill") else ""
@@ -358,7 +460,7 @@ class Writer:
             f"- {str(n.get('created_at') or '')[:10]} on {n['about']}: "
             f"{' '.join(str(n['comment']).split())[:500]}" for n in notes)
         return (
-            "\n\nOWNER FEEDBACK — notes the person running Sellbird left on earlier\n"
+            "\n\nOWNER FEEDBACK: notes the person running Sellbird left on earlier\n"
             "campaigns and contacts, newest first (a newer note wins). Apply them to\n"
             "this writing. They never override the STRICT EMAIL RULES or the FACTS rule:\n"
             + lines
@@ -419,16 +521,18 @@ class Writer:
         ) or ""
         if self.skills:
             prompt += "\n\n" + self.skills
+        prompt += self._signal_guide("\n".join(facts))
         if startup is not None:
             prompt += self._startup_playbook()
         prompt += await self._feedback_block([prospect.id])
         rules = getattr(self, "email_rules", "")
+        prompt += offer_block(self.config)
         prompt += operator_rules_block(rules)
         if rules:
             shape = (
                 "- Follow the OPERATOR'S EMAIL RULES above for this first email: its length,\n"
                 "  structure, what it says about the product, links and subject line.\n"
-                "- Write the actual text (no merge variables — you know their name/company).")
+                "- Write the actual text (no merge variables: you know their name/company).")
             strict = "- Follow every STRICT EMAIL RULE above that the operator's rules don't replace."
         else:
             shape = PERSONAL_SHAPE
@@ -438,9 +542,9 @@ class Writer:
 
 Write ONE cold email (the very first touch) to this specific person.
 
-FACTS — everything you know about them, gathered from their website and
+FACTS: everything you know about them, gathered from their website and
 the web. Every claim about the prospect in your email must come from these
-facts. If a fact isn't listed here, you don't know it — do not invent
+facts. If a fact isn't listed here, you don't know it. Do not invent
 funding rounds, mutual contacts, metrics, or anything else:
 {fence(chr(10).join(facts), "prospect research")}
 
@@ -482,7 +586,7 @@ Return ONLY JSON: {{"subject": "...", "body": "..."}}"""
             )
         else:
             merge_rule = (
-                "- Use {{first_name}}, {{company}}, {{title}} as merge variables — every email\n"
+                "- Use {{first_name}}, {{company}}, {{title}} as merge variables. Every email\n"
                 "  must use at least one, and email 1 must reference something specific to\n"
                 "  these prospects' industry or role (use the notes above)."
             )
@@ -508,9 +612,9 @@ Description: {self.config.product.description}
 Key benefits: {', '.join(self.config.product.key_benefits)}
 Pricing: {self.config.product.pricing}"""
 
-        # Inject email framework skills
         if self.skills:
             prompt += "\n\n" + self.skills
+        prompt += self._signal_guide(prospect_summary)
         # One template goes to the whole batch: founder framing only when
         # every prospect in it is a startup.
         backed = [await self._startup(p.company_id) for p in prospects]
@@ -520,6 +624,7 @@ Pricing: {self.config.product.pricing}"""
         # note about one person ("met her at the expo") must never reach it.
         prompt += await self._feedback_block([])
         rules = getattr(self, "email_rules", "")
+        prompt += offer_block(self.config)
         prompt += operator_rules_block(rules)
         if rules:
             shape = (
@@ -572,9 +677,95 @@ Return ONLY a JSON array (no markdown fences, no commentary):
             self.brain, [{"subject": s.subject, "body": s.body} for s in steps],
             agent="writer", enabled=humanizer_enabled(self.config),
         )
+        names = [n for p in prospects for n in _names(p)]
         for step, draft in zip(steps, polished):
-            step.subject, step.body = draft["subject"], draft["body"]
+            kept = await self._keep_to_rules(draft, step=step.step, names=names)
+            if kept is None:
+                # One template goes to the whole batch: a step that can't be
+                # brought within the rules fails the sequence, and the batch
+                # is tried again next cycle (counted, see MAX_WRITE_ATTEMPTS).
+                return []
+            step.subject, step.body = kept["subject"], kept["body"]
         return steps
+
+    async def _keep_to_rules(self, draft: dict, *, step: int, names=()) -> dict | None:
+        """``draft`` tidied, signed and within Sellbird's writing rules
+        (sellbird.email_style), after at most one rewrite; None when even
+        the rewrite breaks them.
+
+        Operator email rules replace the built-in length and shape, and the
+        sign-off (they may write their own); the always-rules (no dashes, no
+        exclamation marks, no AI phrases, no formatting) still hold."""
+        shape = not getattr(self, "email_rules", "")
+
+        def finish(d: dict) -> dict:
+            body = tidy(str(d.get("body") or ""))
+            if shape:
+                body = with_sign_off(body, self.config.persona.name)
+            return {**d, "subject": tidy(str(d.get("subject") or "")), "body": body}
+
+        def problems(d: dict) -> list[str]:
+            return style_problems(d["subject"], d["body"], kind="cold", step=step,
+                                  names=names, shape=shape)
+
+        draft = finish(draft)
+        found = problems(draft)
+        if not found:
+            return draft
+        rewrite = await self._rewrite_to_rules(draft, found, step, shape)
+        if rewrite is not None:
+            rewrite = finish(rewrite)
+            found = problems(rewrite)
+            if not found:
+                return rewrite
+        logger.warning(f"Writer: dropped a draft for email {step} that breaks the rules: "
+                       + "; ".join(found))
+        return None
+
+    async def _rewrite_to_rules(self, draft: dict, found: list[str], step: int,
+                                shape: bool) -> dict | None:
+        """One model call that fixes exactly what ``style_problems`` found."""
+        body = draft["body"]
+        if shape:
+            # The sign-off is Sellbird's; the model never sees or writes it.
+            first = (self.config.persona.name or "").strip().split(" ")[0]
+            if first and body.endswith("\n\n" + first):
+                body = body[: -len(first) - 2].rstrip()
+        payload = {"subject": draft["subject"], "body": body}
+        problems = "\n".join(f"- It {p}." for p in found)
+        prompt = f"""This cold email (email {step} of a sequence) breaks Sellbird's writing rules:
+{problems}
+
+Rewrite it so it breaks none of them. Keep its facts, its one question and every
+merge variable such as {{{{first_name}}}} exactly as written; add no fact, name or claim.
+Make it shorter, never longer: cut words instead of adding them. Plain text, no
+dash between words (use a period or a comma), no exclamation marks, no sign-off
+and no name at the end.
+
+Draft:
+{fence(json.dumps(payload, ensure_ascii=False, indent=2), "draft")}
+
+{UNTRUSTED_RULE}
+
+Return ONLY a JSON object: {{"subject": "...", "body": "..."}}"""
+        try:
+            result = await self.brain.think_json(
+                prompt, session_id="sellbird-writer", agent="writer", task="fix_draft",
+            )
+        except Exception as e:
+            logger.warning(f"Writer: rewrite to rules failed: {e}")
+            return None
+        if not isinstance(result, dict):
+            return None
+        subject = str(result.get("subject") or "").strip()
+        new_body = str(result.get("body") or "").strip()
+        if not subject or not new_body:
+            return None
+        before = set(MERGE_VAR.findall(payload["subject"] + payload["body"]))
+        after = set(MERGE_VAR.findall(subject + new_body))
+        if not after <= before or (before and not after):
+            return None  # a merge variable appeared from nowhere, or all of them went
+        return {**draft, "subject": subject[:120], "body": new_body[:2000]}
 
     def _parse_sequence(self, result) -> list[EmailStep]:
         """Robustly coerce LLM output into a validated EmailStep list.
