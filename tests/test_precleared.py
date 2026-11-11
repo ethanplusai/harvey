@@ -15,8 +15,8 @@ import pytest
 import pytest_asyncio
 from pydantic import ValidationError
 
-from sellbird.config import PreclearedConfig
-from sellbird.integrations.precleared import SETTINGS_PREFIX, PreclearedClient
+from sellbird.config import PRECLEARED_SENDER_COUNTRIES, PreclearedConfig
+from sellbird.integrations.precleared import SENDER_COUNTRIES, SETTINGS_PREFIX, PreclearedClient
 from sellbird.models.company import Company
 from sellbird.models.prospect import COMPANY_INBOX_SOURCE, Prospect
 from sellbird.state import StateManager
@@ -134,6 +134,23 @@ def test_config_needs_a_sender_country_when_enabled():
     assert cfg.address_source == "unknown"
     with pytest.raises(ValidationError):
         PreclearedConfig(enabled=True, sender_country="US", address_source="guessed")
+
+
+def test_config_takes_a_sender_in_any_of_precleared_s_fourteen_countries():
+    assert PRECLEARED_SENDER_COUNTRIES == (
+        "GB", "US", "CA", "DE", "FR", "AU", "IE", "NL", "ES", "IT", "LV", "AE", "EG", "QA")
+    assert SENDER_COUNTRIES == PRECLEARED_SENDER_COUNTRIES
+    for code in PRECLEARED_SENDER_COUNTRIES:
+        assert PreclearedConfig(enabled=True, sender_country=code.lower()).sender_country == code
+    # Common spellings are read as their codes.
+    assert PreclearedConfig(enabled=True, sender_country="UK").sender_country == "GB"
+    assert PreclearedConfig(enabled=True, sender_country="usa").sender_country == "US"
+    assert PreclearedConfig(enabled=True, sender_country=" uae ").sender_country == "AE"
+    # A country Precleared doesn't cover is still refused when the check is on.
+    with pytest.raises(ValidationError, match="must be one of GB, US, CA, DE"):
+        PreclearedConfig(enabled=True, sender_country="BR")
+    # Off, the setting isn't checked, so an old config still loads.
+    assert PreclearedConfig(enabled=False, sender_country="BR").sender_country == "BR"
 
 
 def test_from_config_reads_settings_key_and_pitch():
