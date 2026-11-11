@@ -17,6 +17,11 @@ minor versions can still change behaviour.
   `no_tip` (not left `new`, which makes the heartbeat retry them every cycle).
   Set one back to `new` to try again. Off by default. The company's location
   is also in the Writer's facts now.
+- **An Italian `compliance.opt_out_line` passes validation.** "Non ti
+  interessa? Rispondi pure e non ti scriverò più." is accepted, like the
+  English, Spanish and Hebrew lines already were, so an Italian sender no
+  longer needs a bilingual footer. A sign-off like "A presto!" is still
+  refused. Italian replies are still read by the model, not by rule.
 - **`channels.email.follow_ups: false` sends no follow-ups.** A campaign then
   stages only its first email on Gmail, Microsoft and SMTP, so steps 2 and 3
   can't go to someone who never answered. Replies are read and answered as
@@ -77,8 +82,17 @@ minor versions can still change behaviour.
 
 ### Added
 
+- **Owners on French-language sites.** Finding the decision maker now reads
+  Québec French: propriétaire, président(e), PDG, président-directeur
+  général, fondateur/fondatrice, directeur/directrice général(e) and
+  associé(e), with or without accents. A feminine title satisfies its
+  masculine ICP entry ("Présidente" for "Président"), and an ICP written
+  only in French still targets the owner. Sentences such as "fondée par…",
+  "notre président et fondateur, …" and "… est propriétaire de l'entreprise"
+  are read, names with accents and hyphens (Marie-Ève, Côté) count as
+  names, and the site's "Équipe", "À propos" and "Nous joindre" pages are
+  followed. Before, these sites fell back to the published info@ address.
 - **French opt-outs.** `compliance.opt_out_line` accepts French wording ("Pas intéressé? Répondez-moi simplement et je ne vous écrirai plus."), with or without accents; before, a French line failed validation and the whole config wouldn't load. Replies saying "non merci", "ARRÊT", "désabonnez-moi", "ne m'écrivez plus" or "pas intéressé" are caught by rule like the English, Hebrew and Spanish ones, and "Envoyé de mon iPhone" no longer hides a bare opt-out.
-
 - **A menu-bar app.** `sellbird tray` (macOS menu bar, Windows tray)
   starts the dashboard when needed, starts and stops Sellbird, pauses and
   resumes sending and opens the dashboard unlocked. `sellbird autostart
