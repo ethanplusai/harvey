@@ -24,8 +24,8 @@ writer:       { humanizer, site_facts, require_tip }   # optional; humanizer tru
               # against the site before approving it. false keeps them away from the Writer.
               # require_tip (default false): true writes a first email only for a prospect with something concrete to
               # build its one tip on (a site finding, a startup fact, a signal or the Scout's notes). The others are
-              # marked "no_tip" and skipped, instead of getting a draft that says it has no advice. Set one back
-              # to "new" to try again.
+              # marked "no_tip" and skipped, instead of getting a draft that says it has no advice. The dashboard shows
+              # them as "Nothing to write about yet"; `sellbird retry-writes --no-tip` puts them back in line.
               # email_rules: your own markdown rules for the emails' shape (see The skills library)
 ```
 

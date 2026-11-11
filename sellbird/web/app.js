@@ -89,6 +89,7 @@ const STATUS = {
   not_interested: ['Not interested', 'bad'],
   bounced:        ['Bounced', 'bad'],
   write_failed:   ["Couldn't write", 'bad'],
+  no_tip:         ['Nothing to write about yet', 'idle'],
   queued:         ['Queued', 'active'],
   opted_out:      ['Opted out', 'bad'],
   // campaigns

@@ -2228,6 +2228,17 @@ class StateManager:
             await db.commit()
             return cursor.rowcount
 
+    async def retry_no_tip(self) -> int:
+        """Put every prospect writer.require_tip skipped ('no_tip') back in
+        line. Returns how many."""
+        async with self._connect() as db:
+            cursor = await db.execute(
+                "UPDATE prospects SET status = 'new', updated_at = ? WHERE status = 'no_tip'",
+                (_utcnow().isoformat(),),
+            )
+            await db.commit()
+            return cursor.rowcount
+
     async def delete_setting(self, key: str):
         async with self._connect() as db:
             await db.execute("DELETE FROM settings WHERE key = ?", (key,))
