@@ -981,6 +981,13 @@ async def test_every_mirror_failing_is_an_error_that_names_the_cause(monkeypatch
     """Throttling is not the only way the free mirrors go away, and the error
     a user reads has to be true of what actually happened."""
     monkeypatch.setattr(D.OpenStreetMap, "BACKOFF", 0.0)
+    # Keep this diagnostic test independent of the currently selected mirror
+    # count while exercising a distinct cause for each failed mirror.
+    monkeypatch.setattr(D.OpenStreetMap, "ENDPOINTS", (
+        "https://overpass-one.example/api/interpreter",
+        "https://overpass-two.example/api/interpreter",
+        "https://overpass-three.example/api/interpreter",
+    ))
     statuses = iter((502, 503, 500))
     seen = []
 
@@ -989,10 +996,15 @@ async def test_every_mirror_failing_is_an_error_that_names_the_cause(monkeypatch
         return httpx.Response(next(statuses), text="")
 
     provider = D.OpenStreetMap()
-    with pytest.raises(RuntimeError, match="unavailable or throttling"):
+    with pytest.raises(RuntimeError) as exc:
         async with _client(handler) as client:
             await provider.fetch(client, {}, D.DiscoveryQuery(
                 term="roofer", coordinate="39.7,-104.9,40"))
+
+    assert "unavailable or throttling" in str(exc.value)
+    assert "HTTP 502" in str(exc.value)
+    assert "HTTP 503" in str(exc.value)
+    assert "HTTP 500" in str(exc.value)
     assert seen == list(D.OpenStreetMap.ENDPOINTS), "every mirror should be tried"
 
 

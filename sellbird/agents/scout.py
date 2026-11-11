@@ -98,7 +98,58 @@ INBOX_PAGES = ("/contact", "/contact-us")
 INBOX_PREFERRED = ("owner", "office", "info", "contact", "contactus", "hello",
                    "team", "service", "sales", "estimates", "quotes",
                    "inquiries", "enquiries", "admin", "support")
+
+# A free-mail address is eligible only when its local part is a meaningful
+# brand stem from the company's domain, never a generic role or personal name.
+PUBLIC_MAILBOX_PROVIDERS = frozenset("""
+gmail.com googlemail.com outlook.com outlook.co.uk hotmail.com hotmail.co.uk
+hotmail.fr live.com live.co.uk msn.com yahoo.com yahoo.co.uk yahoo.fr
+ymail.com rocketmail.com aol.com icloud.com me.com mac.com gmx.com gmx.net
+mail.com zoho.com proton.me protonmail.com yandex.com
+""".split())
+INBOX_GENERIC_LOCALS = frozenset(INBOX_PREFERRED) | frozenset("""
+mail email emails enquiry inquiry booking bookings reservations orders
+accounts accounting billing help helpdesk webmaster postmaster noreply
+shop store company business general reception
+""".split())
+_COMPACT_PERSON_PREFIXES = frozenset("""
+alex andrew anthony benjamin charles chris christopher daniel david edward
+james jane jason jeffrey john joseph joshua justin kevin mark matthew michael
+nicholas patrick paul peter richard robert samuel steven thomas william
+alice amanda amy angela anna ashley barbara betty carol deborah donna
+elizabeth emily jennifer jessica karen laura linda lisa margaret maria
+mary melissa michelle nancy patricia sandra sarah susan
+""".split())
+MIN_BRAND_STEM = 5
 MAX_PROSPECTS_PER_CYCLE = 25
+
+
+def _local_looks_personal(local: str) -> bool:
+    parts = [part for part in re.split(r"[._\-+]+", (local or "").lower()) if part]
+    if 2 <= len(parts) <= 3 and all(part.isalpha() for part in parts):
+        if people_mod.is_person_name(" ".join(part.capitalize() for part in parts)):
+            return True
+    compact = people_mod._alnum(local)
+    return any(compact.startswith(first) and len(compact) - len(first) >= 4
+               for first in _COMPACT_PERSON_PREFIXES)
+
+
+def _is_free_mail_brand_alias(address: str, domain: str) -> bool:
+    """Whether a published address has a distinctive company-brand local part."""
+    local, _, provider = (address or "").strip().lower().partition("@")
+    if provider.removeprefix("www.") not in PUBLIC_MAILBOX_PROVIDERS:
+        return False
+    if local in INBOX_GENERIC_LOCALS or _local_looks_personal(local):
+        return False
+    stem = re.sub(r"\d+$", "", people_mod._alnum(local))
+    label = people_mod._alnum(people_mod._domain_label(domain))
+    if min(len(stem), len(label)) < MIN_BRAND_STEM:
+        return False
+    if stem in INBOX_GENERIC_LOCALS or stem in people_mod._GENERIC_BUSINESS_WORDS:
+        return False
+    short, long = sorted((stem, label), key=len)
+    return long.startswith(short) or long.endswith(short)
+
 
 # Hunter domain-searches per heartbeat. The monthly budget itself is shared
 # with email-pattern lookups and set by HUNTER_MONTHLY_SEARCHES (see
@@ -1793,7 +1844,9 @@ Respond ONLY with the JSON array."""
         Reads the same pages as the people pass (plus /contact if it wasn't
         among them), the whole page, not just its top, decoding obfuscated
         addresses. An address on another domain counts only when that
-        domain is clearly the business's own (it lands on this site).
+        domain is clearly the business's own (it lands on this site), or
+        when it is the business's clearly branded address at a public
+        mailbox provider.
         """
         site = await self._read_site(domain)
         if not site["base"]:
@@ -1807,14 +1860,22 @@ Respond ONLY with the JSON array."""
                     continue
                 site["tried"].add(people_mod._norm_url(url))
                 resp = await self._site_fetch(site, url)
-                if resp is not None:
+                if resp is None:
+                    continue
+                final = str(getattr(resp, "url", "") or url)
+                if self._host(final) == self._host(site["base"]):
                     pages.append((url, getattr(resp, "text", "") or ""))
 
         candidates = []
+        aliases = []
         for _, text in pages:
             for addr in people_mod.emails_on_page(text):
                 local, _, adomain = addr.partition("@")
-                if local not in INBOX_PREFERRED or addr in candidates:
+                if local not in INBOX_PREFERRED:
+                    if addr not in aliases and _is_free_mail_brand_alias(addr, domain):
+                        aliases.append(addr)
+                    continue
+                if addr in candidates:
                     continue
                 adomain = adomain.removeprefix("www.")
                 if adomain != domain and not adomain.endswith("." + domain) \
@@ -1822,7 +1883,7 @@ Respond ONLY with the JSON array."""
                     continue
                 candidates.append(addr)
         if not candidates:
-            return ""
+            return aliases[0] if aliases else ""
         return min(candidates, key=lambda a: INBOX_PREFERRED.index(a.partition("@")[0]))
 
     async def _is_own_domain(self, other: str, site: dict) -> bool:

@@ -9,6 +9,7 @@ import yaml
 
 from sellbird.config import SellbirdConfig
 from sellbird.paths import PROJECT_ROOT
+from sellbird.textio import read_user_text
 from sellbird.trainer import write_trained_config
 
 LEARNED = {
@@ -120,8 +121,8 @@ def test_first_training_keeps_the_template_settings(tmp_path):
     # Precleared block) carry over, and the untrained placeholder persona
     # is replaced with what training learned.
     template = tmp_path / "sellbird.yaml"
-    shipped = (PROJECT_ROOT / "sellbird.yaml").read_text()
-    template.write_text(shipped)
+    shipped = read_user_text(PROJECT_ROOT / "sellbird.yaml")
+    template.write_text(shipped, encoding="utf-8")
     path = tmp_path / "sellbird.local.yaml"
     out = write_trained_config(LEARNED, path)
 
@@ -129,7 +130,7 @@ def test_first_training_keeps_the_template_settings(tmp_path):
     assert out["compliance"]["precleared"]["enabled"] is False
     assert out["persona"] == LEARNED["persona"]
     assert out["product"]["offer"]["goal"] == "book_call"
-    assert template.read_text() == shipped  # the template itself is untouched
+    assert read_user_text(template) == shipped  # the template itself is untouched
     SellbirdConfig(**out)
 
 
