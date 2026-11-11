@@ -645,8 +645,11 @@ async def test_quoting_our_hebrew_footer_is_not_an_opt_out(state):
 
 def test_every_reply_an_opt_out_line_can_ask_for_is_caught():
     from sellbird.agents.handler import _opt_out_reason
-    from sellbird.config import HEBREW_OPT_OUT_WORDS, OPT_OUT_WORDS
-    for word in OPT_OUT_WORDS + HEBREW_OPT_OUT_WORDS:
+    from sellbird.config import (
+        FRENCH_OPT_OUT_WORDS, HEBREW_OPT_OUT_WORDS, OPT_OUT_WORDS, SPANISH_OPT_OUT_WORDS,
+    )
+    for word in (OPT_OUT_WORDS + HEBREW_OPT_OUT_WORDS + SPANISH_OPT_OUT_WORDS
+                 + FRENCH_OPT_OUT_WORDS):
         assert _opt_out_reason(word, word), word
 
 
@@ -812,6 +815,100 @@ def test_spanish_opt_out_lines_are_accepted():
                  'Si prefiere no recibir más, conteste "baja".',
                  "Si no quiere más correos, responda con BAJA."):
         assert ComplianceConfig(opt_out_line=line).opt_out_line == line
+
+
+# ── French opt-outs ──
+
+@pytest.mark.parametrize("reply", [
+    "Non merci.", "non merci", "Non, merci beaucoup", "Bonjour, non merci. Bonne journée",
+    "ARRÊT", "Arrêt svp", "Désabonner", "Désabonnez-moi", "desabonnez moi s'il vous plaît",
+    "Je veux me désabonner.", "Comment me désinscrire?",
+    "Retirez-moi de votre liste.", "Enlevez-moi de la liste d'envoi svp", "Supprimez-moi.",
+    "Pouvez-vous me retirer de votre liste?", "Supprimez mon adresse de votre liste.",
+    "Ne m'écrivez plus.", "Ne m’écrivez plus.", "Ne me contactez plus svp",
+    "S'il vous plaît, ne m'écrivez plus.", "N'écrivez plus.",
+    "Ne m'envoyez plus de courriels.", "Ne m'envoyez plus rien.", "ne m'envoyez plus",
+    "Merci de ne plus m'écrire.", "Prière de ne plus me contacter", "Veuillez ne pas me relancer.",
+    "Arrêtez de m'écrire.", "Cessez de me contacter!", "Arrête de m'envoyer des courriels",
+    "Arrêtez vos envois", "Laissez-moi tranquille.",
+    "Je ne veux plus recevoir vos courriels.", "Je ne souhaite plus recevoir de messages.",
+    "Nous ne voulons pas être sollicités.",
+    "Pas intéressé.", "Pas intéressée, merci", "Je ne suis pas intéressé.", "Je suis pas intéressé",
+    "On n'est pas intéressés.", "Nous ne sommes pas intéressés pour le moment.",
+    "Ça ne m'intéresse pas.", "Ca m'interesse pas", "Ça ne nous intéresse pas du tout, merci.",
+    "Pas intéressé\n\nJean Exemple\nTél. 555-0100", "Pas intéressé\nEnvoyé de mon iPhone",
+])
+def test_french_opt_outs(reply):
+    assert _opt_out_reason(reply, reply) is not None
+
+
+@pytest.mark.parametrize("reply", [
+    "Oui ou non, merci de confirmer", "Non, merci à vous!", "Pourquoi non, merci",
+    "Non merci pour l'info, mais on aimerait un prix",
+    "Pas intéressé par le plan annuel, mais le mensuel oui.",
+    "Pas intéressé, mais mon associé l'est peut-être.",
+    "Pas intéressé par un contrat annuel.", "Pas intéressé à payer d'avance, mais parlons-en.",
+    "Si ça ne m'intéresse pas, je peux annuler?", "Vous n'êtes pas intéressé? Pas grave.",
+    "Mon associé n'est pas intéressé, mais moi oui.", "Ça m'intéresse, combien ça coûte?",
+    "Vous ne m'écrivez plus depuis mai?", "Il ne m'écrit plus.",
+    "Ne m'écrivez pas avant janvier.", "Ne me contactez pas le lundi.",
+    "Ne m'écrivez pas ici, écrivez-moi à ventes@acme.example",
+    "Ne me contactez pas par courriel, appelez-moi.",
+    "Retirez-moi la TPS svp", "Enlevez-moi le frais en double",
+    "Ne m'envoyez plus de factures papier.", "Arrêtez de m'envoyer les factures en double.",
+    "Je ne veux pas recevoir de factures papier",
+    "Ne me désabonnez pas.", "Je ne veux pas me désabonner",
+    "Nous voulons arrêter notre fournisseur actuel", "L'arrêt d'autobus est à côté",
+    "Envoyez-moi le prix",
+])
+def test_french_that_is_not_an_opt_out(reply):
+    assert _opt_out_reason(reply, reply) is None
+
+
+def test_a_long_french_reply_is_quick():
+    import time
+    text = "ne pas retirez-moi " * 20000
+    started = time.monotonic()
+    _opt_out_reason(text, text)
+    assert time.monotonic() - started < 2
+
+
+@pytest.mark.asyncio
+async def test_a_french_opt_out_reaches_the_handler(state):
+    status, _ = await _reply(state, "Non merci.")
+    assert status == "opted_out"
+
+
+def test_french_mobile_signature_doesnt_hide_a_bare_opt_out():
+    reply = "ARRÊT\n\nEnvoyé de mon iPhone"
+    assert _opt_out_reason(reply, reply)["rule"] == "only_words"
+
+
+def test_our_own_french_footer_quoted_back_is_not_an_opt_out():
+    line = "Pas intéressé? Répondez-moi simplement et je ne vous écrirai plus."
+    ours = OurText([line])
+    their = ours.remove(f"Ça m'intéresse, combien ça coûte?\n> {line}")
+    assert _opt_out_reason(their, "Ça m'intéresse, combien ça coûte?") is None
+
+
+def test_french_opt_out_lines_are_accepted():
+    for line in ("Pas intéressé? Répondez-moi simplement et je ne vous écrirai plus.",
+                 "Pas interesse? Repondez-moi simplement et je ne vous ecrirai plus.",
+                 "Répondez ARRÊT pour vous désabonner.",
+                 "Pour ne plus recevoir mes courriels, répondez « non merci ».",
+                 "Si ce n’est pas pour vous, dites-le-moi et je vous retirerai de ma liste.",
+                 "Vous préférez que je vous laisse tranquille? Un simple « non » suffit.",
+                 "Pas le bon moment? Dites-le et vous n'aurez plus de nouvelles de ma part."):
+        assert ComplianceConfig(opt_out_line=line).opt_out_line == line
+
+
+def test_french_lines_that_dont_say_it_stops_or_have_a_link_are_refused():
+    import pydantic
+    for bad in ("Merci de votre lecture!", "Bonne journée!",
+                "Cliquez ici pour vous désabonner.",
+                "Pour vous désabonner : https://example.com/u"):
+        with pytest.raises(pydantic.ValidationError):
+            ComplianceConfig(opt_out_line=bad)
 
 
 # ── Hebrew escalation ──

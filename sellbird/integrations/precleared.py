@@ -2,10 +2,12 @@
 
 Off by default. With ``compliance.precleared.enabled: true``, the sender asks
 Precleared about each new recipient before the first cold email of a
-sequence: may a cold marketing email go to this address under UK PECR, US
-CAN-SPAM, Canada's CASL, Germany's UWG or France's rules? Anything other than
-``ok_to_email`` holds the email back with the reason, and the signed receipt
-id is logged with the send so the decision can be shown later.
+sequence: may a cold marketing email go to this address under the rules of
+the recipient's country (UK PECR, US CAN-SPAM, Canada's CASL, Germany's UWG,
+France's CPCE, and the rest of the fourteen countries in SENDER_COUNTRIES)?
+Anything other than ``ok_to_email`` holds the email back with the reason, and
+the signed receipt id is logged with the send so the decision can be shown
+later. The sender can be based in any of those fourteen countries.
 
 One check per address: a definite verdict is cached in the settings table for
 CACHE_DAYS, together with a fingerprint of the facts it was decided on (sender
@@ -26,6 +28,15 @@ Sellbird has them (a company inbox has no person, so no name). For a UK
 recipient Precleared uses them to find the company on the Companies House
 register when the domain alone doesn't, and it doesn't store the person's
 name.
+
+``consent_needed`` and ``blocked`` fail the email with the reason. ``unknown``
+means a fact could not be established (usually the recipient's country,
+sometimes a register that answered too slowly), so it holds the email
+instead: the address is asked about again after the sender's
+ADDRESS_RETRY_AFTER, then after UNKNOWN_RETRY_AFTER, and the email fails only
+when UNKNOWN_ATTEMPTS answers in a row were unknown on the same facts. In
+between, the Outbox reason says what would settle it (prospect_country, the
+company's location or number).
 
 A response Precleared can't vouch for (network trouble, daily allowance used
 up, a bad key, or a malformed body) holds cold email for a later cycle instead
@@ -66,7 +77,7 @@ from urllib.parse import unquote, urlsplit
 
 import httpx
 
-from sellbird.config import normalize_prospect_country
+from sellbird.config import PRECLEARED_SENDER_COUNTRIES, normalize_prospect_country
 from sellbird.send_window import icp_country
 
 logger = logging.getLogger("sellbird.precleared")
@@ -86,10 +97,21 @@ CACHE_DAYS = 30
 # ignored rather than reused.
 CACHE_VERSION = 2
 SETTINGS_PREFIX = "precleared:"
+UNKNOWN_PREFIX = SETTINGS_PREFIX + "unknown:"
 VERDICTS = {"ok_to_email", "consent_needed", "blocked", "unknown"}
 DEFINITE_VERDICTS = {"ok_to_email", "consent_needed", "blocked"}
+# How many unknown answers on the same facts an address gets before its
+# email fails; the count is kept under UNKNOWN_PREFIX + the address with
+# the facts' fingerprint, so changed facts (prospect_country set, the
+# company's location or names learned) start it again. Each answer costs a
+# check, so the count is small.
+UNKNOWN_ATTEMPTS = 3
+# Between unknown answers after the first retry (the sender's
+# ADDRESS_RETRY_AFTER comes first), long enough to fix the config.
+UNKNOWN_RETRY_AFTER = timedelta(hours=24)
 ADDRESS_SOURCES = ("published", "bought", "scraped", "given", "unknown")
-SENDER_COUNTRIES = ("GB", "US")
+# Where the sender can be based: the countries whose rules Precleared applies.
+SENDER_COUNTRIES = PRECLEARED_SENDER_COUNTRIES
 # Precleared's limits for the company and person names sent with a check.
 # A longer value would be refused, so names are cut to fit.
 MAX_COMPANY_NAME = 160
@@ -148,6 +170,11 @@ class Clearance:
     fix_url: str = ""
     # True when the verdict came from the 30-day cache rather than a call.
     cached: bool = False
+    # ``unknown`` only: how many unknown answers this address has had on
+    # these facts, this one included, and whether that is the last one the
+    # sender waits for (UNKNOWN_ATTEMPTS reached), so the email fails.
+    unknown_attempts: int = 0
+    unknown_final: bool = False
 
 
 class PreclearedClient:
@@ -279,7 +306,39 @@ class PreclearedClient:
                 "checked_at": _utcnow().isoformat(),
                 "inputs": self._fingerprint(_country(country), company, name),
             }))
+            await state.delete_setting(UNKNOWN_PREFIX + email)
+        elif not result.held and result.verdict == "unknown":
+            attempts = await self._count_unknown(
+                state, email, self._fingerprint(_country(country), company, name))
+            result.unknown_attempts = attempts
+            result.unknown_final = attempts >= UNKNOWN_ATTEMPTS
         return result
+
+    async def _count_unknown(self, state, email: str, inputs: str) -> int:
+        """Record one more unknown answer for ``email`` on these facts and
+        return how many there have been. A count kept for other facts, or
+        older than CACHE_DAYS, starts again from one."""
+        attempts = 0
+        try:
+            data = json.loads(await state.get_setting(UNKNOWN_PREFIX + email) or "null")
+        except (ValueError, TypeError):
+            data = None
+        if isinstance(data, dict) and data.get("inputs") == inputs:
+            try:
+                attempts = max(0, int(data.get("attempts") or 0))
+                at = datetime.fromisoformat(str(data["at"]))
+            except (KeyError, ValueError, TypeError):
+                attempts = 0
+            else:
+                if at.tzinfo is None:
+                    at = at.replace(tzinfo=timezone.utc)
+                if _utcnow() - at > timedelta(days=CACHE_DAYS):
+                    attempts = 0
+        attempts += 1
+        await state.set_setting(UNKNOWN_PREFIX + email, json.dumps({
+            "inputs": inputs, "attempts": attempts, "at": _utcnow().isoformat(),
+        }))
+        return attempts
 
     async def known_country(self, to_email: str, state, country: str = "",
                             company: str = "", name: str = "") -> str:
@@ -452,7 +511,9 @@ class PreclearedClient:
         return Clearance(
             allowed=False,
             verdict=verdict,
-            reason=_clean(_reason(data)),
+            # For an unknown, what would settle it matters more than why it
+            # couldn't be, and the Outbox note is cut short.
+            reason=_clean(_reason(data, next_step_first=verdict == "unknown")),
             receipt_id=receipt_id,
             country=country,
         )
@@ -559,8 +620,9 @@ def _buy_url(resp: httpx.Response, api_key: str = "") -> str:
     return url
 
 
-def _reason(data: dict) -> str:
-    """One readable line: the rule that decided it (or the note), then the next step.
+def _reason(data: dict, next_step_first: bool = False) -> str:
+    """One readable line: the rule that decided it (or the note), then the next
+    step; or the next step first when that is what the reader needs.
 
     Precleared's ``reasons`` lead with the matching rule as
     ``{"rule_key", "text", "source_title", "source_url"}``, or with a
@@ -576,7 +638,7 @@ def _reason(data: dict) -> str:
         parts.append(f"{text} ({source})" if source else text)
     next_step = _text(data.get("next_step"))
     if next_step:
-        parts.append(next_step)
+        parts.insert(0, next_step) if next_step_first else parts.append(next_step)
     return " ".join(parts)[:240]
 
 
@@ -637,7 +699,7 @@ def create_free_key(email: str, country: str = "",
     """Ask Precleared for a free key for ``email`` (POST /api/v1/keys).
 
     New keys get 100 checks a day for their first 14 days, then 25 a day.
-    Only the email address, the sender country (GB or US, when known) and
+    Only the email address, the sender country (one of SENDER_COUNTRIES, when known) and
     KEY_USE_CASE are sent. Precleared shows a key only once and limits how
     many each email address and network can have; when it can't make one,
     ``error`` carries its reason.

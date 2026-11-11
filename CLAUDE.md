@@ -46,13 +46,13 @@ People will ask "how does this work?" — explain it simply:
 
 - **"How does it find people?"** → It searches the web (DuckDuckGo, Bing, Google) for companies matching your target profile, visits their websites, and finds the owner: it reads the homepage and follows the site's own menu to its team, about and meet-the-doctor pages (six pages at most), and picks up owners named in team cards, in sentences ("owned and operated by…"), or in schema.org. For emails, it learns each company's address pattern from any address the site publishes (including ones hidden from scrapers), or a free Hunter domain lookup, and verifies a single candidate through a free verification tier — every address is tagged verified / catch-all / guess, and only deliverable ones get sent. No expensive tools needed.
 
-- **"How does it write emails?"** → It uses proven cold email frameworks (like AIDA and PAS) with strict rules — short, personal, no AI-sounding language. Each email is tailored to the specific person and their company.
+- **"How does it write emails?"** → It writes a 3-email sequence (an observation, a new angle, a short breakup) with strict rules — short, personal, no AI-sounding language. Each email is tailored to the specific person and their company.
 
 - **"Is it safe?"** → Yes. It runs locally on your machine, has daily usage limits, quiet hours, and send limits built in. It can't delete files, access your bank account, or do anything outside its sales workflow. Everything it does is logged in a local SQLite database you can inspect anytime.
 
 - **"What does it cost?"** → Just your Claude Max subscription (which you already have). The only paid integration is Instantly for sending emails (their cheapest plan works). Everything else — prospecting, email writing, reply handling — is included.
 
-- **"Can it use ChatGPT / Codex instead of Claude?"** → Yes, opt-in. Install Codex CLI 0.159.3 (`npm install -g @openai/codex@0.159.3`; other versions are refused), run `codex login` with ChatGPT, and set `brain: { provider: codex, model: gpt-5.5 }` in sellbird.yaml (or choose codex in `sellbird setup`, which suggests gpt-5.5, or `sellbird train <url> --provider codex --model gpt-5.5`). gpt-5.5 is the verified text-only model; a blank model fails on current accounts because the live catalog hides it, and code-mode models are refused. Claude stays the default; Sellbird never switches providers on its own. Each Codex call runs isolated with no tools — see docs/codex.md. macOS and Linux only; on Windows, Codex is refused, so use Claude. Don't edit the user's own `~/.codex` config to make it work.
+- **"Can it use ChatGPT / Codex instead of Claude?"** → Yes, opt-in. Install Codex CLI 0.159.3 (`npm install -g @openai/codex@0.159.3`; other versions are refused), run `codex login` with ChatGPT, and set `brain: { provider: codex, model: gpt-5.5 }` in sellbird.yaml (or choose codex in `sellbird setup`, which suggests gpt-5.5, or `sellbird train <url> --provider codex --model gpt-5.5`). Any exact model ID from the account's catalog also works, including Luna, Sol and Terra models (e.g. `gpt-6.1-sol`): Sellbird runs them in a private text-only catalog copy with no tools. A blank model picks the highest-priority listed model; an unlisted model needs an explicit ID, and unknown model IDs or unrecognised tool modes are refused. Claude stays the default; Sellbird never switches providers on its own. Each Codex call runs isolated with no tools — see docs/codex.md. macOS and Linux only; on Windows, Codex is refused, so use Claude. Don't edit the user's own `~/.codex` config to make it work.
 
 - **"What's the dashboard?"** → Have the user run `sellbird dashboard` in their own terminal and open the private link it prints (`http://127.0.0.1:5555/#token=…`; `sellbird dashboard --url` prints it again). Don't read, print or repeat the token yourself: it unlocks the dashboard. It opens on **Today** — anything waiting on a decision, then the pipeline. Tabs for Signals, Companies, Contacts, Campaigns, Outbox, Conversations, Activity, Usage, Settings.
 
@@ -171,11 +171,44 @@ Ask the user these questions and build `sellbird.yaml` and `skills/product_knowl
 - What objections do you usually hear? How do you respond?
 - **Offers & closing:**
   - What's the primary offer? (subscription, service, etc.)
-  - Is there a low-commitment entry? (free trial, free audit, etc.)
+  - The first-email offer: work it out with them as in Step 3b.
   - What's the goal? (book a call, start a trial, get a reply)
   - How should meetings be booked? (calendar link, suggest times, ask preference)
   - How long is the call? (default: 15 minutes)
   - Who takes the meeting?
+
+### Step 3b: Work out the offer together
+
+Every first email Sellbird writes names one thing it found about the prospect (where they
+rank, what their site lacks, a role they're hiring for), says what that costs them, and
+ends by offering one free, useful thing as the fix: the **offer**. It decides more replies
+than any other line, so work it out with the user in conversation. Don't pick it for them.
+
+1. Explain it in two sentences, using an example from their business.
+2. Call `company` to see what training learned, then `offer_suggest` for ideas. Treat
+   the ideas as a starting point. Propose two or three, each tied to a finding Sellbird
+   can really see about prospects.
+3. Ask what they can deliver quickly after a yes, and how they'd phrase it. A good offer
+   is specific, valuable on its own, and something they can deliver this week ("a written
+   plan for getting you onto page one", "a mockup of your homepage with online booking").
+   Never a discount, a generic call or a demo.
+4. Call `offer_preview` with the wording you've landed on, and show them the sample email.
+   Adjust until they like it.
+5. Call `offer_propose` with their exact wording. Then tell them to open the dashboard,
+   go to **Your company → Your offer**, and click **Use this offer**. Only they can change
+   what every first email offers.
+
+Without the MCP tools, do the same in conversation and have them paste the offer into
+Your company → Your offer.
+
+**When someone says yes to the offer.** Sellbird marks the reply "Said yes to your offer",
+stops their follow-ups and drafts a short reply for approval. Delivering the offer belongs
+to whatever the user sells, so Sellbird can hand the person to that system: one tool on
+another MCP server, set in `handoff` in the config file Sellbird reads (see
+`sellbird/handoff.py` for the fields: `mcp_url` or `mcp_command`, `token_env`, `tool`,
+`arguments` with `{company}`, `{email}`, `{website}`, `{reply}` and so on). Whatever that
+tool answers, such as a link, goes into the drafted reply. Without a handoff, the
+`offers_accepted` tool lists who said yes, so you can deliver it with the user's other tools.
 
 ### Step 4: Confirm Signals
 
@@ -267,7 +300,7 @@ These go in `sellbird.yaml` under `usage:`. Use sensible defaults unless they wa
 Offer this once, briefly, and take no for an answer. With `compliance.precleared.enabled: true`, Sellbird asks [Precleared](https://precleared.dev) which cold-email rules apply to each new address before the first email goes out. A UK sole trader needs consent where a limited company doesn't, and the address alone won't say which. Anything that isn't `ok_to_email` waits in the Outbox with the reason. It checks mail sent through Gmail, Microsoft 365 or SMTP, not Instantly. Precleared receives each new recipient's address, the sender country, the address source, the product description and the recipient's country when Sellbird is sure of it from the company's location (a country or state named there), else the prospects' country if there is one (`prospect_country`, or the one country every `icp.geography` entry is in), plus the company's name and the person's name when Sellbird has them, to find a UK company on the register. `docs/precleared.md` explains the check in full.
 
 If they want it, ask one thing at a time:
-- Where is the business based? `sender_country` must be `GB` or `US`. If it's neither, leave the check off.
+- Where is the business based? `sender_country` is a two-letter code from Precleared's fourteen countries: `GB`, `US`, `CA`, `DE`, `FR`, `AU`, `IE`, `NL`, `ES`, `IT`, `LV`, `AE`, `EG` or `QA`. If it's none of those, leave the check off. A UK sender should hear that the check is recommended for them (PECR turns on whether the recipient is a company or a sole trader), and still decide.
 - Are all their prospects in one country? If so, set `prospect_country` to its two-letter code, quoted (for example `"US"`). Otherwise leave it empty.
 - Would they like a free key? Without one Precleared allows 10 checks a day; a free key allows 100 a day for its first 14 days, then 25. If they would, ask which email address to use and run `sellbird precleared-key --email <their address>`, which saves the key in `.env` as `PRECLEARED_API_KEY` without showing it. Precleared receives that address to make the key. Or they can get one at https://precleared.dev/get-key and put it in `.env` themselves.
 
@@ -355,6 +388,6 @@ sellbird trulyinbox [connect|other]  # Warmup service: connect TrulyInbox, or re
 - **"externally-managed-environment"**: Use a venv, not system Python
 - **SQLite errors**: The `data/` directory is created automatically on first run
 - **Claude headless mode fails**: User needs `claude login` and an active Max subscription
-- **Codex calls fail** (`brain.provider: codex`): the log line says why — `codex login` with ChatGPT (also when the login "has expired or is due for renewal": Sellbird never renews it), install the supported Codex version (`sellbird status --check` shows what's wrong without a model call; while Codex is unusable Sellbird pauses whole cycles on purpose), pick a `brain.model` without code mode, or remove whatever Codex config layer is forcing tools/hooks/MCP back on. Never weaken Sellbird's isolation checks to get past it.
+- **Codex calls fail** (`brain.provider: codex`): the log line says why — `codex login` with ChatGPT (also when the login "has expired or is due for renewal": Sellbird never renews it), install the supported Codex version (`sellbird status --check` shows what's wrong without a model call; while Codex is unusable Sellbird pauses whole cycles on purpose), set `brain.model` to an exact ID from the account's catalog (the error lists the models that work), or remove whatever Codex config layer is forcing tools/hooks/MCP back on. Never weaken Sellbird's isolation checks to get past it.
 - **Instantly API 401**: Wrong API key or needs the Growth plan for API access
 - **Google search rate limiting**: Sellbird automatically falls back to DuckDuckGo and Bing. For reliable search, add a Serper API key ($5/mo).

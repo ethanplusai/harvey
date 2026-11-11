@@ -138,3 +138,24 @@ async def test_a_page_of_waiting_follow_ups_never_holds_up_a_reply_or_new_email(
     for _ in range(2):  # the first cycle may reschedule; nothing waits twice
         await make_sender(state, provider)._drain_due()
     assert {m["to"] for m in provider.sent} == {"bob@beta.com", "ann@gamma.com"}
+
+
+@pytest.mark.asyncio
+async def test_with_follow_ups_off_only_the_first_email_is_staged(state, monkeypatch):
+    pid = await seed_prospect(state)
+    await seed_campaign(state, [pid])           # steps 1 and 2
+    sender = make_sender(state, FakeProvider())
+    # The test config's classes are shared between tests: restore the value after.
+    monkeypatch.setattr(sender.config.channels.email, "follow_ups", False, raising=False)
+    await sender._run_native()
+    steps = [i["step"] for i in await state.get_outbox(status="pending_review")]
+    assert steps == [1]
+
+
+@pytest.mark.asyncio
+async def test_follow_ups_are_staged_unless_turned_off(state):
+    pid = await seed_prospect(state)
+    await seed_campaign(state, [pid])
+    await make_sender(state, FakeProvider())._run_native()
+    steps = sorted(i["step"] for i in await state.get_outbox(status="pending_review"))
+    assert steps == [1, 2]
