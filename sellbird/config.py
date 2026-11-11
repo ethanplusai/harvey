@@ -497,6 +497,15 @@ _SAYS_IT_STOPS_ES_RE = re.compile(
     r"(?:\bbaja\b|no,?\s+gracias|dejar[ée]?\s+de|dejo\s+de|no\s+(?:le|te|les)\s+(?:escribir|volver|molestar)"
     r"|no\s+volver[ée]|eliminar|quitar|\bparar\b)",
     re.IGNORECASE)
+_SAYS_IT_STOPS_IT_RE = re.compile(
+    r"(?:\bnon\s+(?:ti|vi|le)\s+(?:scriver[òo]|scrivo|contatter[òo]|contatto|disturber[òo]|disturbo"
+    r"|mander[òo]|mando|invier[òo]|invio)\b"
+    r"|\bnon\s+(?:ricever\w*|vuoi\s+ricevere|volete\s+ricevere)\b"
+    r"|\b(?:disiscri\w+|rimuov\w+|rimozione|cancell\w+|togli\w+)"
+    r"|\bannull\w*\s+l[’']?\s*iscrizione"
+    r"|\bsmetto\s+di\b|\bsmetter[òo]\s+di\b"
+    r"|\bnon\s+(?:ti\s+|vi\s+|le\s+)?interess\w+|\bnon\s+interessat\w+|\bstop\b)",
+    re.IGNORECASE)
 # French, matched with accents removed (see _fold_accents): "Pas intéressé?
 # Répondez-moi et je ne vous écrirai plus", "Répondez ARRÊT pour vous désabonner".
 _SAYS_IT_STOPS_FR_RE = re.compile(
@@ -594,7 +603,8 @@ class ComplianceConfig(BaseModel):
                 "allows one link, and opting out must be as simple as replying."
             )
         if not (_SAYS_IT_STOPS_RE.search(v) or _SAYS_IT_STOPS_HE_RE.search(v)
-                or _SAYS_IT_STOPS_ES_RE.search(v) or _SAYS_IT_STOPS_FR_RE.search(folded)):
+                or _SAYS_IT_STOPS_ES_RE.search(v) or _SAYS_IT_STOPS_IT_RE.search(v)
+                or _SAYS_IT_STOPS_FR_RE.search(folded)):
             raise ValueError(
                 "opt_out_line doesn't tell people they can stop these emails. Say so in "
                 "any words (\"Not interested? Just let me know and I won't email you "

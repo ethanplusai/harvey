@@ -9,6 +9,11 @@ minor versions can still change behaviour.
 
 ### Added
 
+- **An Italian `compliance.opt_out_line` passes validation.** "Non ti
+  interessa? Rispondi pure e non ti scriverò più." is accepted, like the
+  English, Spanish and Hebrew lines already were, so an Italian sender no
+  longer needs a bilingual footer. A sign-off like "A presto!" is still
+  refused. Italian replies are still read by the model, not by rule.
 - **`channels.email.follow_ups: false` sends no follow-ups.** A campaign then
   stages only its first email on Gmail, Microsoft and SMTP, so steps 2 and 3
   can't go to someone who never answered. Replies are read and answered as
