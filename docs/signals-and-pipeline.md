@@ -69,6 +69,7 @@ sellbird discover               # go
 | **Serper** | ~$0.30–1.00 / 1,000 | 2,500 free, no card | The easiest paid one to try. |
 | **Scavio Google Maps** | $0.01 / page (up to 20 listings) | 50 credits, no card | Google Maps listings around each city: phone, website, category, rating and reviews, including businesses with no website. |
 | **Scavio Google Search** | ~$0.03 / depth-30 search | same 50 credits | Rank as the signal, on the same key as Scavio Google Maps. |
+| **Keenable** | free | 10 searches a second, 1,000 an hour, no account or key | Finding businesses by phrase (including the startup and hiring presets) with no signup at all. An optional `KEENABLE_API_KEY` lifts the limits. Records no search rank, like TinyFish. |
 
 **Selling to startups?** Sellbird has a built-in startup skill, made of three
 parts:

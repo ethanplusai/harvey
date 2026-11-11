@@ -27,6 +27,14 @@ minor versions can still change behaviour.
   stages only its first email on Gmail, Microsoft and SMTP, so steps 2 and 3
   can't go to someone who never answered. Replies are read and answered as
   before. On by default, so nothing changes unless you turn it off.
+- **Keenable as a keyless discovery source.** `sellbird discover --provider
+  keenable` (or *Keenable* on the Discover tab) finds businesses by phrase
+  with no account or key, and runs the `yc`, `hiring`, `accelerator` and
+  `funding` presets. One request per phrase returns up to 50 results.
+  Without a key Sellbird stays under its published limits, 10 searches a
+  second and 1,000 an hour, and a run that uses up the hour stops and says
+  why; an optional `KEENABLE_API_KEY` lifts the limits. Like TinyFish it
+  records no `SERP_RANK`. Off unless you pick it; OSM stays the default.
 
 ### Changed
 

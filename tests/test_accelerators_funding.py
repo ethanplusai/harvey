@@ -294,6 +294,7 @@ def test_the_presets_need_a_search_provider(preset):
     assert preset_problem(preset, "osm")
     assert preset_problem(preset, "serper") is None
     assert preset_problem(preset, "tinyfish") is None
+    assert preset_problem(preset, "keenable") is None
 
 
 @pytest.mark.parametrize("domain", [
