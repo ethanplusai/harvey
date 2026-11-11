@@ -7,6 +7,13 @@ minor versions can still change behaviour.
 
 ## [Unreleased]
 
+### Added
+
+- **`channels.email.follow_ups: false` sends no follow-ups.** A campaign then
+  stages only its first email on Gmail, Microsoft and SMTP, so steps 2 and 3
+  can't go to someone who never answered. Replies are read and answered as
+  before. On by default, so nothing changes unless you turn it off.
+
 ### Changed
 
 - **The cold-email check takes a sender based in any of Precleared's

@@ -288,6 +288,10 @@ class EmailChannelConfig(BaseModel):
     # Kill switch: pause all sending when bounces exceed this fraction of
     # sent mail (measured over the trailing sends). 0 disables the switch.
     max_bounce_rate: float = 0.05
+    # false = a campaign stages only its first email. Follow-ups (steps 2 and
+    # 3) are not prepared, so none can go out to someone who never answered;
+    # a reply is still read and answered as usual. Gmail/Microsoft/SMTP only.
+    follow_ups: bool = True
     # New domain? Ramp cold email up slowly (see WarmupConfig). Native
     # providers only: Instantly has its own warmup and per-account limits.
     warmup: WarmupConfig = WarmupConfig()
