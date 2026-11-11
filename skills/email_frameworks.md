@@ -13,16 +13,16 @@ Style rules are negotiable. These are not:
 - **Subject lines must be truthful.** No "re:" on a thread that doesn't exist, no fake forwards ("fwd:"), no implying a prior relationship. Deceptive subject lines violate CAN-SPAM.
 - **Identity must be real.** The from-name, company, and signature must match the configured persona. Never pose as an individual consumer, a customer, or a mutual contact.
 - **Every campaign needs a working opt-out.** The sending platform (Instantly) must have unsubscribe handling enabled, and the sender's valid physical mailing address must appear in the campaign footer. Sellbird never writes copy that discourages opting out.
-- **Any opt-out wording counts.** "Stop", "remove me", "not interested, don't email again" — treat all of them as unsubscribes, immediately and permanently, even mid-conversation.
+- **Any opt-out wording counts.** "Stop", "remove me", "not interested, don't email again": treat all of them as unsubscribes, immediately and permanently, even mid-conversation.
 - **Deliverability hygiene:** plain text only, at most one link per email (zero in email 1 is better), no attachments, no image pixels beyond what the platform adds, no ALL-CAPS or spam-trigger phrasing ("free money", "act now", "guarantee"). One recipient's spam report costs more than a hundred sends earn.
-- **EU/UK prospects:** B2B cold email requires a defensible legitimate-interest basis — the pitch must be genuinely relevant to the person's professional role, and the first email should make it easy to object. When relevance is a stretch, don't send.
+- **EU/UK prospects:** B2B cold email requires a defensible legitimate-interest basis: the pitch must be genuinely relevant to the person's professional role, and the first email should make it easy to object. When relevance is a stretch, don't send.
 
 ---
 
 ## What Makes Bad Cold Email (NEVER DO THESE)
 
 ### Banned Patterns
-- **Em dashes (—)**: Dead giveaway of AI writing. Never use them. Use periods, commas, or line breaks instead.
+- **Dashes between words** (em dash, en dash, a spaced hyphen): Dead giveaway of AI writing. Never use them. Use periods or commas.
 - **"Picture this"**: Delete on sight.
 - **"Here's what I keep seeing/hearing"**: Lazy framing. Be specific or don't say it.
 - **Before/After lists**: Overdone. Everyone does this. It screams template.
@@ -40,7 +40,7 @@ Style rules are negotiable. These are not:
 - **"Are you the right person?"**: Weak opener.
 - **Multiple questions in one email**: Pick one.
 - **Starting with "I" or "We"**: Start with them, not yourself.
-- **Exclamation marks**: One max per entire sequence. Zero is better.
+- **Exclamation marks**: Never.
 - **"Reaching out because"**: Just say the thing.
 - **"Wanted to" / "Just wanted to"**: Weak, tentative. Say it directly.
 - **Parenthetical asides (like this)**: Adds clutter. Cut them.
@@ -59,8 +59,11 @@ Style rules are negotiable. These are not:
 
 ## What Makes Good Cold Email
 
-### It's short.
-Under 75 words for email 1. Under 60 for emails 2 and 3. Count them. If you're over, cut.
+### It's short. Then it's shorter.
+Every extra word costs replies. Aim for 25 to 45 words in email 1, and fewer in
+each follow-up. The ceilings are 60, 50 and 30 words, and Sellbird refuses a draft
+over them. After drafting, delete every sentence the email still works without,
+then every word. If it doesn't fit on one phone screen, it's too long.
 
 ### It sounds like a person.
 Read it out loud. Does it sound like something you'd actually type to someone? Or does it sound like marketing copy? If it's the latter, rewrite.
@@ -79,22 +82,23 @@ The goal of a cold email is to start a conversation. That's it. You are not clos
 ## What The 2026 Data Says (Use This)
 
 Reply rates have fallen (median cold reply ~3.4%, true net-new closer to
-0.5%), but dispersion has exploded — the top decile still gets 10%+. The
+0.5%), but dispersion has exploded: the top decile still gets 10%+. The
 difference is almost entirely relevance and deliverability, not clever copy.
 Encode these findings:
 
-- **Length**: replies peak in the **50-125 word** band. Under 75 for email
-  1 is the target. 200+ word emails reply at roughly half the rate.
+- **Length**: long emails reply at roughly half the rate of short ones, and
+  most cold email is read on a phone. Shorter is the default. 25-45 words for
+  email 1, never more than 60.
 - **Offer CTAs beat meeting asks.** An ask that gives them something whether
-  or not they buy — a free audit, a teardown, a relevant data point — lifts
+  or not they buy (a free audit, a teardown, a relevant data point) lifts
   replies ~28% over "do you have 30 minutes?". Prefer "want the teardown?"
   to "worth a call?".
 - **Easy-yes CTAs beat big asks.** "Is this on your radar at all?" outpulls
   "can you do Thursday at 2?". Lower the cost of replying.
 - **Cadence**: ~6 touches over 14-28 days, then stop. Not 3 over a week.
-- **Bump emails work.** A 1-2 sentence follow-up ("still worth a look?")
-  nearly doubles replies versus re-pitching at length. Short > substantive
-  on follow-ups.
+- **Bump emails work.** A 1-2 sentence follow-up ("still on your radar?")
+  nearly doubles replies versus re-pitching at length. Short beats
+  substantive on follow-ups.
 - **No open/click tracking on cold email.** Tracking pixels cost 8-12%
   inbox placement. Plain text, no pixels, at most one link (zero in email 1).
 - **Small sharp lists beat blasts.** Segments of ≤50 reply ~5.8% vs ~2.1%
@@ -122,20 +126,20 @@ Then connect that observation to a problem or opportunity. Don't name your produ
 ```
 Subject: {{company}} website
 
-{{first_name}}, looked at {{company}}'s site. You're clearly doing good work but the site probably isn't converting the way it should given how strong your reviews are.
+{{first_name}}, {{company}} has strong reviews, but the site has no way to book a job.
 
-Curious how you're currently getting leads beyond word of mouth?
+How do most new customers find you today?
 ```
 
 **Bad example:**
 ```
 Subject: {{first_name}}, quick question about {{company}}'s growth
 
-Been looking at {{company}} — you've clearly built something real. Solid reputation.
+Been looking at {{company}}, you've clearly built something real. Solid reputation.
 
 Here's what I keep seeing though: great companies with websites that don't convert and no system to catch leads.
 
-Picture this — a website built specifically for your industry that converts visitors, plus an AI agent that answers calls 24/7.
+Picture this, a website built specifically for your industry that converts visitors, plus an AI agent that answers calls 24/7.
 
 Worth a quick look?
 ```
@@ -160,29 +164,26 @@ Subject: missed calls
 
 {{first_name}}, most ops teams your size rebuild the same inventory report by hand every Monday morning. That's half a day a week nobody has.
 
-We generate it straight out of the systems {{company}} already runs, so it's sitting there when you log in.
+Ours builds it from the systems {{company}} already runs.
 
-Worth a look, or is this already handled?
+Is this already handled?
 ```
 
 ### Email 3: The Breakup
 
-Short. Respectful. Creates a tiny bit of FOMO without being manipulative. Under 40 words if possible.
+Short. Respectful. Under 30 words, and 10 to 20 is better.
 
 Don't pitch. Don't summarize your product. Don't list what they're missing. Just close the loop like a normal human would.
 
 **Structure:**
-1. One sentence acknowledging they're busy or it's not the right time
-2. One sentence leaving the door open
-3. Optional: one genuinely human line (not fake warmth)
+1. One sentence closing the loop
+2. Optionally, one sentence leaving the door open
 
 **Good example:**
 ```
 Subject: closing the loop
 
-{{first_name}}, sounds like the timing isn't right. Totally get it.
-
-If this ever becomes a priority, I'm around.
+{{first_name}}, I'll leave it here. If this ever becomes a priority, just reply.
 ```
 
 **Bad example:**
@@ -204,10 +205,10 @@ The bad one is still pitching in the breakup. "Probably losing 5-10+ leads" is a
 
 A cold email gets a reply when it hits one of four triggers. Every email should be built around exactly one:
 
-1. **Recognition** — you named a problem they're living with, in their own words. This is the strongest trigger. It requires real specificity: "your pricing page has four tiers but no annual option" beats "companies struggle with pricing" every time.
-2. **Curiosity gap** — you know something they'd want to know ("noticed something odd in how {{company}} shows up in search"). Only works if you actually deliver the payoff when they reply. Never manufacture a fake gap.
-3. **Easy yes** — the ask is so small that replying is cheaper than deleting ("is this on your radar at all?" beats "do you have 30 minutes Thursday?").
-4. **Status/peer proof** — a named, real peer or competitor did something relevant. Must be true and public. "Two other regional distributors moved off spreadsheets last quarter" only if they did.
+1. **Recognition**: you named a problem they're living with, in their own words. This is the strongest trigger. It requires real specificity: "your pricing page has four tiers but no annual option" beats "companies struggle with pricing" every time.
+2. **Curiosity gap**: you know something they'd want to know ("noticed something odd in how {{company}} shows up in search"). Only works if you actually deliver the payoff when they reply. Never manufacture a fake gap.
+3. **Easy yes**: the ask is so small that replying is cheaper than deleting ("is this on your radar at all?" beats "do you have 30 minutes Thursday?").
+4. **Status/peer proof**: a named, real peer or competitor did something relevant. Must be true and public. "Two other regional distributors moved off spreadsheets last quarter" only if they did.
 
 If the draft doesn't clearly hit one of these, it will be ignored no matter how clean the copy is. Rewrite around a trigger, not around your product.
 
@@ -221,7 +222,7 @@ If the draft doesn't clearly hit one of these, it will be ignored no matter how 
 - Never include the prospect's name in the subject
 - Never use "quick question" (overused beyond recognition)
 - Should look like an internal email, not a marketing email
-- "re:" is only allowed when the email genuinely continues an earlier thread in the same sequence — never as a fake-reply trick on a fresh thread
+- "re:" is only allowed when the email genuinely continues an earlier thread in the same sequence, never as a fake-reply trick on a fresh thread
 - Emails 2 and 3 in a sequence should usually take a completely new subject (new angle, new thread)
 
 ### Good subjects
@@ -291,9 +292,9 @@ Before finalizing any email, ask:
 
 1. Could a real person have written this? (not "could AI have written this to sound human")
 2. Is there exactly one idea in this email?
-3. Is it under 75 words?
+3. Could it lose another sentence? Another word? (Under 60 words is the hard ceiling for email 1.)
 4. Would I reply to this if I received it?
-5. Does it contain any em dashes?
+5. Does it contain a dash between words?
 6. Does it contain any of the banned patterns listed above?
 7. Is every factual claim in it true and sourced from product_knowledge.md or the prospect's own site?
 8. Is the subject line honest, and the identity the real configured persona?

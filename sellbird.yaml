@@ -152,3 +152,14 @@ compliance:
 # every email to 220 words and one link. skills/email_rules.md is gitignored.
 # writer:
 #   email_rules: "skills/email_rules.md"
+
+# When someone says yes to your offer, hand them to the system that delivers it:
+# one tool on its MCP server. See sellbird/handoff.py. Leave it out to handle it yourself.
+# handoff:
+#   mcp_url: https://example.com/mcp
+#   token_env: EXAMPLE_MCP_TOKEN          # the .env variable holding its bearer token
+#   tool: create_site
+#   arguments:
+#     company: "{company}"
+#     website: "{website}"
+#     email: "{email}"
