@@ -17,7 +17,15 @@ channels:
                 require_approval, send_to_risky, min_write_score, max_bounce_rate, follow_ups, warmup, send_window, signature }
 usage:        { max_daily_claude_percent, heartbeat_interval_minutes, quiet_hours }
 brain:        { provider: claude | codex, model, reasoning_effort }   # optional; claude by default
-writer:       { humanizer }   # optional; true adds one editing pass per batch using ~/.claude/skills/humanizer/SKILL.md
+writer:       { humanizer, site_facts, require_tip }   # optional; humanizer true adds one editing pass per batch using ~/.claude/skills/humanizer/SKILL.md
+              # site_facts (default true): the Writer sees what the free homepage signals found (no structured data,
+              # a stale or very small site, AI crawlers blocked) so an email can name one concrete thing to change.
+              # They come from an automated read of one page and can be wrong, so check a draft's claim
+              # against the site before approving it. false keeps them away from the Writer.
+              # require_tip (default false): true writes a first email only for a prospect with something concrete to
+              # build its one tip on (a site finding, a startup fact, a signal or the Scout's notes). The others are
+              # marked "no_tip" and skipped, instead of getting a draft that says it has no advice. Set one back
+              # to "new" to try again.
               # email_rules: your own markdown rules for the emails' shape (see The skills library)
 ```
 

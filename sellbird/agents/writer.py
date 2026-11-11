@@ -25,8 +25,12 @@ from sellbird.integrations.mail_provider import NATIVE_PROVIDERS
 from sellbird.models.campaign import Campaign, EmailStep
 from sellbird.state import WRITABLE_EMAIL_STATUSES, StateManager
 from sellbird.sending_mode import sync_sending_mode
+from sellbird.site_facts import site_facts
 from sellbird.startups import startup_facts
 from sellbird.untrusted import UNTRUSTED_RULE, fence
+
+# A prospect with nothing to build a tip on (writer.require_tip) is parked here.
+NO_TIP_STATUS = "no_tip"
 
 logger = logging.getLogger("sellbird.writer")
 
@@ -251,6 +255,25 @@ class Writer:
                 logger.info("Writer: No prospects at or above the minimum score.")
                 return
 
+        # writer.require_tip: no draft for a prospect with nothing concrete to
+        # build its tip on. Parked as "no_tip" rather than left "new", which
+        # would make the heartbeat try to write for it every cycle.
+        if self._require_tip():
+            kept = []
+            for p in prospects_with_email:
+                if await self._has_tip_basis(p):
+                    kept.append(p)
+                else:
+                    await self.state.update_prospect_status(p.id, NO_TIP_STATUS)
+            parked = len(prospects_with_email) - len(kept)
+            if parked:
+                logger.info(
+                    f"Writer: Not writing for {parked} prospect(s) with nothing concrete "
+                    f"to build a tip on (writer.require_tip); marked {NO_TIP_STATUS}.")
+            prospects_with_email = kept
+            if not prospects_with_email:
+                return
+
         # Batch prospects into campaign groups (by industry/title for relevance)
         batches = self._group_prospects(prospects_with_email)
 
@@ -322,6 +345,34 @@ class Writer:
             return max(0, int(getattr(email, "min_write_score", 0) or 0))
         except (TypeError, ValueError):
             return 0
+
+    def _require_tip(self) -> bool:
+        """writer.require_tip, or False when the config has none."""
+        return bool(getattr(getattr(self.config, "writer", None), "require_tip", False))
+
+    async def _site_facts(self, company_id) -> list[str]:
+        """Homepage findings for the prompt, unless writer.site_facts is off."""
+        if not getattr(getattr(self.config, "writer", None), "site_facts", True):
+            return []
+        return await site_facts(getattr(self, "state", None), company_id)
+
+    async def _has_tip_basis(self, prospect) -> bool:
+        """Does the Writer have something concrete to build its one tip on?
+
+        A homepage finding, a startup fact, a buying signal or the Scout's
+        research notes. A failed read counts as "nothing known".
+        """
+        if (prospect.personalization_notes or "").strip():
+            return True
+        if await self._site_facts(prospect.company_id):
+            return True
+        if await self._startup(prospect.company_id):
+            return True
+        try:
+            company = await self.state.get_company(prospect.company_id) if prospect.company_id else None
+        except Exception:
+            company = None
+        return bool(company and company.signals)
 
     async def _count_failed_attempt(self, batch_name: str, prospects: list):
         """Count one unusable sequence against each prospect in the batch.
@@ -494,6 +545,8 @@ class Writer:
             except Exception:
                 company = None
         if company:
+            if company.location:
+                facts.append(f"- Location: {company.location}")
             if company.description:
                 facts.append(f"- What the company says about itself: {company.description}")
             if company.tech_stack:
@@ -502,6 +555,7 @@ class Writer:
                 facts.append(
                     f"- Signal ({signal.get('type', 'signal')}): {signal.get('detail', '')}"
                 )
+        facts.extend(await self._site_facts(prospect.company_id))
         if prospect.personalization_notes:
             facts.append(f"- Research notes: {prospect.personalization_notes}")
         startup = await self._startup(prospect.company_id)

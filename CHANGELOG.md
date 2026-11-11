@@ -9,6 +9,14 @@ minor versions can still change behaviour.
 
 ### Added
 
+- **`writer.require_tip: true` skips prospects with nothing to build a tip
+  on.** A first email is meant to name one concrete thing the sender would
+  change; with no finding about the company, the draft could only say it had no
+  advice. With the option on, the Writer writes only for a prospect with a site
+  finding, a startup fact, a signal or the Scout's notes, and marks the others
+  `no_tip` (not left `new`, which makes the heartbeat retry them every cycle).
+  Set one back to `new` to try again. Off by default. The company's location
+  is also in the Writer's facts now.
 - **An Italian `compliance.opt_out_line` passes validation.** "Non ti
   interessa? Rispondi pure e non ti scriverò più." is accepted, like the
   English, Spanish and Hebrew lines already were, so an Italian sender no
@@ -21,6 +29,19 @@ minor versions can still change behaviour.
 
 ### Changed
 
+- **The writer sees what Sellbird read off a company's own site.** The free
+  homepage signals (no structured data, a site untouched for six months, a very
+  small sitemap, AI crawlers blocked) were collected but
+  never reached the writer's prompt, so an email asked to name one concrete
+  thing to change had nothing true to name and said it hadn't looked. Findings
+  that are true now go in as fact lines, each saying how it was found and that
+  the check can miss things; a signal checked and found fine is left out. "No
+  online booking" is not passed on: a homepage read misses widgets that load
+  late, and it called a bookable business unbookable too often.
+  Those findings come from one page and can be wrong, so `writer.site_facts:
+  false` turns them off, and `CLAUDE.md` and the approval guide now tell
+  Claude to offer a browser check of each draft's claims before the user
+  approves.
 - **The cold-email check takes a sender based in any of Precleared's
   fourteen countries.** `compliance.precleared.sender_country` accepts GB, US,
   CA, DE, FR, AU, IE, NL, ES, IT, LV, AE, EG and QA (`UK`, `USA` and `UAE` are

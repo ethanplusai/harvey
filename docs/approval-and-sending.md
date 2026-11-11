@@ -4,6 +4,8 @@
 
 By default **every outgoing email waits for your approval.** Sellbird is a copilot until you decide otherwise.
 
+**Check what a draft claims before you approve it.** An email that says "I found no online booking on your site" rests on an automated read of one page, and a booking widget that loads late, or sits on another page, makes that wrong. Opening the site takes half a minute, and a wrong claim is a bad first impression. If you use Sellbird from Claude Code, ask it to review the drafts: it opens each site in a real browser, checks every claim about it, and tells you which hold, which are false and which are doubtful. It never approves or rejects for you. `writer.site_facts: false` (see [configuration](configuration.md)) keeps those findings away from the Writer altogether.
+
 The dashboard's Outbox is a decisions desk: one email fills the pane, the rest wait in a rail, and you work the queue with `A` approve, `R` reject, `J`/`K` to move. That shape is deliberate — a wall of stacked drafts invites a single approve-all reflex, which is exactly the review the approval ladder exists to force.
 
 ```bash
