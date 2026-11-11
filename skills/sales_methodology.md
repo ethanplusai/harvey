@@ -39,11 +39,11 @@ A typical multi-channel sequence:
 ```
 Day 1:  LinkedIn — view profile
 Day 2:  LinkedIn — like a post
-Day 3:  Email 1 — cold intro (AIDA or PAS)
+Day 3:  Email 1 — the observation
 Day 4:  LinkedIn — send connection request
-Day 6:  Email 2 — follow-up (BAB or QVC)
+Day 6:  Email 2 — the angle (a new reason, not a bump)
 Day 8:  LinkedIn — message (if connected)
-Day 10: Email 3 — break-up (QVC)
+Day 10: Email 3 — the breakup
 ```
 
 ### Rules
