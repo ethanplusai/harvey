@@ -25,6 +25,14 @@ minor versions can still change behaviour.
   say the emails can stop, however it's worded, so a sign-off like "Cheers!" is
   refused; `""` leaves the line off on purpose. A link or an email address is
   still refused.
+- **An `unknown` answer from the cold-email check holds the email instead of
+  failing it.** Precleared answers `unknown` when a fact can't be established,
+  usually the recipient's country, sometimes a register that was too slow.
+  That email now waits in the Outbox with what would settle it (set
+  `prospect_country`, or give the company a location or number) and is asked
+  about again, after six hours and then after a day; the third unknown on the
+  same facts fails it as before. Rejecting or sending the email clears the
+  note, as for an address the check couldn't reach.
 
 ### Security
 

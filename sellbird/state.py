@@ -107,6 +107,12 @@ AUTOPILOT_OFF_REASON = "waiting for you: autopilot was turned off before it went
 # Outbox error on an approved cold email the compliance check couldn't answer
 # for: it was moved back and is tried again then (sender: _retry_later).
 RECHECK_PREFIX = "Precleared couldn't check this address; trying again after "
+# Outbox error on an approved cold email Precleared answered "unknown" for (a
+# fact it couldn't establish): moved back and asked again then, with what
+# would settle it (sender: _retry_later).
+UNKNOWN_HOLD_PREFIX = "Precleared couldn't settle this address; trying again after "
+# Both notes mean "moved back by the check", and are cleared the same way.
+MOVED_BACK_PREFIXES = (RECHECK_PREFIX, UNKNOWN_HOLD_PREFIX)
 # Outbox errors starting with this: the send was cut off and the email may
 # have reached them. Never retried, and counted as Sellbird's mail, so the
 # dashboard never offers a second one by hand.
@@ -1340,9 +1346,11 @@ class StateManager:
             # A note that the check will try it again no longer applies.
             cursor = await db.execute(
                 "UPDATE outbox SET status = 'rejected', updated_at = ?, "
-                "error = CASE WHEN substr(COALESCE(error, ''), 1, ?) = ? THEN '' ELSE error END "
+                "error = CASE WHEN substr(COALESCE(error, ''), 1, ?) = ? "
+                "OR substr(COALESCE(error, ''), 1, ?) = ? THEN '' ELSE error END "
                 "WHERE id = ? AND status IN ('pending_review', 'approved')",
-                (_utcnow().isoformat(), len(RECHECK_PREFIX), RECHECK_PREFIX, item_id),
+                (_utcnow().isoformat(), len(RECHECK_PREFIX), RECHECK_PREFIX,
+                 len(UNKNOWN_HOLD_PREFIX), UNKNOWN_HOLD_PREFIX, item_id),
             )
             await db.commit()
             return cursor.rowcount
