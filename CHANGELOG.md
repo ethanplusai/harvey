@@ -56,6 +56,8 @@ minor versions can still change behaviour.
 
 ### Added
 
+- **French opt-outs.** `compliance.opt_out_line` accepts French wording ("Pas intéressé? Répondez-moi simplement et je ne vous écrirai plus."), with or without accents; before, a French line failed validation and the whole config wouldn't load. Replies saying "non merci", "ARRÊT", "désabonnez-moi", "ne m'écrivez plus" or "pas intéressé" are caught by rule like the English, Hebrew and Spanish ones, and "Envoyé de mon iPhone" no longer hides a bare opt-out.
+
 - **A menu-bar app.** `sellbird tray` (macOS menu bar, Windows tray)
   starts the dashboard when needed, starts and stops Sellbird, pauses and
   resumes sending and opens the dashboard unlocked. `sellbird autostart
