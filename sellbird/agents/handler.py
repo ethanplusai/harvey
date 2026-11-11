@@ -91,13 +91,19 @@ NO_THANKS_RE = re.compile(
 BARE_OPT_OUTS = {"stop", "unsubscribe", "remove", "remove me", "opt out",
                  "no thanks", "no thank you", "baja", "no gracias", "de baja", "dar de baja",
                  "darme de baja",
+                 # French, compared without accents ("arrêt" is Québec's "STOP").
+                 "non merci", "arret", "arreter", "desabonner", "desabonnement",
+                 "desabonnez-moi", "desinscrire", "desinscription", "desinscrivez-moi",
+                 "retirer", "retirez-moi",
                  "הסר", "הסירו", "הסירי", "תסיר", "תסירו", "להסיר", "הסרה", "להסרה"}
 # Said around a bare opt-out without changing it ("הסר בבקשה", "הסר, תודה").
-_BARE_COURTESIES = {"בבקשה", "נא", "תודה", "רבה", "por", "favor", "gracias", "saludos"}
+_BARE_COURTESIES = {"בבקשה", "נא", "תודה", "רבה", "por", "favor", "gracias", "saludos",
+                    "merci", "svp", "sil", "vous", "plait"}
 _MOBILE_SIGNATURE_RE = re.compile(
     r"^[ \t\u200e\u200f]*(?:sent from my \w[^\n]*|get outlook for \w[^\n]*"
     r"|sent from \w+ mail[^\n]*|נשלח מ[^\n]*|קבל(?:ו)? את outlook[^\n]*"
-    r"|enviado desde mi \w[^\n]*|obt[eé]n outlook para \w[^\n]*)$",
+    r"|enviado desde mi \w[^\n]*|obt[eé]n outlook para \w[^\n]*"
+    r"|envoy[eé] de mon \w[^\n]*|obtenez outlook pour \w[^\n]*)$",
     re.IGNORECASE | re.MULTILINE)
 
 # Hebrew opt-outs. Each needs a verb aimed at the sender and its object
@@ -232,6 +238,102 @@ SPANISH_NO_THANKS_RE = re.compile(
     r"\bno,?[ \t]+(?:muchas[ \t]+)?gracias\b(?![ \t]+(?:a|por)\b)")
 
 
+# French opt-outs, matched like the Spanish ones: accent-free, a line at a
+# time, and only with the verb aimed at the sender. "Retirez-moi la TPS" asks
+# for a discount, "il ne m'écrit plus" is news, "ne m'envoyez plus de
+# factures papier" is about invoices.
+_FR_US = r"(?:moi|nous)"
+_FR_ME = r"(?:m'|me\s+|nous\s+)"
+_FR_LIST = (r"(?:(?:votre|vos|la|les|le|cette|ce|ces|ta|tes|ton)\s+)*"
+            r"(?:liste|base|envoi|registre|infolettre|bulletin|fichier|repertoire|contact|courriel"
+            r"|distribution|diffusion)\w*")
+_FR_MY_ADDRESS = (r"(?:mon|mes|notre|nos)\s+(?:adresse|courriel|nom|coordonnee|contact|donnee"
+                  r"|e-?mail)\w*")
+_FR_MAIL = (r"(?:(?:de|des|vos|ces|tes|les|la|d')[ \t]*)*(?:courriels?|courriers?|mails?|e-?mails?"
+            r"|messages?|publicites?|pubs?|offres?|infolettres?|sollicitations?|relances?|rien)")
+_FR_WRITE = r"(?:ecrire|contacter|relancer|solliciter|deranger|importuner|harceler|texter)"
+_FR_SEND = r"(?:envoyer|transmettre|faire\s+parvenir)"
+# The thought ends here, as in Spanish: not ", mais", ", sauf", ", si".
+_FR_SAY_END = (r"(?=[ \t]*(?:[.!;]|$|,(?![ \t]*(?:mais|sauf|a[ \t]+moins|si|par[ \t]+contre"
+               r"|cependant|toutefois|quoique|bien[ \t]+que)(?!\w))))")
+FRENCH_OPT_OUT_PATTERNS = (
+    # Unsubscribe / take me off.
+    r"(?:desabonn|desinscriv)ez[- ]" + _FR_US + r"|(?:me|nous)\s+(?:desabonner|desinscrire)",
+    r"(?:retirez|retire|enlevez|enleve|otez|ote|supprimez|supprime|rayez|raye|effacez|efface)[- ]"
+    + _FR_US + r"(?:\s+(?:de|d')\s*" + _FR_LIST + "|" + _FR_SAY_END + ")",
+    r"(?:me|nous)\s+(?:retirer|enlever|oter|supprimer|rayer|effacer)\s+(?:de|d')\s*" + _FR_LIST,
+    r"(?:retirez|enlevez|supprimez|effacez|rayez|retirer|enlever|supprimer|effacer|rayer)\s+"
+    + _FR_MY_ADDRESS + r"(?:\s+(?:de|d')\s*" + _FR_LIST + "|" + _FR_SAY_END + ")",
+    # Don't write to / contact me (any more). Imperative: "vous ne m'écrivez
+    # plus" (you've stopped writing) is held back by the word before it.
+    r"n(?:e\s+|')" + r"(?:m'|me\s+|nous\s+)?" + r"(?:ecri(?:vez|s)|contacte[sz]?|relance[sz]?"
+    r"|sollicite[sz]?|derange[sz]?|importune[sz]?|harcele[sz]?)\s+(?:plus|pas|jamais)(?!\w)",
+    r"n(?:e\s+|')" + r"(?:m'|me\s+|nous\s+)?" + r"(?:envoye[sz]|envoie[s]?|transmette[sz]?)"
+    r"\s+(?:plus|pas|jamais)(?:\s+" + _FR_MAIL + r"(?!\w)|" + _FR_SAY_END + ")",
+    r"ne\s+(?:plus|pas)\s+(?:jamais\s+)?" + _FR_ME + r"?" + _FR_WRITE,
+    r"ne\s+(?:plus|pas)\s+(?:jamais\s+)?" + _FR_ME + r"?" + _FR_SEND
+    + r"(?:\s+" + _FR_MAIL + r"(?!\w)|" + _FR_SAY_END + ")",
+    # Stop writing / sending.
+    r"(?:arrete[sz]?|arreter|cesse[sz]?|cesser)\s+(?:de\s+|d')" + r"(?:m'|me\s+|nous\s+)?"
+    + _FR_WRITE,
+    r"(?:arrete[sz]?|arreter|cesse[sz]?|cesser)\s+(?:de\s+|d')" + r"(?:m'|me\s+|nous\s+)?"
+    + _FR_SEND + r"(?:\s+" + _FR_MAIL + r"(?!\w)|" + _FR_SAY_END + ")",
+    r"(?:arrete[sz]?|cesse[sz]?|stoppe[sz]?)\s+(?:les|vos|ces|tes)\s+(?:courriels|envois|messages"
+    r"|relances|sollicitations|mails|e-mails|emails)",
+    r"(?:laissez|laisse)[- ]" + _FR_US + r"\s+tranquilles?|fou(?:tez|s)[- ]" + _FR_US
+    + r"\s+la\s+paix",
+    r"ne\s+(?:veux|voulons|veut|souhaite|souhaitons|desire|desirons)\s+(?:plus|pas)\s+"
+    r"(?:rien\s+)?(?:recevoir(?:\s+" + _FR_MAIL + r"(?!\w)|" + _FR_SAY_END
+    + r")|etre\s+(?:contacte|sollicite|relance)e?s?)",
+    # Not interested, as the whole thought: not "pas intéressé par le plan annuel".
+    r"(?:(?:je\s+(?:ne\s+)?suis|nous\s+(?:ne\s+)?sommes|on\s+(?:n'|ne\s+)?est)\s+)?"
+    r"pas\s+(?:du\s+tout\s+)?interess(?:e|ee|es|ees)"
+    r"(?:\s+(?:pour\s+(?:le\s+moment|l'instant|maintenant)|en\s+ce\s+moment|merci))?"
+    + _FR_SAY_END,
+    r"(?:(?:ca|cela|ceci)\s+)?(?:ne\s+)?(?:m'|nous\s+)interesse(?:nt)?\s+pas(?:\s+du\s+tout)?"
+    r"(?:\s+(?:pour\s+(?:le\s+moment|l'instant|maintenant)|en\s+ce\s+moment|merci))?"
+    + _FR_SAY_END,
+)
+FRENCH_OPT_OUT_RE = re.compile(r"(?<![\w'])(?:" + "|".join(FRENCH_OPT_OUT_PATTERNS) + r")(?![\w'])",
+                               re.MULTILINE)
+# The word before a match that negates, conditions or makes it a statement
+# about someone ("vous ne m'écrivez plus", "si ça ne m'intéresse pas",
+# "pourquoi pas intéressé", "vous n'êtes pas intéressé"), as with Spanish.
+_FR_NOT_FINAL_BEFORE = {"ne", "n", "pas", "si", "pourquoi", "quand", "lorsque", "encore",
+                        "toujours", "vous", "tu", "il", "elle", "ils", "elles", "on",
+                        "etes", "es", "est", "sont", "serait", "seriez", "comme"}
+_FR_LAST_WORD_RE = re.compile(r"(\S+)[ \t]*\Z")
+_FR_NOT_FINAL_AFTER_RE = re.compile(
+    r"(?<!\w)(?:jusqu'|avant|apres|a\s+partir\s+d|plutot|mieux|whatsapp|texto|sms"
+    r"|par\s+telephone|au\s+telephone|appel(?:ez|le)[- ](?:moi|nous)|telephonez"
+    r"|ecri(?:vez|s)[- ](?:moi|nous)|lundi|mardi|mercredi|jeudi|vendredi|samedi|dimanche"
+    r"|semaine|mois|janvier|fevrier|mars|avril|mai|juin|juillet|aout|septembre|octobre"
+    r"|novembre|decembre|automne|hiver|printemps|ete\s+prochain)(?!\w)")
+# "Non merci": as with "no thanks". Not "oui ou non, merci", "pourquoi non",
+# "sinon, merci", or "non, merci à vous" / "merci pour" / "merci de".
+FRENCH_NO_THANKS_RE = re.compile(
+    r"(?<!\bou )(?<!pourquoi )(?<!si )(?<!que )(?<!dire )"
+    r"\bnon,?[ \t]+merci\b(?![ \t]*(?:a|pour|de|d'|bien)\b)")
+
+
+def _french_opt_out(text: str):
+    """The first French opt-out phrase in _accent_free_lines text that means it."""
+    for m in FRENCH_OPT_OUT_RE.finditer(text):
+        line_start = text.rfind("\n", 0, m.start()) + 1
+        last = _FR_LAST_WORD_RE.search(text[max(line_start, m.start() - 40):m.start()])
+        before = last.group(1).strip("\"«»(-,") if last else ""
+        before = re.sub(r"^\w'", "", before)
+        starts_negative = re.match(r"n(?:e\s|')", m.group(0))
+        if before in _FR_NOT_FINAL_BEFORE and not (before in ("ne", "n") and starts_negative):
+            continue
+        sentence_end = re.search(r"[.!?;\n]", text[m.end():])
+        after = text[m.end():m.end() + sentence_end.start()] if sentence_end else text[m.end():]
+        if _FR_NOT_FINAL_AFTER_RE.search(after):
+            continue
+        return m
+    return None
+
+
 def _no_accents(text: str) -> str:
     """Accents dropped, for matching Spanish typed with or without them. Only
     Latin letters: combining marks are what spell Hebrew and others' words."""
@@ -240,7 +342,7 @@ def _no_accents(text: str) -> str:
         if not (unicodedata.combining(c) and ord(c) < 0x370))
 
 
-def _spanish_lines(their_text: str) -> str:
+def _accent_free_lines(their_text: str) -> str:
     """Their reply, flattened a line at a time and accent-free, mobile
     signatures dropped, lines kept apart."""
     text = _MOBILE_SIGNATURE_RE.sub("", their_text or "")
@@ -248,7 +350,7 @@ def _spanish_lines(their_text: str) -> str:
 
 
 def _spanish_opt_out(text: str):
-    """The first Spanish opt-out phrase in _spanish_lines text that means it."""
+    """The first Spanish opt-out phrase in _accent_free_lines text that means it."""
     for m in SPANISH_OPT_OUT_RE.finditer(text):
         line_start = text.rfind("\n", 0, m.start()) + 1
         last = _ES_LAST_WORD_RE.search(text[max(line_start, m.start() - 40):m.start()])
@@ -344,13 +446,18 @@ def _opt_out_reason(their_text: str, own_words: str) -> dict | None:
     if m:
         return {"rule": "phrase", "matched": m.group(0),
                 "why": f'Their reply contains "{m.group(0)}".'}
-    m = _spanish_opt_out(_spanish_lines(their_text))
+    m = _spanish_opt_out(_accent_free_lines(their_text))
+    if m:
+        return {"rule": "phrase", "matched": m.group(0),
+                "why": f'Their reply contains "{m.group(0)}".'}
+    m = _french_opt_out(_accent_free_lines(their_text))
     if m:
         return {"rule": "phrase", "matched": m.group(0),
                 "why": f'Their reply contains "{m.group(0)}".'}
     for line in their_text.split("\n"):
         line = _flat(line)
-        m = SPANISH_NO_THANKS_RE.search(_no_accents(line))
+        m = (SPANISH_NO_THANKS_RE.search(_no_accents(line))
+             or FRENCH_NO_THANKS_RE.search(_no_accents(line)))
         if m:
             return {"rule": "no_thanks", "matched": m.group(0),
                     "why": f'Their reply says "{m.group(0)}" (no thanks).'}
@@ -362,7 +469,7 @@ def _opt_out_reason(their_text: str, own_words: str) -> dict | None:
         if m:
             return {"rule": "no_thanks", "matched": m.group(0),
                     "why": f'Their reply says "{m.group(0)}" (no thanks).'}
-    bare = _flat(_MOBILE_SIGNATURE_RE.sub("", own_words or ""))
+    bare = _no_accents(_flat(_MOBILE_SIGNATURE_RE.sub("", own_words or "")))
     bare = re.sub(r"[^\w\s-]", "", bare).strip()
     if (bare in BARE_OPT_OUTS
             or " ".join(w for w in bare.split() if w not in _BARE_COURTESIES) in BARE_OPT_OUTS):

@@ -17,6 +17,10 @@ minor versions can still change behaviour.
   `no_tip` (not left `new`, which makes the heartbeat retry them every cycle).
   Set one back to `new` to try again. Off by default. The company's location
   is also in the Writer's facts now.
+- **`channels.email.follow_ups: false` sends no follow-ups.** A campaign then
+  stages only its first email on Gmail, Microsoft and SMTP, so steps 2 and 3
+  can't go to someone who never answered. Replies are read and answered as
+  before. On by default, so nothing changes unless you turn it off.
 
 ### Changed
 
@@ -72,6 +76,8 @@ minor versions can still change behaviour.
   every later email.
 
 ### Added
+
+- **French opt-outs.** `compliance.opt_out_line` accepts French wording ("Pas intéressé? Répondez-moi simplement et je ne vous écrirai plus."), with or without accents; before, a French line failed validation and the whole config wouldn't load. Replies saying "non merci", "ARRÊT", "désabonnez-moi", "ne m'écrivez plus" or "pas intéressé" are caught by rule like the English, Hebrew and Spanish ones, and "Envoyé de mon iPhone" no longer hides a bare opt-out.
 
 - **A menu-bar app.** `sellbird tray` (macOS menu bar, Windows tray)
   starts the dashboard when needed, starts and stops Sellbird, pauses and

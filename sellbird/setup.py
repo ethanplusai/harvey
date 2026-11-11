@@ -139,6 +139,31 @@ def _save_precleared(config: dict, answers: dict) -> None:
     section.update(answers)
 
 
+def _merge_answers(existing: dict, answers: dict) -> None:
+    """Lay manual setup answers over existing config, skipping blank answers so
+    they never wipe values already in the file."""
+    for key, value in answers.items():
+        if isinstance(value, dict) and isinstance(existing.get(key), dict):
+            _merge_answers(existing[key], value)
+        elif value not in ("", [], {}, None):
+            existing[key] = value
+
+
+def _product_configured() -> bool:
+    """Whether the config names a real company and product, not the shipped
+    placeholders (the same test the dashboard uses)."""
+    try:
+        data = yaml.safe_load(read_user_text(_config_file()))
+    except (OSError, yaml.YAMLError):
+        return False
+    if not isinstance(data, dict):
+        return False
+    persona = data.get("persona") if isinstance(data.get("persona"), dict) else {}
+    product = data.get("product") if isinstance(data.get("product"), dict) else {}
+    return (persona.get("company") not in (None, "", "Your Company")
+            and product.get("name") not in (None, "", "Your Product"))
+
+
 def _check_claude_cli() -> bool:
     """Check if Claude CLI is installed and accessible."""
     return shutil.which("claude") is not None
@@ -213,6 +238,9 @@ class SetupWizard:
         self.precleared: dict | None = None
         # Whether _write_config saved the config, for the summary.
         self.config_saved = False
+        # True when step 5 was answered by hand: self.config then holds
+        # persona/product/icp that are not in sellbird.yaml yet.
+        self.manual_product = False
 
     async def run(self):
         """Run the full interactive setup."""
@@ -606,6 +634,7 @@ class SetupWizard:
             },
         }
 
+        self.manual_product = True
         _print_sellbird("Got it. I have everything I need about your product.")
 
     def _setup_behavior(self):
@@ -853,9 +882,16 @@ class SetupWizard:
             logger.info(f"Wrote {config_file}")
             self.config_saved = True
         elif self.config:
-            # Config already exists (from trainer), update behavior settings only
+            # Config already exists (shipped or from trainer): update behavior
+            # settings, plus product answers when they were entered by hand
             try:
                 existing = yaml.safe_load(read_user_text(config_file)) or {}
+                if self.manual_product:
+                    for section in ("persona", "product", "icp"):
+                        if section in self.config:
+                            if not isinstance(existing.get(section), dict):
+                                existing[section] = {}
+                            _merge_answers(existing[section], self.config[section])
                 existing["usage"] = self.config.get("usage", existing.get("usage", {}))
                 existing["brain"] = self.config["brain"]
                 if "LINKEDIN_EMAIL" in self.env_vars:
@@ -897,7 +933,7 @@ class SetupWizard:
             "Instantly API": bool(self.env_vars.get("INSTANTLY_API_KEY")),
             "LinkedIn": bool(self.env_vars.get("LINKEDIN_EMAIL")),
             "Cloudflare Crawl": bool(self.env_vars.get("CLOUDFLARE_ACCOUNT_ID")),
-            "Product trained": _config_file().exists(),
+            "Product trained": _product_configured(),
             "Cold-email check (Precleared)": bool(
                 self.config_saved and self.precleared and self.precleared.get("enabled")),
         }
