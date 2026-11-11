@@ -143,5 +143,5 @@ def test_retry_writes_no_tip_only_touches_skipped_prospects(state, capsys, monke
 
 def test_the_dashboard_has_a_label_for_no_tip():
     from pathlib import Path
-    app = (Path(__file__).resolve().parents[1] / "sellbird" / "web" / "app.js").read_text()
+    app = (Path(__file__).resolve().parents[1] / "sellbird" / "web" / "app.js").read_text(encoding="utf-8")
     assert f"  {NO_TIP_STATUS}:" in app.split("const STATUS = {", 1)[1].split("};", 1)[0]
