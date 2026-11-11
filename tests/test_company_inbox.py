@@ -114,18 +114,20 @@ PAGES = {
 }
 
 
-def make_scout(pages, verdict="verified"):
+def make_scout(pages, verdict="verified", site="acme.com"):
     scout = Scout.__new__(Scout)
     scout.env = None
     scout._seen_prospect_keys = set()
 
     async def resolve(domain, retries=1):
-        home = pages.get("https://acme.com")
-        return ("https://acme.com", SimpleNamespace(text=home)) if home is not None else ("", None)
+        home = pages.get(f"https://{site}")
+        return (f"https://{site}", SimpleNamespace(text=home)) if home is not None else ("", None)
 
     async def fetch(url, **kw):
-        text = pages.get(url)
-        return SimpleNamespace(text=text) if text is not None else None
+        page = pages.get(url)
+        if page is None or isinstance(page, SimpleNamespace):
+            return page
+        return SimpleNamespace(text=page, url=url)
 
     async def not_dup(prospect):
         return False
@@ -174,6 +176,91 @@ async def test_a_personal_address_is_not_a_company_inbox():
 @pytest.mark.asyncio
 async def test_published_address_is_cleaned(html):
     assert await make_scout({"https://acme.com": html})._find_inbox_address("acme.com") == "info@acme.com"
+
+
+# ── free-mail inbox under the brand's own name ──
+
+LOAF = "cornerloafbakery.example"
+
+
+def loaf_scout(html, domain=LOAF):
+    return make_scout({f"https://{domain}": html}, site=domain)
+
+
+@pytest.mark.asyncio
+async def test_brand_gmail_on_the_official_site_is_the_inbox():
+    html = '<a href="mailto:cornerloaf@gmail.com">Email us</a>'
+    assert await loaf_scout(html)._find_inbox_address(LOAF) == "cornerloaf@gmail.com"
+
+
+@pytest.mark.parametrize("address, domain", [
+    ("jane.doe@gmail.com", LOAF),
+    ("johnsmith@gmail.com", "johnsmith.example"),
+    ("info@gmail.com", LOAF),
+    ("contact@other.com", LOAF),
+])
+@pytest.mark.asyncio
+async def test_personal_generic_and_unrelated_addresses_are_rejected(address, domain):
+    html = f'<a href="mailto:{address}">Contact</a>'
+    assert await loaf_scout(html, domain)._find_inbox_address(domain) == ""
+
+
+@pytest.mark.asyncio
+async def test_company_domain_address_beats_its_branded_gmail():
+    html = (f'<a href="mailto:cornerloaf@gmail.com">Gmail</a>'
+            f'<a href="mailto:info@{LOAF}">Email us</a>')
+    assert await loaf_scout(html)._find_inbox_address(LOAF) == f"info@{LOAF}"
+
+
+@pytest.mark.asyncio
+async def test_duplicate_branded_addresses_are_returned_once():
+    html = ('<a href="mailto:cornerloaf@gmail.com">Email</a>'
+            '<a href="mailto:cornerloaf@gmail.com">Contact</a>')
+    assert await loaf_scout(html)._find_inbox_address(LOAF) == "cornerloaf@gmail.com"
+
+
+@pytest.mark.asyncio
+async def test_branded_address_from_a_cross_domain_redirect_is_rejected():
+    pages = {
+        f"https://{LOAF}": (
+            '<a href="/about">About</a><a href="/team">Team</a>'
+        ),
+        f"https://{LOAF}/about": "<h1>About</h1>",
+        f"https://{LOAF}/team": "<h1>Team</h1>",
+        f"https://{LOAF}/contact": SimpleNamespace(
+            text="cornerloaf@gmail.com", url="https://other.example/contact"),
+    }
+    assert await make_scout(pages, site=LOAF)._find_inbox_address(LOAF) == ""
+
+
+@pytest.mark.asyncio
+async def test_brand_gmail_is_only_verified_by_the_normal_verifier(monkeypatch):
+    async def inconclusive(email, env=None):
+        return "guess"
+
+    monkeypatch.setattr(scout_mod, "verify_published_address", inconclusive)
+    prospect = await loaf_scout(
+        '<a href="mailto:cornerloaf@gmail.com">Email us</a>'
+    )._company_inbox_prospect("c1", LOAF, "Corner Loaf Bakery", "Food")
+    assert prospect.email == "cornerloaf@gmail.com"
+    assert prospect.email_status == "guess"
+    assert prospect.email_verified is False
+
+
+@pytest.mark.asyncio
+async def test_duplicate_brand_gmail_is_not_added_again(monkeypatch):
+    async def inconclusive(email, env=None):
+        return "guess"
+
+    async def duplicate(prospect):
+        return True
+
+    monkeypatch.setattr(scout_mod, "verify_published_address", inconclusive)
+    scout = loaf_scout('<a href="mailto:cornerloaf@gmail.com">Email us</a>')
+    scout._is_duplicate_prospect = duplicate
+    assert await scout._company_inbox_prospect(
+        "c1", LOAF, "Corner Loaf Bakery", "Food"
+    ) is None
 
 
 # ── fallback only when the company has nobody ──

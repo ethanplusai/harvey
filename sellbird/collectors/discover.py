@@ -1161,6 +1161,7 @@ class OpenStreetMap(DiscoveryProvider):
         headers = {"User-Agent": "Sellbird/0.1 (open-source sales agent; "
                                  "github.com/ethanplusai/sellbird)"}
         r = None
+        failures = []
         for i, endpoint in enumerate(self.ENDPOINTS):
             if i:
                 await asyncio.sleep(self.BACKOFF)
@@ -1170,16 +1171,19 @@ class OpenStreetMap(DiscoveryProvider):
                                       timeout=self.HTTP_TIMEOUT)
             except httpx.HTTPError as e:
                 logger.warning("osm: %s unreachable (%s)", endpoint, e)
+                failures.append(f"{endpoint.split('/')[2]}: {type(e).__name__}")
                 continue
             if r.status_code not in self.RETRY_STATUSES:
                 break
             logger.warning("osm: %s is throttling or down (%s) — trying the "
                            "next mirror", endpoint, r.status_code)
+            failures.append(f"{endpoint.split('/')[2]}: HTTP {r.status_code}")
         else:
+            details = "; ".join(failures)
             raise RuntimeError(
                 "Every public Overpass mirror is unavailable or throttling "
-                "right now. This is free volunteer infrastructure — wait a few "
-                "minutes and re-run, or use a paid provider for bulk work.")
+                f"right now. Failures: {details}. "
+                "Wait a few minutes and re-run, or use a paid provider for bulk work.")
         if r is None:
             raise RuntimeError("Could not reach any Overpass mirror.")
         r.raise_for_status()
