@@ -28,13 +28,17 @@ from sellbird.send_hooks import NO_HEADERS_HOLD, SendCheck, SendHookError, extra
 from sellbird.send_window import in_window, next_send_time, recipient_country, recipient_zone
 from sellbird.integrations.instantly import InstantlyClient
 from sellbird.integrations.mail_provider import NATIVE_PROVIDERS, get_mail_provider
-from sellbird.integrations.precleared import PreclearedClient, clear_hold, record_hold
+from sellbird.integrations.precleared import (
+    UNKNOWN_ATTEMPTS, UNKNOWN_RETRY_AFTER, PreclearedClient, clear_hold, record_hold,
+)
 from sellbird.integrations.signature import signature_problem
+from sellbird.email_style import style_problems
 from sellbird.mailboxes import Inboxes, load_inboxes
 from sellbird.sending_mode import SIGNATURE_HOLD_PREFIX, sync_sending_mode
 from sellbird.state import (
     AUTOPILOT_OFF_REASON, COLLEAGUE_REPLIED, HAND_SENT_REASON, HELD_FOR_REVIEW,
-    MANUAL_SEND_KEY, MAYBE_SENT_PREFIX, RECHECK_PREFIX, StateManager,
+    MANUAL_SEND_KEY, MAYBE_SENT_PREFIX, MOVED_BACK_PREFIXES, RECHECK_PREFIX,
+    UNKNOWN_HOLD_PREFIX, StateManager,
 )
 
 # A follow-up waits at least this long after the email it follows went out,
@@ -795,13 +799,15 @@ class Sender:
         await self.state.update_outbox_item(item["id"], send_at=ready_at.isoformat())
         return "wait"
 
-    async def _retry_later(self, item: dict, reason: str) -> datetime:
-        """Move a cold email back by ADDRESS_RETRY_AFTER, saying why; return
-        the new time. Sending it clears the note."""
-        retry_at = _utcnow() + ADDRESS_RETRY_AFTER
+    async def _retry_later(self, item: dict, reason: str, after: timedelta = ADDRESS_RETRY_AFTER,
+                           prefix: str = RECHECK_PREFIX) -> datetime:
+        """Move a cold email back by ``after`` (ADDRESS_RETRY_AFTER unless
+        said otherwise), saying why; return the new time. Sending it clears
+        the note."""
+        retry_at = _utcnow() + after
         await self.state.update_outbox_item(
             item["id"], send_at=retry_at.isoformat(),
-            error=f"{RECHECK_PREFIX}{retry_at:%Y-%m-%d %H:%M} UTC: {reason}"[:300])
+            error=f"{prefix}{retry_at:%Y-%m-%d %H:%M} UTC: {reason}"[:300])
         return retry_at
 
     async def _blocked(self, item: dict, prospect, allow_risky: bool) -> tuple[str, str] | None:
@@ -829,6 +835,16 @@ class Sender:
             colleague = await self.state.colleague_who_replied(prospect.id)
             if colleague:
                 return "cancelled", f"{COLLEAGUE_REPLIED} ({colleague})"
+        # Sellbird's writing rules (no dashes, no exclamation marks, no AI
+        # phrases): a draft that breaks them waits for an edit instead of
+        # going out. Length and shape were checked when it was written, so an
+        # edit you made on purpose isn't second-guessed here.
+        style = style_problems(item["subject"], item["body"],
+                               kind="reply" if item["kind"] == "reply" else "cold",
+                               names=_names(prospect), shape=False)
+        if style:
+            logger.warning(f"Sender: holding email to {item['to_email']}: {style}")
+            return "pending_review", (HELD_FOR_REVIEW + "the email " + "; ".join(style))[:300]
         gate = pre_send_check(
             item["to_email"], item["subject"], self._outgoing_body(item),
             prospect=prospect, allow_risky=allow_risky, kind=item["kind"],
@@ -960,6 +976,9 @@ class Sender:
         hold = None
         waiting_on_check = 0
         answered = False
+        # Cold emails held this cycle on an "unknown" answer (a fact Precleared
+        # couldn't establish), asked about again later.
+        unknown_held = 0
         # Addresses Precleared couldn't check this cycle: their other emails
         # aren't asked about again. (self._failing_domains: failures across
         # several domains pause checks.)
@@ -1079,14 +1098,37 @@ class Sender:
                 if not clearance.cached:
                     answered = True
                     self._failing_domains.clear()
+                if clearance.verdict == "unknown" and not clearance.unknown_final:
+                    # Not a verdict but a fact Precleared couldn't establish
+                    # (usually the recipient's country). Hold the email and
+                    # ask again later, in case the fact turns up: a slow
+                    # register answers, or the user sets prospect_country or
+                    # adds the company's location. The note says what would
+                    # settle it. The first retry is soon, for a passing
+                    # problem; later ones leave time to fix the config.
+                    after = ADDRESS_RETRY_AFTER if clearance.unknown_attempts <= 1 else UNKNOWN_RETRY_AFTER
+                    retry_at = await self._retry_later(
+                        item, clearance.reason, after=after, prefix=UNKNOWN_HOLD_PREFIX)
+                    unknown_held += 1
+                    logger.warning(
+                        f"Sender: Precleared couldn't settle {item['to_email']} "
+                        f"(unknown, answer {clearance.unknown_attempts} of "
+                        f"{UNKNOWN_ATTEMPTS}); trying again after "
+                        f"{retry_at:%Y-%m-%d %H:%M} UTC: {clearance.reason}"
+                    )
+                    continue
                 if not clearance.allowed:
+                    verdict = clearance.verdict
+                    if verdict == "unknown":
+                        # UNKNOWN_ATTEMPTS answers of unknown on the same facts.
+                        verdict = f"unknown after {clearance.unknown_attempts} checks"
                     await self.state.update_outbox_item(
                         item["id"], status="failed",
-                        error=f"precleared: {clearance.verdict}: {clearance.reason}"[:300],
+                        error=f"precleared: {verdict}: {clearance.reason}"[:300],
                     )
                     logger.warning(
                         f"Sender: Precleared held back email to {item['to_email']}: "
-                        f"{clearance.verdict} ({clearance.reason})"
+                        f"{verdict} ({clearance.reason})"
                     )
                     continue
                 receipt_id = clearance.receipt_id
@@ -1174,7 +1216,7 @@ class Sender:
                 note_inbox = {}
             now_iso = datetime.now(timezone.utc).replace(tzinfo=None).isoformat()
             # A note that the check moved it back no longer applies.
-            note = {"error": ""} if (item.get("error") or "").startswith(RECHECK_PREFIX) else {}
+            note = {"error": ""} if (item.get("error") or "").startswith(MOVED_BACK_PREFIXES) else {}
             await self.state.update_outbox_item(
                 item["id"], status="sent", sent_at=now_iso, body=body,
                 message_id=result.message_id, thread_ref=result.thread_ref, **note,
@@ -1227,6 +1269,10 @@ class Sender:
             logger.info(
                 f"Sender: {outside_window} cold email(s) wait for the recipient's "
                 f"send window ({window.start}-{window.end} their time).")
+        if unknown_held:
+            logger.info(
+                f"Sender: {unknown_held} cold email(s) wait on a fact Precleared couldn't "
+                f"establish; the Outbox says what would settle each one.")
         if self.precleared is not None:
             if hold is not None:
                 # The page read above stops at a few times the cycle's
@@ -1258,3 +1304,10 @@ class Sender:
         if sent:
             logger.info(f"Sender: {sent} email(s) sent this cycle "
                         f"({sent_today + sent}/{max_daily} today).")
+
+
+def _names(prospect) -> list[str]:
+    """The prospect's own name and company: never read as an AI tell."""
+    if prospect is None:
+        return []
+    return [n for n in (prospect.company, prospect.first_name, prospect.last_name) if n]

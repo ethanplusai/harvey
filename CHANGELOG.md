@@ -33,6 +33,14 @@ minor versions can still change behaviour.
   false` turns them off, and `CLAUDE.md` and the approval guide now tell
   Claude to offer a browser check of each draft's claims before the user
   approves.
+- **The cold-email check takes a sender based in any of Precleared's
+  fourteen countries.** `compliance.precleared.sender_country` accepts GB, US,
+  CA, DE, FR, AU, IE, NL, ES, IT, LV, AE, EG and QA (`UK`, `USA` and `UAE` are
+  read as their codes), where it took only GB or US; `sellbird setup` asks for
+  a two-letter code and lists them when the answer isn't one. A sender whose
+  timezone is Europe/London is told the check is recommended for them and
+  offered GB as their country; it still waits for their yes. The docs say a
+  new key's 14 days at 100 checks a day start at its first check.
 - Seeding the signal catalog writes only a signal that is missing or whose catalog text changed. The dashboard seeds on every Today load, so this was a write per signal on every page view.
 - **The opt-out line takes any wording.** `compliance.opt_out_line` no longer
   has to ask for a keyword: "Not interested? Just let me know and I won't email
@@ -41,6 +49,14 @@ minor versions can still change behaviour.
   say the emails can stop, however it's worded, so a sign-off like "Cheers!" is
   refused; `""` leaves the line off on purpose. A link or an email address is
   still refused.
+- **An `unknown` answer from the cold-email check holds the email instead of
+  failing it.** Precleared answers `unknown` when a fact can't be established,
+  usually the recipient's country, sometimes a register that was too slow.
+  That email now waits in the Outbox with what would settle it (set
+  `prospect_country`, or give the company a location or number) and is asked
+  about again, after six hours and then after a day; the third unknown on the
+  same facts fails it as before. Rejecting or sending the email clears the
+  note, as for an address the check couldn't reach.
 
 ### Security
 

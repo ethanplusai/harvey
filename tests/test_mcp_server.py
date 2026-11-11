@@ -134,10 +134,15 @@ def test_the_users_token_still_reaches_everything(core):
     assert response.status_code == 200
 
 
-def test_the_allowlist_is_reads_estimates_and_pause_only():
+def test_the_allowlist_is_reads_estimates_pause_and_offer_proposals_only():
+    # The offer routes write a sample or a proposal; none changes what's sent.
+    allowed_posts = ("/api/discover/estimate", "/api/sending/pause", "/api/inboxes/[^/]+/pause",
+                     "/api/offer/suggest", "/api/offer/preview", "/api/offer/propose")
     for method, pattern in agent_policy.AGENT_ROUTES:
-        assert method == "GET" or pattern in ("/api/discover/estimate", "/api/sending/pause",
-                                              "/api/inboxes/[^/]+/pause")
+        assert method == "GET" or pattern in allowed_posts
+    assert not agent_policy.agent_may("POST", "/api/offer")
+    assert not agent_policy.agent_may("POST", "/api/company")
+    assert not agent_policy.agent_may("DELETE", "/api/offer/propose")
     assert agent_policy.agent_may("HEAD", "/api/today")
     assert not agent_policy.agent_may("GET", "/api/today/extra")
     assert not agent_policy.agent_may("POST", "/api/sending/resume")

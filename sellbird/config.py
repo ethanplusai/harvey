@@ -42,7 +42,12 @@ class PersonaConfig(BaseModel):
 
 class OfferConfig(BaseModel):
     primary: str = ""
+    # What email 1 offers: free, useful, and something you can really deliver
+    # ("a mockup of your homepage with online booking"). The Writer builds the
+    # first email around it. `sellbird train` suggests entry_ideas and fills
+    # entry from the first when it's empty.
     entry: str = ""
+    entry_ideas: list[str] = []
     goal: str = "book_call"  # book_call, start_trial, get_reply
     booking_method: str = "calendar_link"  # calendar_link, suggest_times, ask_preference
     booking_url: str = ""
@@ -366,6 +371,16 @@ class ChannelsConfig(BaseModel):
 
 
 PRECLEARED_ADDRESS_SOURCES = ("published", "bought", "scraped", "given", "unknown")
+# Where a sender can be based for the Precleared check: the countries whose
+# cold-email rules Precleared applies (UK, US, Canada, Germany, France,
+# Australia, Ireland, the Netherlands, Spain, Italy, Latvia, the UAE, Egypt
+# and Qatar). The check itself decides by the recipient's country; this
+# list only gates sender_country in the config and in setup.
+PRECLEARED_SENDER_COUNTRIES = (
+    "GB", "US", "CA", "DE", "FR", "AU", "IE", "NL", "ES", "IT", "LV", "AE", "EG", "QA",
+)
+# Common spellings read as their two-letter codes.
+COUNTRY_ALIASES = {"UK": "GB", "USA": "US", "UAE": "AE"}
 
 
 def normalize_prospect_country(v) -> str:
@@ -380,7 +395,7 @@ def normalize_prospect_country(v) -> str:
             'ON into true/false, so quote the code, e.g. prospect_country: "NO".'
         )
     v = str(v or "").strip().upper()
-    v = {"UK": "GB", "USA": "US"}.get(v, v)
+    v = COUNTRY_ALIASES.get(v, v)
     if v and not (len(v) == 2 and v.isascii() and v.isalpha()):
         raise ValueError(
             f"'{v}' is not a valid prospect_country. Use a two-letter "
@@ -393,13 +408,17 @@ class PreclearedConfig(BaseModel):
     """Optional per-recipient cold-email check through Precleared.
 
     Off by default. When on, each new recipient is checked once, before the
-    first cold email, against UK PECR, US CAN-SPAM, Canada's CASL, Germany's
-    UWG and France's rules. Any verdict other than ok_to_email holds the
-    email back with the reason. See sellbird/integrations/precleared.py.
+    first cold email, under the cold-email rules of the recipient's country
+    (UK PECR, US CAN-SPAM, Canada's CASL, Germany's UWG, France's CPCE and
+    the other countries in PRECLEARED_SENDER_COUNTRIES). Any verdict other
+    than ok_to_email holds the email back with the reason. See
+    sellbird/integrations/precleared.py.
     """
 
     enabled: bool = False
-    # Where your business is based: GB or US. Required when enabled.
+    # Where your business is based, as a two-letter code from
+    # PRECLEARED_SENDER_COUNTRIES (GB, US, CA, DE, FR, AU, IE, NL, ES, IT, LV,
+    # AE, EG or QA). Required when enabled.
     sender_country: str = ""
     # Where prospect addresses come from, in Precleared's terms. Sellbird
     # builds most addresses from a learned pattern, so the honest default
@@ -415,7 +434,8 @@ class PreclearedConfig(BaseModel):
     @field_validator("sender_country", mode="before")
     @classmethod
     def _upper_country(cls, v) -> str:
-        return str(v or "").strip().upper()
+        v = str(v or "").strip().upper()
+        return COUNTRY_ALIASES.get(v, v)
 
     @field_validator("address_source", mode="before")
     @classmethod
@@ -435,10 +455,10 @@ class PreclearedConfig(BaseModel):
 
     @model_validator(mode="after")
     def _country_when_enabled(self):
-        if self.enabled and self.sender_country not in ("GB", "US"):
+        if self.enabled and self.sender_country not in PRECLEARED_SENDER_COUNTRIES:
             raise ValueError(
-                "compliance.precleared.sender_country must be GB or US "
-                "when the check is enabled."
+                "compliance.precleared.sender_country must be one of "
+                f"{', '.join(PRECLEARED_SENDER_COUNTRIES)} when the check is enabled."
             )
         return self
 
@@ -754,6 +774,16 @@ def load_email_rules(config) -> str:
     return text
 
 
+class HandoffConfig(BaseModel):
+    """Who gets a prospect who says yes to your offer (sellbird.handoff):
+    one tool on another system's MCP server."""
+    mcp_url: str = ""
+    mcp_command: list[str] = []
+    token_env: str = ""
+    tool: str = ""
+    arguments: dict = {}
+
+
 class SellbirdConfig(BaseModel):
     persona: PersonaConfig
     product: ProductConfig
@@ -763,6 +793,7 @@ class SellbirdConfig(BaseModel):
     brain: BrainConfig = BrainConfig()
     compliance: ComplianceConfig = ComplianceConfig()
     writer: WriterConfig = WriterConfig()
+    handoff: HandoffConfig = HandoffConfig()
     # The file it was loaded from, so a running Sellbird can re-read the
     # sending mode from that same file (refresh_sending_mode).
     _source_path: str | None = PrivateAttr(default=None)
