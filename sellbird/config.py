@@ -260,6 +260,10 @@ class EmailChannelConfig(BaseModel):
     # main mailbox keeps max_daily_sends and warmup.start_date, and
     # max_daily_sends stays the ceiling on everything sent in a day.
     per_inbox_daily_cap: int = 30
+    # How many approved emails each inbox sends per heartbeat cycle. The
+    # default spreads 50 a day over the day; starting at 5 a day, set 1 so
+    # one email leaves every cycle instead of all five in one minute.
+    max_sends_per_cycle: int = 8
     # When True, also send to catch-all ("risky") domains, not just verified
     # mailboxes. Off by default — catch-alls accept everything, so a bad
     # guess still bounces.
