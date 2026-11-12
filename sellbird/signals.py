@@ -184,7 +184,7 @@ SIGNAL_CATALOG: list[dict] = [
     {
         "code": "NO_SCHEMA_MARKUP",
         "label": "Missing structured data",
-        "description": "No JSON-LD schema markup — a concrete, checkable SEO gap you can name in an email.",
+        "description": "No schema.org structured data (JSON-LD, microdata or RDFa) — a concrete, checkable SEO gap you can name in an email.",
         "category": "profile",
         "value_type": "bool",
         "collector": "profile",

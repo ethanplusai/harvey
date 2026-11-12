@@ -7,6 +7,13 @@ minor versions can still change behaviour.
 
 ## [Unreleased]
 
+### Fixed
+
+- **`NO_SCHEMA_MARKUP` recognises microdata and RDFa, not only JSON-LD.** A site
+  marked up with `itemtype="https://schema.org/..."` or a schema.org `vocab` was
+  reported as having no structured data. Observations already stored keep their
+  old value until the site is profiled again.
+
 ### Added
 
 - **`writer.require_tip: true` skips prospects with nothing to build a tip
