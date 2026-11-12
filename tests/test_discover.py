@@ -1743,3 +1743,242 @@ async def test_osm_maps_spanish_business_terms():
     assert provider._tags("comercio al mayor") == ["shop=wholesale"]
     assert provider._tags("mayorista") == ["shop=wholesale"]
     assert provider._tags("mayor's office") == []
+
+
+# ── Google Places API (New) ───────────────────────────────────────────
+
+
+def _places_page(start, n, token=""):
+    page = {"places": [
+        {"id": f"ChIJcafe{start + i}", "displayName": {"text": f"Cafe {start + i}"},
+         "formattedAddress": "1 Example Road, Springfield",
+         "nationalPhoneNumber": "0100 555 0100",
+         "websiteUri": f"https://cafe{start + i}.example/",
+         "rating": 4.5, "userRatingCount": 80,
+         "primaryTypeDisplayName": {"text": "Cafe"},
+         "googleMapsUri": f"https://maps.google.com/?cid={start + i}",
+         "businessStatus": "OPERATIONAL"}
+        for i in range(n)]}
+    if token:
+        page["nextPageToken"] = token
+    return page
+
+
+async def _identity(state, queries):
+    return queries
+
+
+@pytest.mark.asyncio
+async def test_google_places_adapter():
+    provider = D.GooglePlaces()
+    seen = []
+    payload = {"places": [
+        {"id": "ChIJleaf1", "displayName": {"text": "Leaf and Grind Cafe", "languageCode": "en"},
+         "formattedAddress": "12 Sample Street, Springfield",
+         "nationalPhoneNumber": "0100 555 0199",
+         "internationalPhoneNumber": "+1 100-555-0199",
+         "websiteUri": "https://www.leafandgrind.example/?utm_source=gbp",
+         "rating": 4.7, "userRatingCount": 312,
+         "primaryTypeDisplayName": {"text": "Coffee shop"},
+         "googleMapsUri": "https://maps.google.com/?cid=111",
+         "businessStatus": "OPERATIONAL"},
+        {"id": "ChIJnosite2", "displayName": {"text": "Corner Juice Bar"},
+         "nationalPhoneNumber": "0100 555 0142",
+         "primaryTypeDisplayName": {"text": "Juice shop"},
+         "rating": 4.2, "userRatingCount": 18},
+        {"id": "ChIJgone3", "displayName": {"text": "Closed Cafe"},
+         "businessStatus": "CLOSED_PERMANENTLY"},
+    ]}
+
+    def handler(request):
+        seen.append((str(request.url), request.headers.get("x-goog-api-key"),
+                     request.headers.get("x-goog-fieldmask"), json.loads(request.content)))
+        return httpx.Response(200, json=payload)
+
+    async with _client(handler) as client:
+        out = await provider.fetch(client, {"google_places_api_key": "k"}, D.DiscoveryQuery(
+            term="cafe", location="Springfield", coordinate="10.5,20.25,25", limit=60))
+
+    url, key, mask, body = seen[0]
+    assert url == "https://places.googleapis.com/v1/places:searchText"
+    assert key == "k"
+    assert "places.websiteUri" in mask and "nextPageToken" in mask
+    assert body["textQuery"] == "cafe" and body["pageSize"] == 20
+    assert "locationBias" not in body, "a bias lets other continents through"
+    rect = body["locationRestriction"]["rectangle"]
+    assert rect["low"]["latitude"] < 10.5 < rect["high"]["latitude"]
+    assert rect["low"]["longitude"] < 20.25 < rect["high"]["longitude"]
+    assert rect["high"]["latitude"] - 10.5 == pytest.approx(25000 / 111_320)
+    assert "places.location" in mask
+    assert len(seen) == 1, "no nextPageToken means no second page"
+    assert provider.last_cost == pytest.approx(0.035)
+
+    assert len(out) == 2, "a permanently closed place is dropped"
+    leaf, nosite = out
+    assert leaf.name == "Leaf and Grind Cafe"
+    assert leaf.domain == "leafandgrind.example"
+    assert leaf.phone == "+1 100-555-0199", "the international number wins"
+    assert leaf.category == "Coffee shop"
+    assert leaf.rating == 4.7 and leaf.review_count == 312
+    assert leaf.external_id == "gmaps:ChIJleaf1"
+    assert leaf.source_url == "https://maps.google.com/?cid=111"
+    assert leaf.rank is None and leaf.maps_rank is None and leaf.is_claimed is None
+    assert nosite.domain == "" and nosite.has_website is False
+    assert nosite.phone == "0100 555 0142"
+    assert nosite.identity() == "gmaps:ChIJnosite2"
+
+
+@pytest.mark.asyncio
+async def test_google_places_without_a_coordinate_searches_by_place_name():
+    bodies = []
+
+    def handler(request):
+        bodies.append(json.loads(request.content))
+        return httpx.Response(200, json={})
+
+    async with _client(handler) as client:
+        out = await D.GooglePlaces().fetch(client, {"google_places_api_key": "k"},
+                                           D.DiscoveryQuery(term="cafe", location="Springfield"))
+    assert out == []
+    assert bodies[0]["textQuery"] == "cafe Springfield"
+    assert "locationBias" not in bodies[0] and "locationRestriction" not in bodies[0]
+
+
+@pytest.mark.asyncio
+async def test_google_places_follows_page_tokens_up_to_the_limit():
+    bodies = []
+
+    def handler(request):
+        body = json.loads(request.content)
+        bodies.append(body)
+        start = {"": 0, "t1": 20, "t2": 40}[body.get("pageToken", "")]
+        return httpx.Response(200, json=_places_page(start, 20, token=f"t{start // 20 + 1}"))
+
+    provider = D.GooglePlaces()
+    async with _client(handler) as client:
+        out = await provider.fetch(client, {"google_places_api_key": "k"},
+                                   D.DiscoveryQuery(term="cafe", limit=100))
+    assert [b.get("pageToken") for b in bodies] == [None, "t1", "t2"], "60 is the ceiling"
+    assert len(out) == 60
+    assert provider.last_cost == pytest.approx(3 * 0.035)
+    assert D.estimate_cost("google_places", [D.DiscoveryQuery(term="cafe", limit=100)]) \
+        == pytest.approx(3 * 0.035)
+    assert D.estimate_cost("google_places", [D.DiscoveryQuery(term="cafe", limit=20)]) \
+        == pytest.approx(0.035)
+
+
+@pytest.mark.asyncio
+async def test_google_places_keeps_earlier_pages_when_a_later_page_fails():
+    def handler(request):
+        if json.loads(request.content).get("pageToken"):
+            return httpx.Response(500, json={"error": {"message": "fixture_secret"}})
+        return httpx.Response(200, json=_places_page(0, 20, token="t1"))
+
+    provider = D.GooglePlaces()
+    async with _client(handler) as client:
+        out = await provider.fetch(client, {"google_places_api_key": "k"},
+                                   D.DiscoveryQuery(term="cafe", limit=60))
+    assert len(out) == 20
+    assert provider.complete is False and "500" in provider.last_error
+    assert "fixture_secret" not in provider.last_error
+    assert provider.last_cost == pytest.approx(0.035)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("status", [401, 403, 429])
+async def test_google_places_stops_run_on_account_errors(state, config, register, monkeypatch, status):
+    provider = register(D.GooglePlaces())
+    calls = []
+
+    def handler(request):
+        calls.append(request)
+        return httpx.Response(status, json={"error": {"message": "fixture_secret_should_not_be_logged"}})
+
+    real_client = httpx.AsyncClient
+    monkeypatch.setattr(D.httpx, "AsyncClient", lambda **kw: real_client(
+        transport=httpx.MockTransport(handler), **kw))
+    monkeypatch.setattr("sellbird.config.load_env", lambda: EnvConfig(google_places_api_key="fixture"))
+    monkeypatch.setattr(D, "resolve_coordinates", _identity)
+    report = await D.run_discovery(state, config, provider.key,
+        [D.DiscoveryQuery(term="cafe"), D.DiscoveryQuery(term="juice bar")])
+    assert len(calls) == 1
+    assert str(status) in report.stopped
+    assert "fixture_secret" not in str(report.as_dict())
+    assert report.queries_succeeded == 0
+    assert report.actual_cost == 0
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("body", [[], {"places": {}}, {"places": ["x"]}])
+async def test_google_places_malformed_paid_responses_are_failures_with_cost(body):
+    provider = D.GooglePlaces()
+    async with _client(lambda r: httpx.Response(200, json=body)) as client:
+        with pytest.raises(RuntimeError, match="Google Places: invalid"):
+            await provider.fetch(client, {"google_places_api_key": "k"}, D.DiscoveryQuery(term="cafe"))
+    assert provider.last_cost == pytest.approx(0.035)
+
+
+@pytest.mark.asyncio
+async def test_google_places_budget_stops_before_the_next_page():
+    provider = D.GooglePlaces()
+    provider.remaining_budget = 0.035
+    tokens = []
+
+    def handler(request):
+        tokens.append(json.loads(request.content).get("pageToken"))
+        return httpx.Response(200, json=_places_page(0, 20, token="t1"))
+
+    async with _client(handler) as client:
+        rows = await provider.fetch(client, {"google_places_api_key": "k"},
+                                    D.DiscoveryQuery(term="cafe", limit=60))
+    assert tokens == [None]
+    assert len(rows) == 20
+    assert "budget reached" in provider.stop_reason
+
+
+@pytest.mark.parametrize("coordinate, radius", [
+    ("10,20,25", 25000.0), ("10,20", 25000.0), ("10,20,200", 50000.0), ("10,20,0.1", 500.0),
+    ("10,20,bad", 25000.0),
+])
+def test_google_places_radius_is_clamped(coordinate, radius):
+    assert D.GooglePlaces.search_area(coordinate)[2] == radius
+
+
+@pytest.mark.parametrize("coordinate", ["nan,0,40", "0,inf,40", "91,0,40", "0,181,40", "bad,0,40", "10"])
+def test_google_places_invalid_points_fall_back_to_place_name(coordinate):
+    assert D.GooglePlaces.search_area(coordinate) is None
+
+
+@pytest.mark.asyncio
+async def test_google_places_drops_places_outside_the_search_circle():
+    center = (10.0, 20.0)
+
+    def place(pid, lat, lng):
+        return {"id": pid, "displayName": {"text": pid},
+                "location": {"latitude": lat, "longitude": lng}}
+
+    payload = {"places": [
+        place("near", 10.05, 20.05),            # about 8 km away
+        place("corner", 10.2, 20.2),            # inside the box, about 31 km away
+        place("abroad", 41.8, -88.1),           # another continent
+        {"id": "nolocation", "displayName": {"text": "nolocation"}},
+    ]}
+    async with _client(lambda r: httpx.Response(200, json=payload)) as client:
+        out = await D.GooglePlaces().fetch(client, {"google_places_api_key": "k"},
+            D.DiscoveryQuery(term="cafe", coordinate=f"{center[0]},{center[1]},25"))
+    assert [b.name for b in out] == ["near", "nolocation"]
+
+
+def test_google_places_restriction_widens_longitude_away_from_the_equator():
+    rect = D.GooglePlaces.location_restriction(60.0, 10.0, 10_000)["rectangle"]
+    half_lat = rect["high"]["latitude"] - 60.0
+    half_lng = rect["high"]["longitude"] - 10.0
+    assert half_lng == pytest.approx(2 * half_lat, rel=1e-6)
+
+
+def test_google_places_needs_its_key():
+    provider = D.GooglePlaces()
+    assert provider.missing_keys({}) == ["google_places_api_key"]
+    assert provider.configured({"google_places_api_key": "a1b2c3"})
+    assert any(p["key"] == "google_places" and p["env_keys"] == ["GOOGLE_PLACES_API_KEY"]
+               for p in D.provider_menu({}))
