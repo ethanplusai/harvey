@@ -124,6 +124,7 @@ const STATUS = {
   confirmed:      ['Confirmed', 'good'],
   // email deliverability
   verified:       ['Verified', 'good'],
+  published:      ['Published on their site', 'good'],
   risky:          ['Catch-all', 'waiting'],
   guess:          ['Unverified', 'idle'],
   invalid:        ['Invalid', 'bad'],

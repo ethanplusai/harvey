@@ -23,7 +23,7 @@ CSV_COLUMNS = [
     "email_status", "score", "seniority", "source", "status", "created_at",
 ]
 
-DEFAULT_EMAIL_STATUSES = ["verified", "risky"]
+DEFAULT_EMAIL_STATUSES = ["verified", "published", "risky"]
 
 
 async def collect_prospects(

@@ -14,7 +14,7 @@ product:      { name, description, pricing, key_benefits, objection_responses, o
 icp:          { industries, titles, company_size, geography, hiring_signals, geo_coordinates }
 channels:
   email:      { provider: gmail | microsoft | smtp | instantly, max_daily_sends, per_inbox_daily_cap,
-                require_approval, send_to_risky, min_write_score, max_bounce_rate, follow_ups, warmup, send_window, signature }
+                require_approval, send_to_risky, min_write_score, max_bounce_rate, follow_ups, published_only, trust_published, warmup, send_window, signature }
 usage:        { max_daily_claude_percent, heartbeat_interval_minutes, quiet_hours }
 brain:        { provider: claude | codex, model, reasoning_effort }   # optional; claude by default
 writer:       { humanizer, site_facts, require_tip }   # optional; humanizer true adds one editing pass per batch using ~/.claude/skills/humanizer/SKILL.md
@@ -34,6 +34,10 @@ drafts for: a prospect below it keeps its deliverable address but gets no
 sequence, so Claude calls and sends go to the best matches first.
 
 `follow_ups` (default true) set to `false` makes a campaign stage only its first email on Gmail, Microsoft and SMTP. Steps 2 and 3 are never prepared, so none can go out to someone who has not answered. A reply is still read, and the answer waits in the Outbox for you as usual. The Writer still drafts the whole sequence; the Sender just doesn't stage the later steps.
+
+`published_only` (default false) set to `true` makes Scout use only addresses a company prints on its own website. It never deduces `name.surname@` from a pattern and it skips Hunter's lookups. A person with no address on the site gets none; the company's own inbox (info@, contact@) is the usual result.
+
+`trust_published` (default false), set to `true`, treats an address the company printed on its own site that no verifier could decide (none configured, or its credits ran out) as `published` instead of `guess`; `published` is written to and sent to. A verifier's `invalid` still wins, and a catch-all stays `risky` (sent only with `send_to_risky`). It does not stop Scout from deducing addresses, which stay `guess` and are never sent: turn on `published_only` for that. The two are independent.
 
 `max_daily_claude_percent` caps whichever subscription `brain.provider` uses (the name predates Codex support).
 

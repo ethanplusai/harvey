@@ -465,7 +465,7 @@ def cmd_export(args):
             include_all=args.all,
         )
         scope = "all prospects" if args.all else (
-            f"email status {email_statuses or ['verified', 'risky']}"
+            f"email status {email_statuses or ['verified', 'published', 'risky']}"
             + (f", score >= {args.min_score}" if args.min_score else "")
         )
         print(f"\n  Exported {count} prospect(s) to {args.out}  ({scope})")

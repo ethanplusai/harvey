@@ -241,6 +241,25 @@ class Scout:
             logger.debug(f"mark_prospects_checked failed for {domain}: {e}")
         return True
 
+    def _published_only(self) -> bool:
+        """channels.email.published_only, or False when the config has none."""
+        email = getattr(getattr(getattr(self, "config", None), "channels", None), "email", None)
+        return getattr(email, "published_only", False) is True
+
+    def _trust_published(self) -> bool:
+        """channels.email.trust_published, or False when the config has none."""
+        email = getattr(getattr(getattr(self, "config", None), "channels", None), "email", None)
+        return getattr(email, "trust_published", False) is True
+
+    def _published_kwargs(self) -> dict:
+        """The finder's flags, passed only for the options that are on."""
+        kwargs = {}
+        if self._published_only():
+            kwargs["published_only"] = True
+        if self._trust_published():
+            kwargs["trust_published"] = True
+        return kwargs
+
     # ── Prospect dedup helpers ──
 
     def _prospect_key(self, prospect: Prospect) -> str:
@@ -605,8 +624,8 @@ class Scout:
         a much smaller pace and against the shared monthly Hunter budget.
         """
         api_key = getattr(self.env, "hunter_api_key", "") or ""
-        if not api_key:
-            return 0
+        if not api_key or self._published_only():
+            return 0    # published_only: only what the company's own site prints
 
         from sellbird.integrations.email_finder import (
             hunter_domain_people, hunter_searches_remaining, record_hunter_search,
@@ -1230,6 +1249,7 @@ class Scout:
                 known_emails=evidence.get("known") or None,
                 default_pattern=evidence.get("default", DEFAULT_PATTERN),
                 other_people=evidence.get("people") or None,
+                **self._published_kwargs(),
             )
         except Exception as e:
             logger.debug(f"find_email failed for {domain}: {e}")
@@ -1709,7 +1729,7 @@ Respond ONLY with the JSON array."""
         # only a guess (never sent). A named person found here who is
         # already a prospect (a revisit), or anyone already on file from
         # another source, means the company is covered.
-        reachable = any(c.email_status in ("verified", "risky") for c in contacts)
+        reachable = any(c.email_status in ("verified", "published", "risky") for c in contacts)
         if not reachable and (contacts or not named_on_site) \
                 and await self._company_uncontacted(company_id):
             inbox = await self._company_inbox_prospect(
@@ -1769,7 +1789,9 @@ Respond ONLY with the JSON array."""
         if not email:
             return None
         try:
-            status = await verify_published_address(email, env=self.env)
+            status = await verify_published_address(
+                email, env=self.env,
+                **({"trust_published": True} if self._trust_published() else {}))
         except Exception as e:
             logger.debug(f"Inbox verification failed for {email}: {e}")
             status = "guess"

@@ -78,7 +78,7 @@ def company_status(company: dict, prospects: list[dict], outbox: list[dict],
     statuses = {(p.get("email_status") or "") for p in live}
     has_form = any(o.get("signal_code") == "CONTACT_FORM_URL" for o in observations)
     form = " Contact form available." if has_form else ""
-    if "verified" in statuses or (send_to_risky and "risky" in statuses):
+    if "verified" in statuses or "published" in statuses or (send_to_risky and "risky" in statuses):
         return "Ready", "Deliverable email found; Sellbird will write to it on a coming cycle"
     if "risky" in statuses:
         return "Not contacted", ("Only a risky (catch-all) email, which your rules don't send to. "

@@ -35,7 +35,7 @@ EMAIL_RE = re.compile(r"^[A-Za-z0-9._%+\-]+@[A-Za-z0-9.\-]+\.[A-Za-z]{2,}$")
 MERGE_TAG_RE = re.compile(r"\{\{\s*\w+\s*\}\}|\{\s*\w+\s*\}(?!\})")
 URL_RE = re.compile(r"https?://\S+", re.IGNORECASE)
 
-DELIVERABLE_STATUSES = {"verified", "risky"}
+DELIVERABLE_STATUSES = {"verified", "published", "risky"}
 
 
 @dataclass
@@ -199,7 +199,7 @@ def pre_send_check(
     if prospect is not None:
         if (prospect.email or "").strip().lower() != to_email:
             reasons.append("recipient does not match the prospect record")
-        allowed = DELIVERABLE_STATUSES if allow_risky else {"verified"}
+        allowed = DELIVERABLE_STATUSES if allow_risky else {"verified", "published"}
         # Replies go back to someone who emailed US — deliverability proven.
         if kind == "sequence" and (prospect.email_status or "guess") not in allowed:
             reasons.append(

@@ -1458,7 +1458,7 @@ async def outbox_edit(item_id: str, request: Request):
 # A hand send is only offered to someone Sellbird could still email: never to
 # someone who replied, opted out, bounced or was already contacted.
 HAND_SENDABLE_STATUSES = ("new", "queued")
-HAND_SENDABLE_EMAIL = ("verified", "risky")
+HAND_SENDABLE_EMAIL = ("verified", "published", "risky")
 
 
 def _sellbird_can_send() -> bool:
@@ -2237,9 +2237,9 @@ async def get_live_status():
         k = (p.get("email_status") or "guess").lower()
         by_status[k] = by_status.get(k, 0) + 1
     deliverable = {p["id"] for p in with_email
-                   if (p.get("email_status") or "") in ("verified", "risky")}
+                   if (p.get("email_status") or "") in ("verified", "published", "risky")}
     unconfirmed = sum(n for k, n in by_status.items()
-                      if k not in ("verified", "risky", "invalid"))
+                      if k not in ("verified", "published", "risky", "invalid"))
 
     # Drafts are counted per person, not per campaign: one campaign can cover many.
     drafted: set[str] = set()
@@ -2323,7 +2323,8 @@ async def get_live_status():
         step("Find emails", checked, profiled, finding_emails,
              f"{checked} of {profiled} checked · {len(with_email)} emails found"),
         step("Check emails are real", len(with_email) - unconfirmed, len(with_email), False,
-             f"{by_status.get('verified', 0)} verified · {by_status.get('risky', 0)} risky · "
+             f"{by_status.get('verified', 0)} verified · {by_status.get('published', 0)} published · "
+             f"{by_status.get('risky', 0)} risky · "
              f"{unconfirmed} not confirmed"
              + (f" · {by_status['invalid']} bad" if by_status.get("invalid") else "")),
         step("Write first emails", len(drafted), len(deliverable | drafted), False,
