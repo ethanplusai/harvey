@@ -9,6 +9,17 @@ minor versions can still change behaviour.
 
 ### Added
 
+- **Google Places discovery provider** (`google_places`). Google Maps
+  listings read from Google's own Places API (New) Text Search, restricted to
+  each city's geocoded radius (a bias alone let other continents through):
+  phone, website, address, category, rating and review
+  count, up to 60 places per search. Businesses with no website are kept by
+  place id, stored under the same `gmaps:` key as Scavio Maps so one business
+  found by both is one row; permanently closed places are dropped. Needs
+  `GOOGLE_PLACES_API_KEY` and a Cloud project with billing on. Estimates use
+  the $0.035 Enterprise list price per page of 20, ignoring Google's monthly
+  free allowance. No map rank or claimed status is recorded, since the API
+  gives neither.
 - **`writer.require_tip: true` skips prospects with nothing to build a tip
   on.** A first email is meant to name one concrete thing the sender would
   change; with no finding about the company, the draft could only say it had no

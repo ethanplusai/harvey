@@ -1459,6 +1459,229 @@ class ScavioSearch(ScavioProvider):
         return out
 
 
+class GooglePlaces(DiscoveryProvider):
+    """Google's own Places API (New), Text Search: Maps listings at the source.
+
+    Every place Google Maps holds for a search around a point, with phone,
+    website, address, category, rating and review count, read from Google
+    rather than through a reseller. Businesses with no website are kept by
+    their place id, like the other listings providers.
+    """
+
+    key = "google_places"
+    needs_coordinates = True
+    label = "Google Places API"
+    kind = "listings"
+    blurb = ("Google's own Places API: the businesses Google Maps shows for a "
+             "search around each city, with phone, website, address, category, "
+             "rating and review count. Up to 60 per search.")
+    cost_note = ("$0.035 per page of up to 20 places (Text Search Enterprise "
+                 "list price); estimates ignore the monthly free allowance")
+    free_tier = "Google's monthly free allowance per SKU; needs a billing account"
+    signup_url = "https://console.cloud.google.com/apis/library/places.googleapis.com"
+    env_keys = ("google_places_api_key",)
+    caveat = ("Needs a Google Cloud project with Places API (New) enabled and "
+              "billing on; restrict the key to that API. Google doesn't say "
+              "whether a listing is claimed, and its result order is relevance, "
+              "not map rank, so neither signal is recorded.")
+
+    API = "https://places.googleapis.com/v1/places:searchText"
+    # Phone, website and rating put a request in the Enterprise SKU; the
+    # field mask is what Google bills on, so nothing else is asked for.
+    FIELD_MASK = ",".join((
+        "places.id", "places.displayName", "places.formattedAddress",
+        "places.nationalPhoneNumber", "places.internationalPhoneNumber",
+        "places.websiteUri", "places.rating", "places.userRatingCount",
+        "places.primaryTypeDisplayName", "places.googleMapsUri",
+        "places.businessStatus", "places.location", "nextPageToken",
+    ))
+    PAGE_PRICE = 0.035
+    PAGE_SIZE = 20
+    MAX_PAGES = 3          # Text Search returns at most 60 places
+    MAX_RADIUS_M = 50000   # one metro area; wider searches mostly add noise
+
+    def _page_count(self, query: DiscoveryQuery) -> int:
+        return max(1, min(self.MAX_PAGES, -(-query.limit // self.PAGE_SIZE)))
+
+    def estimate(self, queries):
+        return sum(self.PAGE_PRICE * self._page_count(q) for q in queries)
+
+    @classmethod
+    def search_area(cls, coordinate: str) -> tuple[float, float, float] | None:
+        """"13.0827,80.2707,25" -> (lat, lng, radius in metres), or None."""
+        parts = [p.strip() for p in (coordinate or "").split(",")]
+        if len(parts) < 2:
+            return None
+        try:
+            lat, lng = float(parts[0]), float(parts[1])
+        except ValueError:
+            return None
+        if not (math.isfinite(lat) and math.isfinite(lng)
+                and -90 <= lat <= 90 and -180 <= lng <= 180):
+            return None
+        try:
+            radius_km = float(parts[2]) if len(parts) > 2 and parts[2] else 25.0
+        except ValueError:
+            radius_km = 25.0
+        if not math.isfinite(radius_km) or radius_km <= 0:
+            radius_km = 25.0
+        return lat, lng, min(cls.MAX_RADIUS_M, max(500.0, radius_km * 1000))
+
+    @staticmethod
+    def location_restriction(lat: float, lng: float, radius_m: float) -> dict:
+        """The rectangle that bounds the search circle.
+
+        A locationBias circle is only a preference: Google still answers
+        "cafe" with cafes on other continents when it runs short nearby.
+        Text Search restricts to a rectangle only, so the circle's bounding
+        box goes to Google and the corners are trimmed by distance after.
+        """
+        dlat = radius_m / 111_320
+        dlng = radius_m / (111_320 * max(math.cos(math.radians(lat)), 0.01))
+        return {"rectangle": {
+            "low": {"latitude": max(-90.0, lat - dlat), "longitude": max(-180.0, lng - dlng)},
+            "high": {"latitude": min(90.0, lat + dlat), "longitude": min(180.0, lng + dlng)},
+        }}
+
+    @staticmethod
+    def distance_m(lat1: float, lng1: float, lat2: float, lng2: float) -> float:
+        """Great-circle distance in metres."""
+        p1, p2 = math.radians(lat1), math.radians(lat2)
+        a = (math.sin((p2 - p1) / 2) ** 2
+             + math.cos(p1) * math.cos(p2) * math.sin(math.radians(lng2 - lng1) / 2) ** 2)
+        return 2 * 6_371_000 * math.asin(min(1.0, math.sqrt(a)))
+
+    def _outside(self, place: dict, area) -> bool:
+        """True only for a place Google placed outside the search circle."""
+        if not area:
+            return False
+        loc = place.get("location")
+        if not isinstance(loc, dict):
+            return False
+        lat, lng = self._number_any(loc.get("latitude")), self._number_any(loc.get("longitude"))
+        if lat is None or lng is None:
+            return False
+        return self.distance_m(area[0], area[1], lat, lng) > area[2]
+
+    @staticmethod
+    def _number_any(value):
+        if isinstance(value, bool) or not isinstance(value, (int, float)):
+            return None
+        return value if math.isfinite(value) else None
+
+    async def _post(self, client, env, body: dict) -> dict:
+        if self.last_cost + self.PAGE_PRICE > self.remaining_budget + 1e-12:
+            raise ProviderExhausted("Google Places: budget reached before the next page")
+        try:
+            r = await client.post(self.API, json=body, headers={
+                "X-Goog-Api-Key": env["google_places_api_key"],
+                "X-Goog-FieldMask": self.FIELD_MASK,
+                "Content-Type": "application/json",
+            })
+        except httpx.HTTPError:
+            raise RuntimeError("Google Places: request failed; try again later") from None
+        # Never put response bodies in logs: upstream errors may echo the key.
+        if r.status_code in (401, 403, 429):
+            reasons = {401: "invalid API key",
+                       403: "access refused (is Places API (New) enabled, with "
+                            "billing on and the key allowed to call it?)",
+                       429: "quota or rate limit reached"}
+            raise ProviderExhausted(f"Google Places {r.status_code}: {reasons[r.status_code]}")
+        if r.status_code >= 400:
+            raise RuntimeError(f"Google Places {r.status_code}: request failed")
+        # A successful response is billable even if its body is malformed.
+        self.last_cost += self.PAGE_PRICE
+        try:
+            data = r.json()
+        except ValueError:
+            raise RuntimeError("Google Places: invalid JSON response") from None
+        if not isinstance(data, dict):
+            raise RuntimeError("Google Places: invalid response")
+        places = data.get("places", [])
+        if not isinstance(places, list) or any(not isinstance(p, dict) for p in places):
+            raise RuntimeError("Google Places: invalid results list")
+        return data
+
+    @staticmethod
+    def _text(value) -> str:
+        if isinstance(value, dict):          # displayName / primaryTypeDisplayName
+            value = value.get("text")
+        return value.strip() if isinstance(value, str) else ""
+
+    @staticmethod
+    def _number(value):
+        if isinstance(value, bool) or not isinstance(value, (int, float)):
+            return None
+        return value if math.isfinite(value) and value >= 0 else None
+
+    async def fetch(self, client, env, query):
+        self.last_cost = 0.0
+        self.last_error = self.stop_reason = ""
+        self.complete = True
+        area = self.search_area(query.coordinate) if query.coordinate else None
+        # Without a point the place name has to ride in the text, or Google
+        # answers from wherever it guesses the caller is.
+        body = {"textQuery": query.term if area else query.keyword(),
+                "pageSize": self.PAGE_SIZE, "languageCode": "en"}
+        if area:
+            body["locationRestriction"] = self.location_restriction(*area)
+
+        places: list[dict] = []
+        token = ""
+        for page in range(self._page_count(query)):
+            try:
+                data = await self._post(client, env, dict(body, pageToken=token) if token else body)
+            except Exception as e:
+                self.complete = False
+                self.last_error = str(e)
+                if isinstance(e, ProviderExhausted):
+                    self.stop_reason = str(e)
+                if not places:
+                    raise
+                logger.warning("%s: page %d of %r failed, keeping %d results: %s",
+                               self.key, page + 1, query.keyword(), len(places), e)
+                break
+            places.extend(data.get("places") or [])
+            token = data.get("nextPageToken") or ""
+            if not isinstance(token, str) or not token:
+                break
+
+        out = []
+        for place in places:
+            if place.get("businessStatus") == "CLOSED_PERMANENTLY":
+                continue
+            if self._outside(place, area):
+                continue
+            name = self._text(place.get("displayName"))
+            if not name:
+                continue
+            site = self._text(place.get("websiteUri"))
+            place_id = self._text(place.get("id"))
+            reviews = self._number(place.get("userRatingCount"))
+            out.append(Business(
+                name=name,
+                domain=normalize_domain(site),
+                website=site,
+                phone=(self._text(place.get("internationalPhoneNumber"))
+                       or self._text(place.get("nationalPhoneNumber"))),
+                address=self._text(place.get("formattedAddress")),
+                location=query.location,
+                category=self._text(place.get("primaryTypeDisplayName")),
+                rating=self._number(place.get("rating")),
+                review_count=int(reviews) if reviews is not None else None,
+                has_website=bool(site),
+                # The Places id is the Maps place_id, so this is the same key
+                # Scavio Maps stores: one business found by both is one row.
+                external_id=f"gmaps:{place_id}" if place_id else "",
+                source_url=(self._text(place.get("googleMapsUri"))
+                            or (f"https://www.google.com/maps/place/?q=place_id:{place_id}"
+                                if place_id else site)),
+                provider=self.key,
+                keyword=query.keyword(),
+            ))
+        return out
+
+
 PROVIDERS: dict[str, DiscoveryProvider] = {
     p.key: p for p in (
         OpenStreetMap(),
@@ -1469,6 +1692,7 @@ PROVIDERS: dict[str, DiscoveryProvider] = {
         Serper(),
         ScavioMaps(),
         ScavioSearch(),
+        GooglePlaces(),
     )
 }
 
