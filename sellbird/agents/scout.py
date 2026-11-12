@@ -39,7 +39,7 @@ from bs4 import BeautifulSoup
 from sellbird.brain import Brain
 from sellbird.collectors import people as people_mod
 from sellbird.collectors.discover import site_name_from_html
-from sellbird.collectors.profile import _reads_like_title, looks_like_challenge
+from sellbird.collectors.profile import _reads_like_title, fold_accents, looks_like_challenge
 from sellbird.config import SellbirdConfig, EnvConfig, live_do_not_contact
 from sellbird.gate import do_not_contact_domain_match
 from sellbird.integrations.email_finder import (
@@ -126,6 +126,10 @@ _SENIOR_KEYWORDS = (
     "ceo", "cto", "cfo", "cmo", "coo", "cro", "chief", "founder",
     "co-founder", "president", "owner", "partner", "vp", "vice president",
     "svp", "evp", "head of", "director",
+    # French (Québec), matched with accents folded
+    "pdg", "president", "presidente", "proprietaire", "coproprietaire", "fondateur",
+    "fondatrice", "cofondateur", "cofondatrice", "associe", "associee", "vice-president",
+    "vice-presidente", "directeur", "directrice",
 )
 
 
@@ -2163,7 +2167,7 @@ Respond ONLY with the JSON array."""
         if self.config.icp.titles:
             return people_mod.title_matches(title, self.config.icp.titles)
         # No explicit ICP titles → fall back to any senior title.
-        title_lower = title.lower()
+        title_lower = fold_accents(title).lower()
         return any(re.search(rf"(?<![\w-]){re.escape(kw)}\b", title_lower)
                    for kw in _SENIOR_KEYWORDS)
 
@@ -2176,16 +2180,24 @@ Respond ONLY with the JSON array."""
         """Infer seniority level from a job title."""
         if not title:
             return ""
-        t = title.lower()
+        t = fold_accents(title).lower()
+        # "Directeur général adjoint", "Adjointe à la présidence": below the top.
+        deputy = re.search(r"\b(?:adjointe?|assistante?|sous-\w+)\b", t)
+        vice = re.search(r"\bvice[- ]president", t)
         if any(kw in t for kw in ["ceo", "cto", "cfo", "cmo", "coo", "cro",
                                   "chief", "founder", "co-founder", "owner",
-                                  "president"]) and "vice president" not in t:
+                                  "president", "pdg", "p.-d.g", "proprietaire",
+                                  "fondat"]) and not vice and not deputy:
             return "c_suite"
-        if any(kw in t for kw in ["vp", "vice president", "svp", "evp", "head of"]):
+        # The directeur général runs a Québec small business.
+        if re.search(r"\bdirect(?:eur|rice) generale?\b", t) and not deputy:
+            return "c_suite"
+        if vice or any(kw in t for kw in ["vp", "svp", "evp", "head of"]):
             return "vp"
-        if "director" in t:
+        if any(kw in t for kw in ["director", "directeur", "directrice"]):
             return "director"
-        if any(kw in t for kw in ["manager", "team lead", "lead "]):
+        if any(kw in t for kw in ["manager", "team lead", "lead ", "gerant", "gestionnaire",
+                                  "superviseur", "contremaitre", "chef d'equipe"]):
             return "manager"
         return "individual"
 

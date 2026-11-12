@@ -551,6 +551,156 @@ async def trulyinbox_other():
     return {"success": True}
 
 
+# ── Your offer: what every first email ends by offering (sellbird.offer) ──
+
+def _offer_config_file() -> Path:
+    """Where the offer is saved. The tracked sellbird.yaml template stays
+    untrained: your offer goes in the gitignored sellbird.local.yaml, which
+    then holds your whole config (as `sellbird train` does)."""
+    target = _resolve_config_file()
+    if target.name == "sellbird.yaml":
+        local = target.with_name("sellbird.local.yaml")
+        if not local.exists():
+            shutil.copyfile(target, local)
+        target = local
+    return target
+
+
+async def _offer_brain():
+    from sellbird.brain import Brain
+    from sellbird.config import load_config
+    config = load_config()
+    state = _state()
+    await state.init_db()
+    return Brain(state, config.brain), state, config
+
+
+@app.get("/api/offer")
+async def get_offer():
+    from sellbird.config import load_config
+    from sellbird.offer import offer_view
+    try:
+        return offer_view(load_config())
+    except Exception as e:
+        return JSONResponse({"error": f"Couldn't read your config: {e}"}, status_code=500)
+
+
+@app.post("/api/offer/suggest")
+async def suggest_offer():
+    """A few offers that fit your product. One model call; nothing is saved."""
+    from sellbird.offer import suggest_offers
+    try:
+        brain, _, config = await _offer_brain()
+        ideas = await suggest_offers(brain, config)
+    except Exception as e:
+        logger.warning(f"Offer suggestions failed: {e}")
+        return JSONResponse({"error": "Sellbird couldn't come up with offers just now. Try again."},
+                            status_code=502)
+    if not ideas:
+        return JSONResponse({"error": "Sellbird couldn't come up with offers just now. Try again."},
+                            status_code=502)
+    return {"ideas": ideas}
+
+
+@app.post("/api/offer/preview")
+async def preview_offer(request: Request):
+    """One real first email written with this offer. Nothing is saved or sent."""
+    from sellbird.offer import MAX_OFFER_CHARS, preview_email
+    body = await request.json() if request.headers.get("content-type", "").startswith("application/json") else {}
+    entry = " ".join(str((body or {}).get("entry") or "").split())[:MAX_OFFER_CHARS]
+    if not entry:
+        return JSONResponse({"ok": False, "message": "Write an offer first."}, status_code=400)
+    try:
+        brain, state, config = await _offer_brain()
+        return await preview_email(brain, state, config, entry)
+    except Exception as e:
+        logger.warning(f"Offer preview failed: {e}")
+        return JSONResponse({"ok": False, "message": "The preview failed. Try again."}, status_code=502)
+
+
+@app.post("/api/offer")
+async def save_offer_route(request: Request):
+    """Save the offer to product.offer.entry. The Writer reads it on its next run."""
+    from sellbird.offer import MAX_OFFER_CHARS, save_offer
+    body = await request.json() if request.headers.get("content-type", "").startswith("application/json") else {}
+    entry = " ".join(str((body or {}).get("entry") or "").split())[:MAX_OFFER_CHARS]
+    ideas = (body or {}).get("ideas")
+    ideas = [str(i) for i in ideas] if isinstance(ideas, list) else None
+    target = _offer_config_file()
+    try:
+        save_offer(target, entry, ideas)
+        from sellbird.offer import PROPOSED_KEY
+        state = _state()
+        await state.init_db()
+        await state.delete_setting(PROPOSED_KEY)
+    except Exception as e:
+        return JSONResponse({"success": False, "message": f"Couldn't save to {target.name}: {e}"},
+                            status_code=500)
+    return {"success": True, "entry": entry,
+            "message": "Saved. Every new first email ends with this offer." if entry
+                       else "Saved. With no offer, first emails end with a question."}
+
+
+@app.get("/api/company")
+async def get_company():
+    """Your company: everything Sellbird writes from, and any offer your agent proposed."""
+    from sellbird.config import load_config
+    from sellbird.offer import PROPOSED_KEY, company_view
+    try:
+        state = _state()
+        await state.init_db()
+        raw = await state.get_setting(PROPOSED_KEY)
+        proposed = json.loads(raw) if raw else None
+        return company_view(load_config(), PROJECT_ROOT, proposed)
+    except Exception as e:
+        return JSONResponse({"error": f"Couldn't read your config: {e}"}, status_code=500)
+
+
+@app.post("/api/company")
+async def save_company_route(request: Request):
+    """Save one edited section of Your company to the config file."""
+    from sellbird.offer import save_company
+    body = await request.json() if request.headers.get("content-type", "").startswith("application/json") else {}
+    section = str((body or {}).get("section") or "")
+    fields = (body or {}).get("fields")
+    if not isinstance(fields, dict) or not fields:
+        return JSONResponse({"success": False, "message": "Nothing to save."}, status_code=400)
+    try:
+        save_company(_offer_config_file(), section, fields)
+    except ValueError as e:
+        return JSONResponse({"success": False, "message": f"Not saved: {e}."}, status_code=400)
+    except Exception as e:
+        return JSONResponse({"success": False, "message": f"Couldn't save: {e}"}, status_code=500)
+    return {"success": True, "message": "Saved. New emails use it from the next draft."}
+
+
+@app.post("/api/offer/propose")
+async def propose_offer(request: Request):
+    """Your agent's proposed offer, waiting for you to use or dismiss it on
+    Your company. Proposing changes nothing that's sent."""
+    from sellbird.offer import MAX_OFFER_CHARS, PROPOSED_KEY
+    body = await request.json() if request.headers.get("content-type", "").startswith("application/json") else {}
+    entry = " ".join(str((body or {}).get("entry") or "").split())[:MAX_OFFER_CHARS]
+    why = " ".join(str((body or {}).get("why") or "").split())[:500]
+    if not entry:
+        return JSONResponse({"ok": False, "message": "An offer is required."}, status_code=400)
+    state = _state()
+    await state.init_db()
+    await state.set_setting(PROPOSED_KEY, json.dumps({"entry": entry, "why": why,
+                                                      "at": datetime.now(timezone.utc).isoformat()}))
+    return {"ok": True, "message": "Proposed. The user confirms it on the Your company tab "
+                                    "(dashboard → Your company → Your offer → Use this offer)."}
+
+
+@app.delete("/api/offer/propose")
+async def dismiss_proposed_offer():
+    from sellbird.offer import PROPOSED_KEY
+    state = _state()
+    await state.init_db()
+    await state.delete_setting(PROPOSED_KEY)
+    return {"success": True}
+
+
 @app.post("/api/settings/test-instantly")
 async def test_instantly(request: Request):
     """Test an Instantly API key."""
@@ -1276,6 +1426,17 @@ async def outbox_edit(item_id: str, request: Request):
         if item.get("kind") == "sequence" and footer and not text.rstrip().endswith(footer):
             checked = text.rstrip() + "\n\n" + footer  # as the Sender will send it
         gate = pre_send_check("reviewer@example.com", subject, checked)
+        from sellbird.email_style import style_problems
+        prospect = await state.get_prospect(item.get("prospect_id") or "")
+        names = [n for n in (getattr(prospect, "company", ""), getattr(prospect, "first_name", ""),
+                             getattr(prospect, "last_name", "")) if n]
+        style = style_problems(subject, text, shape=False, names=names,
+                               kind="reply" if item.get("kind") == "reply" else "cold")
+        if style:
+            return JSONResponse({"success": False,
+                                 "message": "The sender would hold this: the email "
+                                            + "; ".join(style)},
+                                status_code=400)
         if not gate:
             return JSONResponse({"success": False,
                                  "message": "The sender would have blocked this: "
@@ -1644,6 +1805,27 @@ async def undo_opt_out(prospect_id: str, request: Request):
             "previous_why": last.get("why", ""), "previous_at": last.get("at", "")}):
         return _refuse("This person isn't opted out.")
     return {"success": True, "status": "replied"}
+
+
+@app.get("/api/offers/accepted")
+async def get_offers_accepted():
+    """People who said yes to your offer, newest first, with what the handoff
+    (sellbird.handoff) answered, so you or your coding agent can deliver it."""
+    rows = await query_db("""
+        SELECT c.id AS conversation_id, c.status, c.updated_at, c.prospect_id,
+               p.first_name, p.last_name, p.email, p.title, p.company, p.company_id
+        FROM conversations c LEFT JOIN prospects p ON c.prospect_id = p.id
+        WHERE c.intent = 'accepted_offer'
+        ORDER BY c.updated_at DESC LIMIT 100
+    """)
+    for row in rows:
+        done = await query_db("SELECT value FROM settings WHERE key = ?",
+                              ("handoff:" + str(row.get("prospect_id") or ""),))
+        try:
+            row["handoff"] = json.loads(done[0]["value"]) if done else None
+        except (TypeError, ValueError, KeyError):
+            row["handoff"] = None
+    return {"accepted": rows}
 
 
 @app.get("/api/conversations")

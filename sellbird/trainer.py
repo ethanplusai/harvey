@@ -375,6 +375,12 @@ def merge_trained_config(learned: dict, existing: dict | None) -> dict:
                 merged[section][key] = copy.deepcopy(learned[section][key])
     if untrained:
         merged["persona"].update(copy.deepcopy(learned.get("persona", {})))
+    # The offer is yours: retraining refreshes the ideas and never the offer.
+    learned_offer = (learned.get("product") or {}).get("offer") or {}
+    if learned_offer.get("entry_ideas") and isinstance(merged.get("product"), dict):
+        offer = merged["product"].setdefault("offer", {})
+        if isinstance(offer, dict):
+            offer["entry_ideas"] = list(learned_offer["entry_ideas"])
     if "brain" in learned:
         merged["brain"] = copy.deepcopy(learned["brain"])
     # The trained site joins your own domains (autopilot may link to it);
@@ -386,6 +392,15 @@ def merge_trained_config(learned: dict, existing: dict | None) -> dict:
             have = list(email.get("link_domains") or [])
             email["link_domains"] = have + [d for d in trained if d not in have]
     return merged
+
+
+def _offer_from(product_info: dict) -> dict:
+    """The offer ideas training found. Training never picks the offer: the
+    user works it out with their agent (CLAUDE.md, Step 3b) and confirms it
+    on Your company."""
+    ideas = product_info.get("entry_offer_ideas")
+    ideas = [str(i).strip() for i in ideas if str(i).strip()][:4] if isinstance(ideas, list) else []
+    return {"entry_ideas": ideas}
 
 
 def _backup(path: Path, raw: str) -> Path:
@@ -563,6 +578,14 @@ class Trainer:
         print(f"  ICP titles:   {', '.join(config['icp']['titles'])}")
         print(f"  Industries:   {', '.join(config['icp']['industries'])}")
         print(f"  Pages crawled: {len(self.scraped_pages)}")
+        offer = (config.get("product") or {}).get("offer") or {}
+        if offer.get("entry"):
+            print(f"\n  First-email offer: {offer['entry']}")
+        else:
+            print("\n  Next: work out the offer every first email ends with. Ask your coding agent")
+            print("  to work it out with you, or open the dashboard's Your company tab.")
+            if offer.get("entry_ideas"):
+                print("  Ideas to start from: " + "; ".join(offer["entry_ideas"]))
         print(f"\n  Files generated:")
         print(f"    - {config_path}")
         print(f"    - skills/product_knowledge.md")
@@ -620,7 +643,8 @@ Extract the following and return as JSON:
   "social_proof": ["any case studies, testimonials, notable customers, or stats mentioned"],
   "integrations": ["tools and platforms this integrates with"],
   "use_cases": ["specific use case 1", "use case 2", "use case 3"],
-  "tone": "describe the brand's communication tone in 3-4 words"
+  "tone": "describe the brand's communication tone in 3-4 words",
+  "entry_offer_ideas": ["3 or 4 things this business could offer a prospect for free in a first cold email: specific, useful on their own, quick for this business to deliver, and tied to what it sells. E.g. for a web designer 'a mockup of your homepage with online booking', for an SEO agency 'a one-page report on where you rank and why', for inventory software 'a reorder forecast for your top 20 SKUs'. Never a discount or a generic call."]
 }}
 
 Be thorough — you have access to the full website. Extract everything relevant."""
@@ -956,6 +980,7 @@ What prospects do instead of buying a solution like ours:
                 "pricing": product_info.get("pricing", "Contact for pricing"),
                 "key_benefits": product_info.get("key_benefits", []),
                 "objection_responses": objections,
+                "offer": _offer_from(product_info),
             },
             "icp": {
                 "industries": icp_info.get("industries", ["Technology"]),

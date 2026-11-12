@@ -176,6 +176,18 @@ def test_html_puts_the_logo_beside_the_sign_off_and_the_footer_small_after_it(lo
     assert out.count('href="https://acme.example"') == 2     # the logo and the company name, nothing else
 
 
+def test_html_takes_the_first_name_the_writer_signs_with_as_the_sign_off(logo):
+    """The writer ends every cold email with the sender's first name on its
+    own line (email_style.with_sign_off); that one line is the sign-off."""
+    sig = load_signature(config(logo=str(logo), link="https://acme.example", name="Jo Example"))
+    out = render_html("Saw your studio.\n\nJo", sig)
+
+    assert out.index("<table") < out.index("<img ") < out.index(">Jo<")
+    assert out.count('href="https://acme.example"') == 1     # the logo; no company name to link
+    # A different first word isn't one.
+    assert "<table" not in render_html("Saw your studio.\n\nSam", sig)
+
+
 def test_html_without_a_sign_off_keeps_the_logo_under_the_text(logo):
     sig = load_signature(config(logo=str(logo), link="https://acme.example"))
     out = render_html("Thanks, see you Tuesday.\n\nCheers from the team", sig)

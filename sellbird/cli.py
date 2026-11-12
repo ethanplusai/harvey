@@ -229,6 +229,10 @@ def cmd_status(args):
         if write_failed:
             print(f"  Couldn't write for:   {write_failed} (the model's drafts kept coming back "
                   "unusable; `sellbird retry-writes` tries again)")
+        no_tip = (summary.get("prospects") or {}).get("no_tip", 0)
+        if no_tip:
+            print(f"  Nothing to write about: {no_tip} (writer.require_tip skipped them; "
+                  "`sellbird retry-writes --no-tip` tries again once more is known)")
         print(f"  Draft campaigns:      {summary['draft_campaigns']}")
         print(f"  Active campaigns:     {summary['active_campaigns']}")
         print(f"  Open conversations:   {summary['open_conversations']}")
@@ -796,6 +800,14 @@ def cmd_retry_writes(args):
     async def _run():
         state = StateManager()
         await state.init_db()
+        if getattr(args, "no_tip", False):
+            count = await state.retry_no_tip()
+            if count:
+                print(f"\n  {count} prospect(s) are back in line. With writer.require_tip "
+                      "on, anyone still without something concrete is skipped again.\n")
+            else:
+                print("\n  No prospects were skipped for having nothing to write about.\n")
+            return
         count = await state.retry_write_failed()
         if count:
             print(f"\n  {count} prospect(s) are back in line. The Writer will try each "
@@ -1256,6 +1268,8 @@ def main():
 
     sub = subparsers.add_parser(
         "retry-writes", help="Retry prospects the Writer couldn't write an email for")
+    sub.add_argument("--no-tip", action="store_true",
+                     help="Retry the prospects writer.require_tip skipped (status no_tip) instead")
     sub.set_defaults(func=cmd_retry_writes)
 
     sub = subparsers.add_parser("sending", help="Kill switch: pause/resume sending")

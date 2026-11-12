@@ -6,8 +6,10 @@ each email as HTML, with the logo embedded in the message itself (an inline
 ``cid:`` image), so it shows without the recipient allowing remote images.
 Gmail and SMTP also carry the same plain text as the HTML's alternative.
 
-When the email ends with the persona's name on a line of its own (the
-sign-off), the logo sits beside those lines, and the company's name in them
+When the email ends with the sender's name on a line of its own (the
+sign-off: the first name the writer adds under every cold email, or a closing
+paragraph that opens with ``persona.name`` when operator email rules write
+their own), the logo sits beside those lines, and the company's name in them
 opens ``link``. Otherwise the logo sits under the words. The compliance
 footer the sender adds to cold email (postal address and opt-out line) comes
 last, in smaller grey type, the way a footer reads in any email client.
@@ -56,7 +58,7 @@ class Signature:
     link: str
     direction: str        # rtl, ltr or auto
     footer: str = ""      # the compliance paragraph the sender appends, as written
-    name: str = ""        # persona.name: a closing paragraph starting with it is the sign-off
+    name: str = ""        # persona.name: a closing paragraph starting with it, or its first word, is the sign-off
     company: str = ""     # persona.company: linked inside the sign-off when link is set
 
 
@@ -140,7 +142,8 @@ def render_html(body: str, sig: Signature) -> str:
     sign_off = []
     if sig.name and paragraphs:
         lines = [ln.strip() for ln in paragraphs[-1].strip().split("\n")]
-        if lines[0] == sig.name and len(lines) <= MAX_SIGN_OFF_LINES:
+        first = sig.name.split(" ")[0]
+        if lines[0] in (sig.name, first) and len(lines) <= MAX_SIGN_OFF_LINES:
             sign_off = lines
             paragraphs.pop()
     text = "\n".join(

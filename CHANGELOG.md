@@ -32,11 +32,56 @@ minor versions can still change behaviour.
   are now retried with backoff (about a minute in all, honouring Retry-After)
   before failing.
 - **The logo sits beside the sign-off.** With `channels.email.signature.logo`
-  set, an email that ends with `persona.name` on its own line gets the logo
-  next to those lines, with `persona.company` in them opening
-  `signature.link`; the compliance footer of a cold email (postal address
+  set, the logo sits next to the sign-off lines (the first name Sellbird adds,
+  or a closing paragraph that opens with `persona.name`), with
+  `persona.company` in them opening `signature.link`; the compliance footer of a cold email (postal address
   and opt-out line) follows in smaller grey type, instead of the logo
   hanging under the footer.
+
+### Added
+
+- **`writer.require_tip: true` skips prospects with nothing to build a tip
+  on.** A first email is meant to name one concrete thing the sender would
+  change; with no finding about the company, the draft could only say it had no
+  advice. With the option on, the Writer writes only for a prospect with a site
+  finding, a startup fact, a signal or the Scout's notes, and marks the others
+  `no_tip` (not left `new`, which makes the heartbeat retry them every cycle).
+  The dashboard shows them as "Nothing to write about yet", `sellbird status`
+  counts them, and `sellbird retry-writes --no-tip` puts them back in line. Off by default. The company's location
+  is also in the Writer's facts now.
+- **An Italian `compliance.opt_out_line` passes validation.** "Non ti
+  interessa? Rispondi pure e non ti scriverò più." is accepted, like the
+  English, Spanish and Hebrew lines already were, so an Italian sender no
+  longer needs a bilingual footer. A sign-off like "A presto!" is still
+  refused. Italian replies are still read by the model, not by rule.
+- **`channels.email.follow_ups: false` sends no follow-ups.** A campaign then
+  stages only its first email on Gmail, Microsoft and SMTP, so steps 2 and 3
+  can't go to someone who never answered. Replies are read and answered as
+  before. On by default, so nothing changes unless you turn it off.
+
+### Changed
+
+- **The writer sees what Sellbird read off a company's own site.** The free
+  homepage signals (no structured data, a site untouched for six months, a very
+  small sitemap, AI crawlers blocked) were collected but
+  never reached the writer's prompt, so an email asked to name one concrete
+  thing to change had nothing true to name and said it hadn't looked. Findings
+  that are true now go in as fact lines, each saying how it was found and that
+  the check can miss things; a signal checked and found fine is left out. "No
+  online booking" is not passed on: a homepage read misses widgets that load
+  late, and it called a bookable business unbookable too often.
+  Those findings come from one page and can be wrong, so `writer.site_facts:
+  false` turns them off, and `CLAUDE.md` and the approval guide now tell
+  Claude to offer a browser check of each draft's claims before the user
+  approves.
+- **The cold-email check takes a sender based in any of Precleared's
+  fourteen countries.** `compliance.precleared.sender_country` accepts GB, US,
+  CA, DE, FR, AU, IE, NL, ES, IT, LV, AE, EG and QA (`UK`, `USA` and `UAE` are
+  read as their codes), where it took only GB or US; `sellbird setup` asks for
+  a two-letter code and lists them when the answer isn't one. A sender whose
+  timezone is Europe/London is told the check is recommended for them and
+  offered GB as their country; it still waits for their yes. The docs say a
+  new key's 14 days at 100 checks a day start at its first check.
 - Seeding the signal catalog writes only a signal that is missing or whose catalog text changed. The dashboard seeds on every Today load, so this was a write per signal on every page view.
 - **The opt-out line takes any wording.** `compliance.opt_out_line` no longer
   has to ask for a keyword: "Not interested? Just let me know and I won't email
@@ -45,6 +90,14 @@ minor versions can still change behaviour.
   say the emails can stop, however it's worded, so a sign-off like "Cheers!" is
   refused; `""` leaves the line off on purpose. A link or an email address is
   still refused.
+- **An `unknown` answer from the cold-email check holds the email instead of
+  failing it.** Precleared answers `unknown` when a fact can't be established,
+  usually the recipient's country, sometimes a register that was too slow.
+  That email now waits in the Outbox with what would settle it (set
+  `prospect_country`, or give the company a location or number) and is asked
+  about again, after six hours and then after a day; the third unknown on the
+  same facts fails it as before. Rejecting or sending the email clears the
+  note, as for an address the check couldn't reach.
 
 ### Security
 
@@ -61,6 +114,17 @@ minor versions can still change behaviour.
 
 ### Added
 
+- **Owners on French-language sites.** Finding the decision maker now reads
+  Québec French: propriétaire, président(e), PDG, président-directeur
+  général, fondateur/fondatrice, directeur/directrice général(e) and
+  associé(e), with or without accents. A feminine title satisfies its
+  masculine ICP entry ("Présidente" for "Président"), and an ICP written
+  only in French still targets the owner. Sentences such as "fondée par…",
+  "notre président et fondateur, …" and "… est propriétaire de l'entreprise"
+  are read, names with accents and hyphens (Marie-Ève, Côté) count as
+  names, and the site's "Équipe", "À propos" and "Nous joindre" pages are
+  followed. Before, these sites fell back to the published info@ address.
+- **French opt-outs.** `compliance.opt_out_line` accepts French wording ("Pas intéressé? Répondez-moi simplement et je ne vous écrirai plus."), with or without accents; before, a French line failed validation and the whole config wouldn't load. Replies saying "non merci", "ARRÊT", "désabonnez-moi", "ne m'écrivez plus" or "pas intéressé" are caught by rule like the English, Hebrew and Spanish ones, and "Envoyé de mon iPhone" no longer hides a bare opt-out.
 - **A menu-bar app.** `sellbird tray` (macOS menu bar, Windows tray)
   starts the dashboard when needed, starts and stops Sellbird, pauses and
   resumes sending and opens the dashboard unlocked. `sellbird autostart

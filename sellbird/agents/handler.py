@@ -8,6 +8,7 @@ sending domain while nobody's watching.
 """
 
 import html
+import json
 import logging
 import re
 import unicodedata
@@ -20,6 +21,7 @@ from sellbird.config import (
     live_do_not_contact,
 )
 from sellbird.gate import autopilot_review, do_not_contact_match, pre_send_check
+from sellbird.email_style import style_problems, tidy
 from sellbird.humanize import humanize, humanizer_enabled
 from sellbird.integrations.instantly import InstantlyClient
 from sellbird.integrations.mail_provider import (
@@ -40,6 +42,7 @@ BOUNCE_COUNT_KEY = "bounce_count"
 MIN_SENDS_FOR_KILL_SWITCH = 10
 
 INTENT_LABELS = {
+    "accepted_offer",
     "interested",
     "objection",
     "not_interested",
@@ -52,7 +55,10 @@ INTENT_LABELS = {
 
 # Intents that get an automated reply. Everything else is closed,
 # deferred, or escalated to a human.
-AUTO_REPLY_INTENTS = {"interested", "objection", "question", "wrong_person"}
+AUTO_REPLY_INTENTS = {"accepted_offer", "interested", "objection", "question", "wrong_person"}
+# Set once a prospect's accepted offer was handed off (sellbird.handoff), so a
+# retry of the same reply never hands them off twice.
+HANDOFF_KEY = "handoff:"
 # Replies that don't stop the cold email to the rest of their company.
 NO_COMPANY_STOP_INTENTS = {"ooo", "wrong_person"}
 
@@ -85,13 +91,19 @@ NO_THANKS_RE = re.compile(
 BARE_OPT_OUTS = {"stop", "unsubscribe", "remove", "remove me", "opt out",
                  "no thanks", "no thank you", "baja", "no gracias", "de baja", "dar de baja",
                  "darme de baja",
+                 # French, compared without accents ("arrêt" is Québec's "STOP").
+                 "non merci", "arret", "arreter", "desabonner", "desabonnement",
+                 "desabonnez-moi", "desinscrire", "desinscription", "desinscrivez-moi",
+                 "retirer", "retirez-moi",
                  "הסר", "הסירו", "הסירי", "תסיר", "תסירו", "להסיר", "הסרה", "להסרה"}
 # Said around a bare opt-out without changing it ("הסר בבקשה", "הסר, תודה").
-_BARE_COURTESIES = {"בבקשה", "נא", "תודה", "רבה", "por", "favor", "gracias", "saludos"}
+_BARE_COURTESIES = {"בבקשה", "נא", "תודה", "רבה", "por", "favor", "gracias", "saludos",
+                    "merci", "svp", "sil", "vous", "plait"}
 _MOBILE_SIGNATURE_RE = re.compile(
     r"^[ \t\u200e\u200f]*(?:sent from my \w[^\n]*|get outlook for \w[^\n]*"
     r"|sent from \w+ mail[^\n]*|נשלח מ[^\n]*|קבל(?:ו)? את outlook[^\n]*"
-    r"|enviado desde mi \w[^\n]*|obt[eé]n outlook para \w[^\n]*)$",
+    r"|enviado desde mi \w[^\n]*|obt[eé]n outlook para \w[^\n]*"
+    r"|envoy[eé] de mon \w[^\n]*|obtenez outlook pour \w[^\n]*)$",
     re.IGNORECASE | re.MULTILINE)
 
 # Hebrew opt-outs. Each needs a verb aimed at the sender and its object
@@ -226,6 +238,102 @@ SPANISH_NO_THANKS_RE = re.compile(
     r"\bno,?[ \t]+(?:muchas[ \t]+)?gracias\b(?![ \t]+(?:a|por)\b)")
 
 
+# French opt-outs, matched like the Spanish ones: accent-free, a line at a
+# time, and only with the verb aimed at the sender. "Retirez-moi la TPS" asks
+# for a discount, "il ne m'écrit plus" is news, "ne m'envoyez plus de
+# factures papier" is about invoices.
+_FR_US = r"(?:moi|nous)"
+_FR_ME = r"(?:m'|me\s+|nous\s+)"
+_FR_LIST = (r"(?:(?:votre|vos|la|les|le|cette|ce|ces|ta|tes|ton)\s+)*"
+            r"(?:liste|base|envoi|registre|infolettre|bulletin|fichier|repertoire|contact|courriel"
+            r"|distribution|diffusion)\w*")
+_FR_MY_ADDRESS = (r"(?:mon|mes|notre|nos)\s+(?:adresse|courriel|nom|coordonnee|contact|donnee"
+                  r"|e-?mail)\w*")
+_FR_MAIL = (r"(?:(?:de|des|vos|ces|tes|les|la|d')[ \t]*)*(?:courriels?|courriers?|mails?|e-?mails?"
+            r"|messages?|publicites?|pubs?|offres?|infolettres?|sollicitations?|relances?|rien)")
+_FR_WRITE = r"(?:ecrire|contacter|relancer|solliciter|deranger|importuner|harceler|texter)"
+_FR_SEND = r"(?:envoyer|transmettre|faire\s+parvenir)"
+# The thought ends here, as in Spanish: not ", mais", ", sauf", ", si".
+_FR_SAY_END = (r"(?=[ \t]*(?:[.!;]|$|,(?![ \t]*(?:mais|sauf|a[ \t]+moins|si|par[ \t]+contre"
+               r"|cependant|toutefois|quoique|bien[ \t]+que)(?!\w))))")
+FRENCH_OPT_OUT_PATTERNS = (
+    # Unsubscribe / take me off.
+    r"(?:desabonn|desinscriv)ez[- ]" + _FR_US + r"|(?:me|nous)\s+(?:desabonner|desinscrire)",
+    r"(?:retirez|retire|enlevez|enleve|otez|ote|supprimez|supprime|rayez|raye|effacez|efface)[- ]"
+    + _FR_US + r"(?:\s+(?:de|d')\s*" + _FR_LIST + "|" + _FR_SAY_END + ")",
+    r"(?:me|nous)\s+(?:retirer|enlever|oter|supprimer|rayer|effacer)\s+(?:de|d')\s*" + _FR_LIST,
+    r"(?:retirez|enlevez|supprimez|effacez|rayez|retirer|enlever|supprimer|effacer|rayer)\s+"
+    + _FR_MY_ADDRESS + r"(?:\s+(?:de|d')\s*" + _FR_LIST + "|" + _FR_SAY_END + ")",
+    # Don't write to / contact me (any more). Imperative: "vous ne m'écrivez
+    # plus" (you've stopped writing) is held back by the word before it.
+    r"n(?:e\s+|')" + r"(?:m'|me\s+|nous\s+)?" + r"(?:ecri(?:vez|s)|contacte[sz]?|relance[sz]?"
+    r"|sollicite[sz]?|derange[sz]?|importune[sz]?|harcele[sz]?)\s+(?:plus|pas|jamais)(?!\w)",
+    r"n(?:e\s+|')" + r"(?:m'|me\s+|nous\s+)?" + r"(?:envoye[sz]|envoie[s]?|transmette[sz]?)"
+    r"\s+(?:plus|pas|jamais)(?:\s+" + _FR_MAIL + r"(?!\w)|" + _FR_SAY_END + ")",
+    r"ne\s+(?:plus|pas)\s+(?:jamais\s+)?" + _FR_ME + r"?" + _FR_WRITE,
+    r"ne\s+(?:plus|pas)\s+(?:jamais\s+)?" + _FR_ME + r"?" + _FR_SEND
+    + r"(?:\s+" + _FR_MAIL + r"(?!\w)|" + _FR_SAY_END + ")",
+    # Stop writing / sending.
+    r"(?:arrete[sz]?|arreter|cesse[sz]?|cesser)\s+(?:de\s+|d')" + r"(?:m'|me\s+|nous\s+)?"
+    + _FR_WRITE,
+    r"(?:arrete[sz]?|arreter|cesse[sz]?|cesser)\s+(?:de\s+|d')" + r"(?:m'|me\s+|nous\s+)?"
+    + _FR_SEND + r"(?:\s+" + _FR_MAIL + r"(?!\w)|" + _FR_SAY_END + ")",
+    r"(?:arrete[sz]?|cesse[sz]?|stoppe[sz]?)\s+(?:les|vos|ces|tes)\s+(?:courriels|envois|messages"
+    r"|relances|sollicitations|mails|e-mails|emails)",
+    r"(?:laissez|laisse)[- ]" + _FR_US + r"\s+tranquilles?|fou(?:tez|s)[- ]" + _FR_US
+    + r"\s+la\s+paix",
+    r"ne\s+(?:veux|voulons|veut|souhaite|souhaitons|desire|desirons)\s+(?:plus|pas)\s+"
+    r"(?:rien\s+)?(?:recevoir(?:\s+" + _FR_MAIL + r"(?!\w)|" + _FR_SAY_END
+    + r")|etre\s+(?:contacte|sollicite|relance)e?s?)",
+    # Not interested, as the whole thought: not "pas intéressé par le plan annuel".
+    r"(?:(?:je\s+(?:ne\s+)?suis|nous\s+(?:ne\s+)?sommes|on\s+(?:n'|ne\s+)?est)\s+)?"
+    r"pas\s+(?:du\s+tout\s+)?interess(?:e|ee|es|ees)"
+    r"(?:\s+(?:pour\s+(?:le\s+moment|l'instant|maintenant)|en\s+ce\s+moment|merci))?"
+    + _FR_SAY_END,
+    r"(?:(?:ca|cela|ceci)\s+)?(?:ne\s+)?(?:m'|nous\s+)interesse(?:nt)?\s+pas(?:\s+du\s+tout)?"
+    r"(?:\s+(?:pour\s+(?:le\s+moment|l'instant|maintenant)|en\s+ce\s+moment|merci))?"
+    + _FR_SAY_END,
+)
+FRENCH_OPT_OUT_RE = re.compile(r"(?<![\w'])(?:" + "|".join(FRENCH_OPT_OUT_PATTERNS) + r")(?![\w'])",
+                               re.MULTILINE)
+# The word before a match that negates, conditions or makes it a statement
+# about someone ("vous ne m'écrivez plus", "si ça ne m'intéresse pas",
+# "pourquoi pas intéressé", "vous n'êtes pas intéressé"), as with Spanish.
+_FR_NOT_FINAL_BEFORE = {"ne", "n", "pas", "si", "pourquoi", "quand", "lorsque", "encore",
+                        "toujours", "vous", "tu", "il", "elle", "ils", "elles", "on",
+                        "etes", "es", "est", "sont", "serait", "seriez", "comme"}
+_FR_LAST_WORD_RE = re.compile(r"(\S+)[ \t]*\Z")
+_FR_NOT_FINAL_AFTER_RE = re.compile(
+    r"(?<!\w)(?:jusqu'|avant|apres|a\s+partir\s+d|plutot|mieux|whatsapp|texto|sms"
+    r"|par\s+telephone|au\s+telephone|appel(?:ez|le)[- ](?:moi|nous)|telephonez"
+    r"|ecri(?:vez|s)[- ](?:moi|nous)|lundi|mardi|mercredi|jeudi|vendredi|samedi|dimanche"
+    r"|semaine|mois|janvier|fevrier|mars|avril|mai|juin|juillet|aout|septembre|octobre"
+    r"|novembre|decembre|automne|hiver|printemps|ete\s+prochain)(?!\w)")
+# "Non merci": as with "no thanks". Not "oui ou non, merci", "pourquoi non",
+# "sinon, merci", or "non, merci à vous" / "merci pour" / "merci de".
+FRENCH_NO_THANKS_RE = re.compile(
+    r"(?<!\bou )(?<!pourquoi )(?<!si )(?<!que )(?<!dire )"
+    r"\bnon,?[ \t]+merci\b(?![ \t]*(?:a|pour|de|d'|bien)\b)")
+
+
+def _french_opt_out(text: str):
+    """The first French opt-out phrase in _accent_free_lines text that means it."""
+    for m in FRENCH_OPT_OUT_RE.finditer(text):
+        line_start = text.rfind("\n", 0, m.start()) + 1
+        last = _FR_LAST_WORD_RE.search(text[max(line_start, m.start() - 40):m.start()])
+        before = last.group(1).strip("\"«»(-,") if last else ""
+        before = re.sub(r"^\w'", "", before)
+        starts_negative = re.match(r"n(?:e\s|')", m.group(0))
+        if before in _FR_NOT_FINAL_BEFORE and not (before in ("ne", "n") and starts_negative):
+            continue
+        sentence_end = re.search(r"[.!?;\n]", text[m.end():])
+        after = text[m.end():m.end() + sentence_end.start()] if sentence_end else text[m.end():]
+        if _FR_NOT_FINAL_AFTER_RE.search(after):
+            continue
+        return m
+    return None
+
+
 def _no_accents(text: str) -> str:
     """Accents dropped, for matching Spanish typed with or without them. Only
     Latin letters: combining marks are what spell Hebrew and others' words."""
@@ -234,7 +342,7 @@ def _no_accents(text: str) -> str:
         if not (unicodedata.combining(c) and ord(c) < 0x370))
 
 
-def _spanish_lines(their_text: str) -> str:
+def _accent_free_lines(their_text: str) -> str:
     """Their reply, flattened a line at a time and accent-free, mobile
     signatures dropped, lines kept apart."""
     text = _MOBILE_SIGNATURE_RE.sub("", their_text or "")
@@ -242,7 +350,7 @@ def _spanish_lines(their_text: str) -> str:
 
 
 def _spanish_opt_out(text: str):
-    """The first Spanish opt-out phrase in _spanish_lines text that means it."""
+    """The first Spanish opt-out phrase in _accent_free_lines text that means it."""
     for m in SPANISH_OPT_OUT_RE.finditer(text):
         line_start = text.rfind("\n", 0, m.start()) + 1
         last = _ES_LAST_WORD_RE.search(text[max(line_start, m.start() - 40):m.start()])
@@ -338,13 +446,18 @@ def _opt_out_reason(their_text: str, own_words: str) -> dict | None:
     if m:
         return {"rule": "phrase", "matched": m.group(0),
                 "why": f'Their reply contains "{m.group(0)}".'}
-    m = _spanish_opt_out(_spanish_lines(their_text))
+    m = _spanish_opt_out(_accent_free_lines(their_text))
+    if m:
+        return {"rule": "phrase", "matched": m.group(0),
+                "why": f'Their reply contains "{m.group(0)}".'}
+    m = _french_opt_out(_accent_free_lines(their_text))
     if m:
         return {"rule": "phrase", "matched": m.group(0),
                 "why": f'Their reply contains "{m.group(0)}".'}
     for line in their_text.split("\n"):
         line = _flat(line)
-        m = SPANISH_NO_THANKS_RE.search(_no_accents(line))
+        m = (SPANISH_NO_THANKS_RE.search(_no_accents(line))
+             or FRENCH_NO_THANKS_RE.search(_no_accents(line)))
         if m:
             return {"rule": "no_thanks", "matched": m.group(0),
                     "why": f'Their reply says "{m.group(0)}" (no thanks).'}
@@ -356,7 +469,7 @@ def _opt_out_reason(their_text: str, own_words: str) -> dict | None:
         if m:
             return {"rule": "no_thanks", "matched": m.group(0),
                     "why": f'Their reply says "{m.group(0)}" (no thanks).'}
-    bare = _flat(_MOBILE_SIGNATURE_RE.sub("", own_words or ""))
+    bare = _no_accents(_flat(_MOBILE_SIGNATURE_RE.sub("", own_words or "")))
     bare = re.sub(r"[^\w\s-]", "", bare).strip()
     if (bare in BARE_OPT_OUTS
             or " ".join(w for w in bare.split() if w not in _BARE_COURTESIES) in BARE_OPT_OUTS):
@@ -819,9 +932,15 @@ class Handler:
         # spend a model call drafting; they go to you instead (step 3).
         listed = do_not_contact_match(prospect.email or lead_email,
                                       live_do_not_contact(self.config))
+        # 2a. They said yes to the offer: hand them to the system that
+        # delivers it first, so the reply can carry what it answered.
+        handoff = None
+        if intent == "accepted_offer" and not listed and not handed_off:
+            handoff = await self._hand_off_once(prospect, reply_text)
         response = ""
         if intent in AUTO_REPLY_INTENTS and not held and not listed and not handed_off:
-            response = await self._generate_response(intent, reply_text, prospect, convo)
+            response = await self._generate_response(intent, reply_text, prospect, convo,
+                                                     handoff=handoff)
 
         # 2c. Store the conversation in one write.
         if stored is None:
@@ -921,6 +1040,16 @@ class Handler:
             await self.state.update_conversation(convo.id, status="needs_human")
             logger.info(f"Handler: {lead_email} sent an auto-reply. Handed to a human.")
             return
+
+        if intent == "accepted_offer":
+            await self.state.log_action(
+                action_type="offer_accepted", agent="handler",
+                details={"prospect_id": prospect.id, "prospect_email": lead_email,
+                         "conversation_id": convo.id, "reply_preview": reply_text[:300],
+                         "handoff": handoff})
+            logger.info(f"Handler: {lead_email} said yes to your offer"
+                        + (f"; handed off ({'ok' if handoff.get('ok') else handoff.get('error')})."
+                           if handoff else "."))
 
         if intent not in AUTO_REPLY_INTENTS:
             logger.warning(f"Handler: No auto-reply policy for intent '{intent}'. Skipping reply.")
@@ -1196,8 +1325,11 @@ class Handler:
 
     async def _classify_intent(self, reply_text: str, prospect) -> str:
         """Ask the brain to classify the reply's intent."""
+        offer = str(getattr(getattr(getattr(self.config, "product", None), "offer", None), "entry", "") or "").strip()
+        accepted = (f'- "accepted_offer" — says yes to the offer in our email ("{offer}"): "sure, send it",\n'
+                    '  "yes please", "go ahead". A yes to the offer itself, not general interest.\n') if offer else ""
         prompt = f"""Classify this email reply into exactly ONE category:
-- "interested" — wants to learn more, open to a meeting, positive response
+{accepted}- "interested" — wants to learn more, open to a meeting, positive response
 - "objection" — has concerns but hasn't said no (price, timing, competition)
 - "not_interested" — a clear no, not now, or "we're all set"
 - "unsubscribe" — asks to stop being contacted, remove from list, opt out
@@ -1283,8 +1415,29 @@ Respond with ONLY the category label, nothing else."""
 
         return current_stage
 
+    async def _hand_off_once(self, prospect, reply_text: str) -> dict | None:
+        """Hand an accepted offer to sellbird.handoff, once per prospect."""
+        from sellbird.handoff import hand_off
+        key = HANDOFF_KEY + prospect.id
+        done = await self.state.get_setting(key)
+        if done:
+            try:
+                return json.loads(done)
+            except (TypeError, ValueError):
+                return None
+        company = None
+        if prospect.company_id:
+            try:
+                company = await self.state.get_company(prospect.company_id)
+            except Exception:
+                company = None
+        outcome = await hand_off(self.config, prospect, company, reply_text)
+        if outcome is not None:
+            await self.state.set_setting(key, json.dumps(outcome))
+        return outcome
+
     async def _generate_response(
-        self, intent: str, reply_text: str, prospect, convo: Conversation
+        self, intent: str, reply_text: str, prospect, convo: Conversation, handoff: dict | None = None
     ) -> str:
         """Generate an appropriate response based on intent."""
         history = conversation_history(convo.thread, prospect.full_name())
@@ -1300,7 +1453,7 @@ Respond with ONLY the category label, nothing else."""
         # Only an interested prospect (or a thread already closing) should be
         # moved to the configured next step. Everything else gets an answer,
         # not a pitch.
-        if intent == "interested" or convo.stage == "closing":
+        if (intent == "interested" or convo.stage == "closing") and intent != "accepted_offer":
             try:
                 zone = await recipient_zone(self.state, prospect, self.config)
             except Exception as e:
@@ -1354,7 +1507,20 @@ The prospect's intent is: {intent}
 
 Write a reply that:"""
 
-        if intent == "interested":
+        if intent == "accepted_offer":
+            offer = str(getattr(self.config.product.offer, "entry", "") or "")
+            prompt += f"""
+- They said yes to your offer ({offer}). Thank them in a few words and say what happens next.
+- One to three short sentences, under 60 words. No new pitch, no meeting ask."""
+            if handoff and handoff.get("ok") and handoff.get("result"):
+                prompt += f"""
+- Your system already started on it, and answered as below. If it holds a link, a date or a
+  next step, give it to them in plain words. Add nothing it doesn't say.
+{fence(handoff["result"], "your system's answer")}"""
+            else:
+                prompt += """
+- Say you're on it and will send it shortly. Don't promise a date or a time."""
+        elif intent == "interested":
             prompt += """
 - Acknowledges their interest warmly
 - Moves to the next step exactly as the NEXT STEP guidance says
@@ -1401,4 +1567,36 @@ Write a reply that:"""
             self.brain, [{"subject": "", "body": response}], agent="handler",
             enabled=humanizer_enabled(self.config),
         )
-        return polished[0]["body"]
+        return await self._keep_to_rules(tidy(polished[0]["body"]), prospect)
+
+    async def _keep_to_rules(self, body: str, prospect) -> str:
+        """``body`` after at most one rewrite for Sellbird's writing rules
+        (sellbird.email_style). A reply that still breaks them is kept: the
+        Sender holds it for you rather than send it, and a reply someone is
+        waiting for shouldn't vanish."""
+        names = [n for n in (prospect.company, prospect.first_name, prospect.last_name) if n]
+        found = style_problems("", body, kind="reply", names=names)
+        if not found:
+            return body
+        problems = "\n".join(f"- It {p}." for p in found)
+        prompt = f"""This email reply breaks Sellbird's writing rules:
+{problems}
+
+Rewrite it so it breaks none of them. Keep what it says and every fact; add
+nothing. Make it shorter, never longer. Plain text, no dash between words (use a
+period or a comma), no exclamation marks.
+
+{fence(body, "reply draft")}
+
+{UNTRUSTED_RULE}
+
+Write ONLY the email body."""
+        try:
+            rewrite = tidy(await self.brain.think(
+                prompt, session_id="sellbird-handler", agent="handler", task="fix_reply") or "")
+        except Exception as e:
+            logger.warning(f"Handler: rewrite to rules failed: {e}")
+            return body
+        if rewrite and not style_problems("", rewrite, kind="reply", names=names):
+            return rewrite
+        return body

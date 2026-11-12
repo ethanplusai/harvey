@@ -1056,6 +1056,37 @@ a.btn, a.btn:hover { text-decoration: none; }
 .rename-actions { display: flex; gap: 8px; flex-shrink: 0; }
 @media (max-width: 700px) { .rename-card { flex-direction: column; align-items: flex-start; } }
 
+
+/* Your company */
+.company-body { display: flex; flex-direction: column; gap: 16px; max-width: 880px; }
+.company-card { display: flex; flex-direction: column; gap: 12px; }
+.company-card-head { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
+.company-card-head h3 { margin: 0; }
+.company-card textarea { resize: vertical; font: inherit; }
+.company-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 12px; }
+.company-grid > * { min-width: 0; }
+.company-objections { display: flex; flex-direction: column; gap: 10px; }
+.company-objection { display: grid; grid-template-columns: minmax(0, 2fr) minmax(0, 3fr); gap: 12px;
+  padding-bottom: 10px; border-bottom: 1px solid var(--line); }
+@media (max-width: 700px) { .company-objection { grid-template-columns: 1fr; } }
+.company-learned summary { cursor: pointer; font-weight: 600; }
+.company-learned pre { white-space: pre-wrap; font: inherit; font-size: 13px; line-height: 1.5; margin: 8px 0 0;
+  max-height: 360px; overflow: auto; }
+.offer-actions { display: flex; gap: 8px; flex-wrap: wrap; }
+.offer-proposed { display: flex; flex-direction: column; gap: 8px; padding: 12px 14px; border-radius: 8px;
+  border: 1px solid var(--accent-line); background: var(--accent-soft); }
+.offer-proposed-text { margin: 0; font-weight: 600; }
+.offer-ideas { display: flex; flex-direction: column; gap: 6px; }
+.offer-idea { display: flex; flex-direction: column; gap: 2px; text-align: left; padding: 10px 12px;
+  border: 1px solid var(--line); border-radius: 8px; background: transparent;
+  color: inherit; font: inherit; cursor: pointer; }
+.offer-idea:hover { border-color: var(--accent); background: var(--accent-soft); }
+.offer-idea-text { font-weight: 600; }
+.offer-idea-meta { font-size: 12px; opacity: .75; }
+.offer-preview { display: flex; flex-direction: column; gap: 6px; }
+.offer-mail { border: 1px solid var(--line); border-radius: 8px; padding: 12px 14px; }
+.offer-mail-subject { font-weight: 600; margin-bottom: 8px; }
+.offer-mail pre { white-space: pre-wrap; font: inherit; margin: 0; line-height: 1.5; }
 /* ── Inboxes: list rows, and the dialog for one inbox or adding one ── */
 
 .inbox-summary { display: flex; flex-wrap: wrap; gap: 4px 18px; margin-bottom: var(--sp-4); font-size: var(--fs-ui); color: var(--text-2); }
