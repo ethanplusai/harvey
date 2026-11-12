@@ -24,6 +24,7 @@ import logging
 import os
 import random
 import re
+import unicodedata
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import Optional
@@ -98,8 +99,17 @@ def _clean_domain(domain: str) -> str:
     return domain
 
 
+# Letters NFKD does not split into a base letter plus an accent.
+_LIGATURES = str.maketrans({"œ": "oe", "æ": "ae", "ß": "ss", "ø": "o", "ł": "l", "đ": "d"})
+
+
 def _clean_name_part(value: str) -> str:
-    return re.sub(r"[^a-z]", "", (value or "").lower())
+    """Lowercase ASCII letters for an address: accents are transliterated
+    (Valès -> vales, Zoë -> zoe, Œuvray -> oeuvray), not dropped."""
+    text = (value or "").lower().translate(_LIGATURES)
+    text = "".join(c for c in unicodedata.normalize("NFKD", text)
+                   if not unicodedata.combining(c))
+    return re.sub(r"[^a-z]", "", text)
 
 
 def build_email(pattern: str, first: str, last: str, domain: str) -> str:
