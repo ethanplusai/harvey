@@ -729,13 +729,15 @@ async def _verify_candidate(email: str, mx_type: str, env) -> tuple[Optional[str
     return None, catch_all_seen
 
 
-async def verify_published_address(email: str, env=None) -> str:
+async def verify_published_address(email: str, env=None, trust_published: bool = False) -> str:
     """Grade an address the company publishes on its own website.
 
     Graded like any other address: a catch-all verdict stays "risky", so
     ``send_to_risky`` still decides whether it is sent (a published address
-    can be stale). A verifier's invalid verdict wins, and an inconclusive
-    check stays an honest guess that is never sent.
+    can be stale). A verifier's invalid verdict wins. An inconclusive check
+    (no verifier configured, or its credits ran out) stays an honest guess
+    that is never sent, unless ``trust_published`` is on: then the address is
+    "published", because the company itself printed it.
     """
     email = (email or "").strip().lower()
     domain = email.partition("@")[2]
@@ -745,7 +747,7 @@ async def verify_published_address(email: str, env=None) -> str:
     if not mx_host:
         return "invalid"
     status, _ = await _verify_candidate(email, classify_mx(mx_host), env)
-    return status or "guess"
+    return status or ("published" if trust_published else "guess")
 
 
 def _belongs_to_someone_else(candidate, pattern, person, domain, other_people, known_emails) -> bool:
@@ -773,6 +775,8 @@ async def find_email(
     known_emails: Optional[list[tuple[str, str, str]]] = None,
     default_pattern: str = DEFAULT_PATTERN,
     other_people: Optional[list[tuple[str, str]]] = None,
+    published_only: bool = False,
+    trust_published: bool = False,
 ) -> EmailResult:
     """Find and honestly grade one email for a person at a company.
 
@@ -781,6 +785,12 @@ async def find_email(
     best pattern guess is returned as ``guess`` — never as verified. A
     person's own published address (in ``known_emails``) is used as is,
     and is still graded like any other.
+
+    With ``published_only`` an address is never deduced: only this person's
+    own address, printed on the company's site (``known_emails``), is used.
+    With none there is no address (and no pattern lookup is spent).
+    With ``trust_published`` such a printed address that no verifier could
+    decide is graded "published", not "guess". The two are independent.
 
     ``other_people`` are the other people named at the company. A candidate
     one of them could own (jsmith@ for Jane when John Smith works there too,
@@ -799,17 +809,25 @@ async def find_email(
 
     mx_type = classify_mx(mx_host)
 
+    own = _clean_name_part(first_name), _clean_name_part(last_name)
+    published = ""
+    for email, first, last in known_emails or []:
+        if (_clean_name_part(first), _clean_name_part(last)) == own \
+                and email.split("@")[-1].lower() == domain:
+            published = email.strip().lower()
+            break
+    if published_only and not published:
+        logger.info(f"No address published for {first_name} {last_name} at {domain}; "
+                    "not deduced (published_only)")
+        return EmailResult(email="", status="guess", mx_type=mx_type)
+
     pattern, source, confidence = await derive_pattern(
         domain, known_emails=known_emails, state=state, default_pattern=default_pattern,
     )
     candidate = build_email(pattern, first_name, last_name, domain)
-    own = _clean_name_part(first_name), _clean_name_part(last_name)
-    for email, first, last in known_emails or []:
-        if (_clean_name_part(first), _clean_name_part(last)) == own \
-                and email.split("@")[-1].lower() == domain:
-            candidate = email.strip().lower()
-            pattern = infer_pattern_from_email(candidate, first, last) or pattern
-            break
+    if published:
+        candidate = published
+        pattern = infer_pattern_from_email(candidate, first_name, last_name) or pattern
     if _belongs_to_someone_else(candidate, pattern, (first_name, last_name), domain,
                                 other_people, known_emails):
         logger.info(f"Email for {first_name} {last_name}@{domain}: {candidate} could be "
@@ -828,8 +846,9 @@ async def find_email(
         except Exception as e:
             logger.debug(f"Pattern cache write failed for {domain}: {e}")
 
+    undecided = "published" if (trust_published and published) else "guess"
     if not verify:
-        return EmailResult(email=candidate, status="guess", pattern=pattern, mx_type=mx_type)
+        return EmailResult(email=candidate, status=undecided, pattern=pattern, mx_type=mx_type)
 
     status, catch_all = await _verify_candidate(candidate, mx_type, env)
 
@@ -841,7 +860,8 @@ async def find_email(
 
     if status is None:
         # Verification couldn't decide — an honest guess, never "verified".
-        status = "guess"
+        # A published address the company itself printed stays "published".
+        status = undecided
 
     logger.info(f"Email for {first_name} {last_name}@{domain}: {candidate} [{status}]")
     return EmailResult(email=candidate, status=status, pattern=pattern, mx_type=mx_type)

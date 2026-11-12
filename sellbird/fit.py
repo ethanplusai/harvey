@@ -24,7 +24,7 @@ from sellbird.collectors.people import title_matches
 from sellbird.gate import do_not_contact_match
 
 SECTOR, DECISION_MAKER, REACHABLE, BUYING = 20, 30, 25, 25
-EMAIL_POINTS = {"verified": 25, "risky": 12, "guess": 5}
+EMAIL_POINTS = {"verified": 25, "published": 22, "risky": 12, "guess": 5}
 DEAD_STATUSES = {"lost", "opted_out"}
 
 

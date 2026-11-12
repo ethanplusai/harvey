@@ -289,6 +289,14 @@ class EmailChannelConfig(BaseModel):
     # Kill switch: pause all sending when bounces exceed this fraction of
     # sent mail (measured over the trailing sends). 0 disables the switch.
     max_bounce_rate: float = 0.05
+    # true = use only addresses the company prints on its own website. Scout
+    # never deduces name.surname@ from a pattern and skips Hunter's lookups.
+    published_only: bool = False
+    # true = an address the company printed on its own site that no verifier
+    # could decide (none configured, or its credits ran out) is "published",
+    # not "guess", and is written to and sent to. A verifier's "invalid" still
+    # wins and a catch-all stays "risky". Independent of published_only.
+    trust_published: bool = False
     # false = a campaign stages only its first email. Follow-ups (steps 2 and
     # 3) are not prepared, so none can go out to someone who never answered;
     # a reply is still read and answered as usual. Gmail/Microsoft/SMTP only.

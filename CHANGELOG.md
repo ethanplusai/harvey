@@ -9,6 +9,18 @@ minor versions can still change behaviour.
 
 ### Added
 
+- **Two switches for addresses a company prints on its own site.**
+  `channels.email.published_only: true` stops Scout from deducing
+  `name.surname@` from a pattern and from using Hunter's lookups; a person with
+  no address on the site gets none, and the company's published inbox is used
+  instead. `channels.email.trust_published: true` grades a printed address that
+  no verifier could decide (none configured, or its credits ran out) as the new
+  status `published`, not `guess`: it is written to and sent to. A verifier's
+  `invalid` still wins and a catch-all stays `risky`. Independent of each
+  other; both off by default.
+
+### Added
+
 - **`writer.require_tip: true` skips prospects with nothing to build a tip
   on.** A first email is meant to name one concrete thing the sender would
   change; with no finding about the company, the draft could only say it had no

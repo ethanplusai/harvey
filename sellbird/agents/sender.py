@@ -78,8 +78,10 @@ SENDABLE_STATUSES = {"new", "queued"}
 # Email confidence levels safe to send to. "verified" only by default;
 # "risky" (catch-all domains) is opt-in via config. Never send to a "guess"
 # or "invalid" address — that bounces and burns the sending domain.
-SENDABLE_EMAIL_STATUSES = {"verified"}
-SENDABLE_EMAIL_STATUSES_WITH_RISKY = {"verified", "risky"}
+# "published" is an address the company printed on its own site (see
+# channels.email.published_only).
+SENDABLE_EMAIL_STATUSES = {"verified", "published"}
+SENDABLE_EMAIL_STATUSES_WITH_RISKY = {"verified", "published", "risky"}
 
 
 def _utcnow() -> datetime:
