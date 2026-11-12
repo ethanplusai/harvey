@@ -31,6 +31,9 @@ STRICT EMAIL RULES — FOLLOW EVERY SINGLE ONE:
 15. Do NOT name the product in email 1. Save that for email 2 or the reply.
 16. NEVER use "no pressure", "no obligation", "no contracts" in email 1.
 17. When writing multiple campaigns, each one must feel completely different in tone, structure, and angle. Not just different pain points in the same format.
+18. End every email with a blank line, then exactly this sign-off on its own two lines, nothing after it:
+{{persona_name}}
+{{persona_role}} at {{persona_company}}
 
 SOUNDS-HUMAN CHECKS — the patterns that still give AI away after the rules above. Before returning, reread every email and rewrite any sentence that does one of these:
 - "Not X, but Y" contrasts, including split across two sentences ("It's not about X. It's about Y.") or "less X, more Y". Just state Y.

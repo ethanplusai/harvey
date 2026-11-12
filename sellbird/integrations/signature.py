@@ -6,6 +6,12 @@ each email as HTML, with the logo embedded in the message itself (an inline
 ``cid:`` image), so it shows without the recipient allowing remote images.
 Gmail and SMTP also carry the same plain text as the HTML's alternative.
 
+When the email ends with the persona's name on a line of its own (the
+sign-off), the logo sits beside those lines, and the company's name in them
+opens ``link``. Otherwise the logo sits under the words. The compliance
+footer the sender adds to cold email (postal address and opt-out line) comes
+last, in smaller grey type, the way a footer reads in any email client.
+
 The words are the ones Sellbird wrote, unchanged: the HTML is that text,
 escaped, with its paragraphs and line breaks kept and its web addresses made
 clickable. The pre-send gate checks that text, so the only link the HTML adds
@@ -23,6 +29,7 @@ from dataclasses import dataclass
 from email.message import EmailMessage
 from pathlib import Path
 
+from sellbird.config import compliance_footer_lines
 from sellbird.paths import PROJECT_ROOT
 
 # Bigger images hurt deliverability, and a logo never needs more.
@@ -48,6 +55,9 @@ class Signature:
     alt: str
     link: str
     direction: str        # rtl, ltr or auto
+    footer: str = ""      # the compliance paragraph the sender appends, as written
+    name: str = ""        # persona.name: a closing paragraph starting with it is the sign-off
+    company: str = ""     # persona.company: linked inside the sign-off when link is set
 
 
 def _settings(config):
@@ -97,6 +107,9 @@ def load_signature(config) -> Signature | None:
         alt=(getattr(settings, "alt", "") or company or "logo").strip(),
         link=(getattr(settings, "link", "") or "").strip(),
         direction=(getattr(settings, "direction", "") or "auto").strip().lower(),
+        footer="\n".join(compliance_footer_lines(config)),
+        name=(getattr(getattr(config, "persona", None), "name", "") or "").strip(),
+        company=company.strip(),
     )
 
 
@@ -110,9 +123,26 @@ def signature_problem(config) -> str:
     return ""
 
 
+MAX_SIGN_OFF_LINES = 4
+
+
 def render_html(body: str, sig: Signature) -> str:
-    """The email as HTML: Sellbird's text, then the logo."""
+    """The email as HTML: Sellbird's text, the logo beside the sign-off (or
+    under the text when there's no sign-off), then on cold email the
+    compliance footer in smaller type."""
     paragraphs = [p for p in re.split(r"\n[ \t]*\n", body.replace("\r\n", "\n").strip()) if p.strip()]
+    footer = ""
+    if sig.footer and paragraphs and paragraphs[-1].strip() == sig.footer:
+        footer = (
+            '<div style="margin-top:1.5em;font-size:12px;line-height:1.4;color:#6b6b6b">'
+            f"{_paragraph(paragraphs.pop().strip())}</div>\n"
+        )
+    sign_off = []
+    if sig.name and paragraphs:
+        lines = [ln.strip() for ln in paragraphs[-1].strip().split("\n")]
+        if lines[0] == sig.name and len(lines) <= MAX_SIGN_OFF_LINES:
+            sign_off = lines
+            paragraphs.pop()
     text = "\n".join(
         f'<p style="margin:0 0 1em 0">{_paragraph(p)}</p>' for p in paragraphs
     )
@@ -130,14 +160,36 @@ def render_html(body: str, sig: Signature) -> str:
         # Outlook's desktop renderer ignores dir="auto" and reads the style.
         align = "right" if sig.direction == "rtl" else "left"
         direction = f'dir="{sig.direction}" style="direction:{sig.direction};text-align:{align}"'
+    if sign_off:
+        closing = (
+            '<table role="presentation" cellpadding="0" cellspacing="0" border="0" '
+            'style="border-collapse:collapse;margin-top:1em"><tr>\n'
+            f'<td style="vertical-align:middle;padding:0 12px 0 0">{img}</td>\n'
+            '<td style="vertical-align:middle;padding:0;font-family:Arial,Helvetica,sans-serif;'
+            'font-size:14px;line-height:1.5">'
+            + "<br>\n".join(_sign_off_line(ln, sig) for ln in sign_off)
+            + "</td>\n</tr></table>\n"
+        )
+    else:
+        closing = f'<div style="margin-top:1.5em">{img}</div>\n'
     return (
         '<!DOCTYPE html>\n<html><head><meta charset="utf-8"></head><body>\n'
         f'<div {direction}>\n'
         '<div style="font-family:Arial,Helvetica,sans-serif;font-size:14px;line-height:1.5">\n'
         f"{text}\n"
-        f'<div style="margin-top:1.5em">{img}</div>\n'
+        f"{closing}"
+        f"{footer}"
         "</div>\n</div>\n</body></html>\n"
     )
+
+
+def _sign_off_line(line: str, sig: Signature) -> str:
+    """One sign-off line, escaped, with the company name opening the link."""
+    out = _paragraph(line)
+    company = html.escape(sig.company, quote=False)
+    if sig.link and company and company in out:
+        out = out.replace(company, f'<a href="{html.escape(sig.link)}">{company}</a>', 1)
+    return out
 
 
 def set_body(msg: EmailMessage, body: str, sig: Signature | None):
