@@ -2105,7 +2105,7 @@ class StateManager:
         async with self._connect() as db:
             db.row_factory = aiosqlite.Row
             async with db.execute(
-                """SELECT c.id, c.name, c.domain, c.industry
+                """SELECT c.id, c.name, c.domain, c.industry, c.location
                    FROM companies c
                    LEFT JOIN prospects p ON p.company_id = c.id
                    WHERE c.domain != ''

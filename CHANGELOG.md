@@ -9,6 +9,16 @@ minor versions can still change behaviour.
 
 ### Added
 
+- **`icp.require_location: true` keeps Scout to companies with a known
+  location.** Scout's own search by industry has no city and finds companies
+  anywhere, so a global manufacturer or a startup network could reach the
+  Outbox for someone selling in a few cities. With the option on, Scout skips
+  that search, job-board discovery and any known company with no location;
+  `sellbird discover` sets the location from the city it searched. Off by
+  default.
+
+### Added
+
 - **`writer.require_tip: true` skips prospects with nothing to build a tip
   on.** A first email is meant to name one concrete thing the sender would
   change; with no finding about the company, the draft could only say it had no
