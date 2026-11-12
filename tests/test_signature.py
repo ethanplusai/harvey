@@ -36,11 +36,14 @@ def png(width=2, height=1) -> bytes:
             + chunk(b"IDAT", zlib.compress(rows)) + chunk(b"IEND", b""))
 
 
-def config(company="Acme", **settings):
-    return SimpleNamespace(
-        persona=SimpleNamespace(company=company),
+def config(company="Acme", name="Jo", compliance=None, **settings):
+    found = SimpleNamespace(
+        persona=SimpleNamespace(company=company, name=name),
         channels=SimpleNamespace(email=SimpleNamespace(signature=SignatureConfig(**settings))),
     )
+    if compliance is not None:
+        found.compliance = compliance
+    return found
 
 
 @pytest.fixture
@@ -152,6 +155,53 @@ def test_html_logo_direction_and_link(logo):
     assert (f'<a href="https://acme.example"><img src="cid:{sig.content_id}" width="120" '
             f'height="60" alt="Acme logo"') in out
     assert 'dir="auto"' in render_html("hi", load_signature(config(logo=str(logo))))
+
+
+def test_html_puts_the_logo_beside_the_sign_off_and_the_footer_small_after_it(logo):
+    from sellbird.config import ComplianceConfig
+    compliance = ComplianceConfig(postal_address="1 Example Street, Springfield",
+                                  opt_out_line="Reply stop and I won't write again.")
+    sig = load_signature(config(logo=str(logo), link="https://acme.example", compliance=compliance))
+    body = ("Saw your studio.\n\nJo\nFounder at Acme\n\n"
+            "1 Example Street, Springfield\nReply stop and I won't write again.")
+
+    out = render_html(body, sig)
+
+    table = out.index("<table")
+    footer = out.index("1 Example Street, Springfield<br>\nReply stop")
+    assert out.index("Saw your studio.") < table < out.index("<img ") < out.index("Jo<br>") < footer
+    assert 'Founder at <a href="https://acme.example">Acme</a>' in out
+    assert 'font-size:12px' in out[footer - 120:footer]
+    assert out.count('<p style="margin:0 0 1em 0">') == 1    # sign-off and footer aren't paragraphs
+    assert out.count('href="https://acme.example"') == 2     # the logo and the company name, nothing else
+
+
+def test_html_takes_the_first_name_the_writer_signs_with_as_the_sign_off(logo):
+    """The writer ends every cold email with the sender's first name on its
+    own line (email_style.with_sign_off); that one line is the sign-off."""
+    sig = load_signature(config(logo=str(logo), link="https://acme.example", name="Jo Example"))
+    out = render_html("Saw your studio.\n\nJo", sig)
+
+    assert out.index("<table") < out.index("<img ") < out.index(">Jo<")
+    assert out.count('href="https://acme.example"') == 1     # the logo; no company name to link
+    # A different first word isn't one.
+    assert "<table" not in render_html("Saw your studio.\n\nSam", sig)
+
+
+def test_html_without_a_sign_off_keeps_the_logo_under_the_text(logo):
+    sig = load_signature(config(logo=str(logo), link="https://acme.example"))
+    out = render_html("Thanks, see you Tuesday.\n\nCheers from the team", sig)
+
+    assert "<table" not in out and "font-size:12px" not in out
+    assert out.index("Cheers from the team") < out.index("<img ")
+    # A name buried in a longer closing paragraph isn't a sign-off either.
+    long = render_html("Jo\n" + "\n".join(f"line {n}" for n in range(6)), sig)
+    assert "<table" not in long
+
+
+def test_html_sign_off_company_link_needs_the_link_setting(logo):
+    out = render_html("Hi.\n\nJo\nFounder at Acme", load_signature(config(logo=str(logo))))
+    assert "<table" in out and "Founder at Acme" in out and "<a href" not in out
 
 
 # ── MIME (Gmail, SMTP) ──

@@ -20,6 +20,7 @@ from sellbird.pidfile import (
     LOCK_FILE, hold_loop_lock, read_pid, release_loop_lock, remove_pid_file, write_pid_file,
 )
 from sellbird.pipeline import run_profile_stage
+from sellbird import storage
 from sellbird.state import StateManager
 
 logging.basicConfig(
@@ -555,7 +556,13 @@ async def _run_with_signals():
             # Windows / non-main-thread fallback
             signal.signal(sig, lambda s, f: _request_shutdown(signal.Signals(s).name))
 
-    await heartbeat(stop_event)
+    # One database connection for the whole loop (see storage.share_connections).
+    storage.share_connections(True)
+    try:
+        await heartbeat(stop_event)
+    finally:
+        await storage.close_shared()
+        storage.share_connections(False)
 
 
 def main():

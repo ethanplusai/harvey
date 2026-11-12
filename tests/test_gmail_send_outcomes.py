@@ -25,6 +25,10 @@ def transport_provider(monkeypatch, handler):
     transport = httpx.MockTransport(gmail_only)
     monkeypatch.setattr(gmail.httpx, 'AsyncClient',
                         lambda **kwargs: client(transport=transport, **kwargs))
+
+    async def no_wait(seconds):      # a rate-limit retry's backoff, skipped
+        pass
+    monkeypatch.setattr(gmail, '_sleep', no_wait)
     config = SimpleNamespace(persona=SimpleNamespace(
         name='Synthetic', email='sender@example.invalid'))
     p = gmail.GmailProvider(config, SimpleNamespace())
@@ -85,12 +89,16 @@ async def test_sender_outbox_and_dashboard_outcome(
     assert await dashboard._sellbird_sent_to(pid) == (outcome != 'rejected')
     # The provider recovers, but neither a second drain nor a fresh process
     # may silently re-send an already attempted outbox item.
+    # One attempt, except a 429, which Gmail asks to retry: those retries are
+    # the same attempt. Either way the recovered provider doesn't re-send.
+    assert len(posts) == (len(gmail.RETRY_DELAYS) + 1 if status == 429 else 1)
+    attempted = len(posts)
     status, body = 200, '{"id":"recovered"}'
     await sender._drain_due()
     reopened = StateManager(str(path))
     await reopened.init_db()
     await make_sender(reopened, p)._drain_due()
-    assert len(posts) == 1
+    assert len(posts) == attempted
     assert (await reopened.get_outbox_item(iid))['status'] == item['status']
 
 

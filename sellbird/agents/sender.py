@@ -48,11 +48,22 @@ MIN_FOLLOW_UP_GAP = timedelta(days=1)
 logger = logging.getLogger("sellbird.sender")
 
 # Max sends drained per heartbeat cycle — spreads volume through the day
-# instead of bursting the daily cap in one minute.
+# instead of bursting the daily cap in one minute. The default for
+# channels.email.max_sends_per_cycle; see sends_per_cycle().
 MAX_SENDS_PER_CYCLE = 8
 # How many due emails quiet hours look through for one that can go now.
 QUIET_HOURS_SCAN = 200
 SEND_JITTER_SECONDS = (4, 15)
+
+
+def sends_per_cycle(email) -> int:
+    """channels.email.max_sends_per_cycle, at least 1; the constant when
+    the config predates the setting or sets nonsense."""
+    try:
+        value = int(getattr(email, "max_sends_per_cycle", MAX_SENDS_PER_CYCLE))
+    except (TypeError, ValueError):
+        return MAX_SENDS_PER_CYCLE
+    return max(1, value)
 # Optional Precleared check: an email whose address Precleared couldn't
 # check is moved back this far, behind other email, rather than asked about
 # again every cycle. Failures for this many different domains with no answer
@@ -912,9 +923,10 @@ class Sender:
 
         max_daily = self.config.channels.email.max_daily_sends
         sent_today = await self.state.count_outbox_sent_today()
-        # Each inbox sends up to MAX_SENDS_PER_CYCLE a cycle; max_daily_sends
+        # Each inbox sends up to max_sends_per_cycle a cycle; max_daily_sends
         # stays the ceiling on everything sent in a day.
-        per_cycle = MAX_SENDS_PER_CYCLE * (len(inboxes.sendable()) if inboxes else 1)
+        per_inbox = sends_per_cycle(self.config.channels.email)
+        per_cycle = per_inbox * (len(inboxes.sendable()) if inboxes else 1)
         budget = min(per_cycle, max_daily - sent_today)
         if budget <= 0:
             logger.info(f"Sender: daily send cap reached ({sent_today}/{max_daily}).")
@@ -928,10 +940,15 @@ class Sender:
             since=midnight.astimezone(timezone.utc).replace(tzinfo=None).isoformat())
 
         now = datetime.now(timezone.utc).replace(tzinfo=None).isoformat()
+        # How many due emails to look through for ones that can go: never
+        # fewer than the default budget's page, so a small
+        # max_sends_per_cycle doesn't let a few gate-blocked or held emails
+        # at the front of the queue use up a cycle.
+        page = max(budget, MAX_SENDS_PER_CYCLE) * 3
         # In quiet hours only cold email can go, so only cold email is
         # fetched: replies due ahead of it can't fill the page.
         due = await self.state.get_outbox(
-            status="approved", due_before=now, limit=budget * 3,
+            status="approved", due_before=now, limit=page,
             skip_unready_follow_ups=True, kind="sequence" if self.cold_only else None,
         )
         # Cold emails held (by an unavailable compliance check, the cold
@@ -941,7 +958,7 @@ class Sender:
         # query of the same size.
         seen = {item["id"] for item in due}
         unchecked = [] if self.cold_only else await self.state.get_outbox(
-            status="approved", due_before=now, limit=budget * 3,
+            status="approved", due_before=now, limit=page,
             exclude_kind="sequence",
         )
         extra = [item for item in unchecked if item["id"] not in seen]
@@ -951,7 +968,7 @@ class Sender:
             # which a stored verdict lets go out. Fetched on their own as well.
             seen.update(item["id"] for item in extra)
             follow_ups = await self.state.get_outbox(
-                status="approved", due_before=now, limit=budget * 3,
+                status="approved", due_before=now, limit=page,
                 skip_unready_follow_ups=True, follow_ups_only=True,
             )
             extra += [item for item in follow_ups if item["id"] not in seen]
@@ -1004,7 +1021,7 @@ class Sender:
                     inbox_waits[route.reason] = inbox_waits.get(route.reason, 0) + 1
                     continue
                 inbox = inboxes.get(route.mailbox_id)
-                if inbox.sent_this_cycle >= MAX_SENDS_PER_CYCLE:
+                if inbox.sent_this_cycle >= per_inbox:
                     continue
                 if item["kind"] == "sequence" and inbox.cold_left <= 0:
                     held_cold += 1

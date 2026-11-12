@@ -49,6 +49,8 @@ channels:
     enabled: true
     provider: "gmail"          # gmail (recommended) | microsoft | smtp | instantly
     max_daily_sends: 50
+    # max_sends_per_cycle: 8    # approved emails sent per 15-minute cycle; set 1
+    #                           # while ramping so they leave one at a time
     require_approval: true      # native: review in Outbox; Instantly: sending held
     # link_domains: ["mainsite.com"]   # your own sites besides the sending
     #                                  # domain and booking link; on autopilot,

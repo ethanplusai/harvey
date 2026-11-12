@@ -14,6 +14,7 @@ Google Postmaster Tools. Sellbird's outbox pacing + kill switches handle the
 rest.
 """
 
+import asyncio
 import base64
 import codecs
 import json
@@ -73,6 +74,33 @@ def _entry_id(entry, page: int) -> str:
 
 
 TIMEOUT = httpx.Timeout(connect=10.0, read=30.0, write=30.0, pool=10.0)
+
+# Gmail meters calls per user per minute. A full read of a busy inbox (every
+# message of the week, one call each) can hit that ceiling, and Google's answer
+# is a 429 or a 403 naming the quota, with "retry with backoff" as the fix. The
+# delays add up to about the one-minute window; a request that still fails
+# after them fails as before.
+RETRY_DELAYS = (2.0, 4.0, 8.0, 16.0, 32.0)
+RETRY_AFTER_CAP = 60.0
+_RATE_LIMIT_MARKERS = ("rateLimitExceeded", "userRateLimitExceeded", "Quota exceeded")
+_sleep = asyncio.sleep    # patched in tests
+
+
+def _rate_limited(resp: httpx.Response) -> bool:
+    if resp.status_code == 429:
+        return True
+    return resp.status_code == 403 and any(m in resp.text for m in _RATE_LIMIT_MARKERS)
+
+
+def _retry_delay(resp: httpx.Response, attempt: int) -> float:
+    """Retry-After when Google sends one (capped), else the next backoff step."""
+    header = resp.headers.get("Retry-After", "")
+    try:
+        if header.strip():
+            return min(max(float(header), 0.0), RETRY_AFTER_CAP)
+    except ValueError:
+        pass
+    return RETRY_DELAYS[attempt]
 
 
 def _load_token() -> dict | None:
@@ -202,17 +230,27 @@ class GmailProvider(MailProvider):
         if not token:
             return None
         headers = {"Authorization": f"Bearer {token}"}
-        try:
-            async with self._client() as client:
-                resp = await client.request(
-                    method, f"{API_BASE}{path}", headers=headers, **kwargs
-                )
-        except httpx.HTTPError as e:
-            logger.error(f"Gmail request failed ({path}): {e}")
-            if sending:
-                # The request may have reached Gmail before the connection failed.
-                raise RuntimeError("Gmail send outcome is unknown") from e
-            return None
+        for attempt in range(len(RETRY_DELAYS) + 1):
+            try:
+                async with self._client() as client:
+                    resp = await client.request(
+                        method, f"{API_BASE}{path}", headers=headers, **kwargs
+                    )
+            except httpx.HTTPError as e:
+                logger.error(f"Gmail request failed ({path}): {e}")
+                if sending:
+                    # The request may have reached Gmail before the connection failed.
+                    raise RuntimeError("Gmail send outcome is unknown") from e
+                return None
+            if attempt < len(RETRY_DELAYS) and _rate_limited(resp):
+                # Rejected before it did anything (a send included), so safe to repeat.
+                delay = _retry_delay(resp, attempt)
+                logger.warning(
+                    f"Gmail rate limit on {path} (HTTP {resp.status_code}): "
+                    f"waiting {delay:.0f}s, retry {attempt + 1}/{len(RETRY_DELAYS)}")
+                await _sleep(delay)
+                continue
+            break
         if sending and not (200 <= resp.status_code < 300
                             or 400 <= resp.status_code < 500):
             raise RuntimeError("Gmail send outcome is unknown")

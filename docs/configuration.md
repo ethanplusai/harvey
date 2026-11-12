@@ -14,7 +14,7 @@ product:      { name, description, pricing, key_benefits, objection_responses, o
 icp:          { industries, titles, company_size, geography, hiring_signals, geo_coordinates }
 channels:
   email:      { provider: gmail | microsoft | smtp | instantly, max_daily_sends, per_inbox_daily_cap,
-                require_approval, send_to_risky, min_write_score, max_bounce_rate, follow_ups, warmup, send_window, signature }
+                max_sends_per_cycle, require_approval, send_to_risky, min_write_score, max_bounce_rate, follow_ups, warmup, send_window, signature }
 usage:        { max_daily_claude_percent, heartbeat_interval_minutes, quiet_hours }
 brain:        { provider: claude | codex, model, reasoning_effort }   # optional; claude by default
 writer:       { humanizer, site_facts, require_tip }   # optional; humanizer true adds one editing pass per batch using ~/.claude/skills/humanizer/SKILL.md
@@ -102,6 +102,10 @@ sellbird inboxes list                                           # each inbox and
   `channels.email.warmup` describes; the main mailbox ramps from
   `warmup.start_date`. `max_daily_sends` stays the ceiling on everything sent
   in a day, so raise it when you add inboxes.
+- **Pacing.** Each inbox sends at most `max_sends_per_cycle` approved emails
+  per heartbeat cycle (default 8), a few seconds apart, so a day's volume is
+  spread over the day. While a ramp caps you at a handful a day, set it to 1
+  and one email leaves every cycle instead of all of them in one minute.
 - **Pausing and removing.** `sellbird inboxes pause <address>` stops one inbox.
   Its unsent first emails move to the others, and threads it started wait for
   it. `remove` stops using it for good: threads it started end. Its sign-in
