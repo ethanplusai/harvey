@@ -125,6 +125,20 @@ _CAREERS_ANCHOR = re.compile(r"^(careers?|jobs|join us|join (our|the) team|we['â
 # Roles recorded per company from a board. The first few say it; twenty rows
 # of "Account Executive, <city>" don't say more.
 MAX_BOARD_ROLES = 5
+
+
+def has_structured_data(html: str) -> bool:
+    """Does the page carry schema.org markup in any of its three formats?
+
+    JSON-LD with a type, microdata (itemtype pointing at schema.org) or RDFa
+    (a schema.org vocab). Looking only for JSON-LD called a site with
+    microdata a site with none.
+    """
+    if re.search(r'application/ld\+json', html, re.I) and re.search(r'"@type"', html):
+        return True
+    if re.search(r'itemtype\s*=\s*["\']https?://(?:www\.)?schema\.org/', html, re.I):
+        return True
+    return bool(re.search(r'vocab\s*=\s*["\']https?://(?:www\.)?schema\.org', html, re.I))
 CONTACT_PATHS = ("/contact", "/contact-us", "/get-a-quote", "/free-estimate",
                  "/request-estimate", "/quote")
 
@@ -1168,9 +1182,7 @@ class ProfileCollector:
             add("TECH_STACK", text=", ".join(tech))
 
         # Structured data gap
-        has_schema = bool(re.search(r'application/ld\+json', home, re.I)
-                          and re.search(r'"@type"', home))
-        add("NO_SCHEMA_MARKUP", num=0 if has_schema else 1)
+        add("NO_SCHEMA_MARKUP", num=0 if has_structured_data(home) else 1)
 
         # Booking gap
         add("NO_ONLINE_BOOKING", num=0 if self._any(home, BOOKING_HINTS) else 1)
