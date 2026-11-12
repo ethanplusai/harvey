@@ -241,6 +241,24 @@ class Scout:
             logger.debug(f"mark_prospects_checked failed for {domain}: {e}")
         return True
 
+    def _require_location(self) -> bool:
+        """icp.require_location, or False when the config has none."""
+        return bool(getattr(getattr(self.config, "icp", None), "require_location", False))
+
+    async def _skip_unplaced_company(self, company: dict) -> bool:
+        """icp.require_location: True when a known company has no location.
+        Marked checked so the backfill rotation moves on instead of offering
+        it again every cycle."""
+        if not self._require_location() or (company.get("location") or "").strip():
+            return False
+        logger.info(
+            f"Scout: {company.get('domain')} has no location (icp.require_location); skipping.")
+        try:
+            await self.state.mark_prospects_checked(company["id"])
+        except Exception as e:
+            logger.debug(f"mark_prospects_checked failed for {company.get('domain')}: {e}")
+        return True
+
     # ── Prospect dedup helpers ──
 
     def _prospect_key(self, prospect: Prospect) -> str:
@@ -636,6 +654,8 @@ class Scout:
 
             if await self._skip_listed_company(company, domain):
                 continue
+            if await self._skip_unplaced_company(company):
+                continue
             if await hunter_searches_remaining(self.state) <= 0:
                 break
             await record_hunter_search(self.state)
@@ -725,6 +745,8 @@ class Scout:
                 continue
 
             if await self._skip_listed_company(company, domain):
+                continue
+            if await self._skip_unplaced_company(company):
                 continue
 
             contacts = await self._contacts_from_company(
@@ -916,6 +938,11 @@ class Scout:
         Python does ALL the searching and scraping. Claude only scores/personalizes
         the contacts that Python already found.
         """
+        if self._require_location():
+            logger.info(
+                "Scout: Skipping the search by industry: it finds companies with no "
+                "location (icp.require_location).")
+            return 0
         logger.info("Scout: Discovering companies...")
 
         companies = []
@@ -1854,6 +1881,8 @@ Respond ONLY with the JSON array."""
         Uses python-jobspy when installed (optional dependency:
         `pip install python-jobspy`); silently skipped otherwise.
         """
+        if self._require_location():
+            return 0    # job boards give a company, not where it is
         try:
             from jobspy import scrape_jobs
         except ImportError:

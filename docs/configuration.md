@@ -11,7 +11,10 @@ Two files, both plain text.
 ```yaml
 persona:      { name, company, role, email, tone }
 product:      { name, description, pricing, key_benefits, objection_responses, offer }
-icp:          { industries, titles, company_size, geography, hiring_signals, geo_coordinates }
+icp:          { industries, titles, company_size, geography, hiring_signals, geo_coordinates, require_location }
+              # require_location (default false): true makes Scout work only with companies whose location is known
+              # (`sellbird discover` sets it from the city searched). It skips its own search by industry, job-board
+              # discovery, and any known company with no location, so nothing from outside your places gets a draft.
 channels:
   email:      { provider: gmail | microsoft | smtp | instantly, max_daily_sends, per_inbox_daily_cap,
                 require_approval, send_to_risky, min_write_score, max_bounce_rate, follow_ups, warmup, send_window, signature }

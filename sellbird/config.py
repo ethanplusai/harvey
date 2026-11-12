@@ -79,6 +79,12 @@ class ICPConfig(BaseModel):
     #   "Denver, CO": "39.7392,-104.9903,50"
     # Without one, listings providers can only match on the business name.
     geo_coordinates: dict[str, str] = {}
+    # true = Scout works only with companies whose location is known, which
+    # `sellbird discover` sets from the city it searched in. It skips its own
+    # search by industry (which has no city and finds companies anywhere),
+    # job-board discovery, and any known company with no location. Use it when
+    # you sell in specific places and a company from elsewhere is a mistake.
+    require_location: bool = False
     # Extra searches per industry for rank discovery, e.g.
     #   "roofing contractor": ["roofer", "roof repair"]
     # Each variant runs in every city alongside the industry itself, so the
