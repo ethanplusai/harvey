@@ -9,6 +9,23 @@ minor versions can still change behaviour.
 
 ### Added
 
+- **An eval loop: `sellbird evals`.** A scoreboard of what came back, counted
+  per company (a reply from anyone there counts once) and grouped by the ICP
+  industry that found it, so a long search phrase rolls up into its industry:
+  companies emailed, bounced, replied, positive and meetings, plus which
+  sequence step the first reply followed. Every change a reviewer makes to a
+  draft awaiting review is kept in `outbox_revisions` (a trigger, so edits from
+  the dashboard, the CLI or plain SQL all count, with an optional reason from
+  the dashboard); `sellbird evals --edits` shows them as diffs and `--json`
+  gives the lot to a script or a model.
+- **Drafts are checked before you approve them.** The Outbox desk and
+  `sellbird outbox` list what to read twice: no sign-off, the sender named in
+  the third person ("a call with Dana"), a time with no zone, a time outside
+  `product.offer.call_hours` (converted from PT, ET, GMT and the rest into
+  `call_hours_timezone`), a day-first date for a US reader or a numeric one
+  for anyone, phrasing that reads as non-native, and a figure that isn't in
+  the product config or `skills/product_knowledge.md`. Flags never block a
+  send.
 - **`writer.require_tip: true` skips prospects with nothing to build a tip
   on.** A first email is meant to name one concrete thing the sender would
   change; with no finding about the company, the draft could only say it had no
@@ -189,6 +206,11 @@ minor versions can still change behaviour.
 
 ### Fixed
 
+- **Replies are signed like cold email.** The Handler is told to write the
+  body only, and mail sent through an API gets no mailbox signature, so a
+  reply ended on its last sentence. It now ends with the sender's first name,
+  as the Writer's cold email does (not when you write your own
+  `writer.email_rules`).
 - **Instantly's daily cap counts your local day, not UTC** (from #177 by
   @solvejet-team), so the cap resets at your midnight.
 

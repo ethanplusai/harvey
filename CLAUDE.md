@@ -376,6 +376,7 @@ sellbird companies             # Company register CSV: every company, its fit sc
 sellbird gmail auth            # One-time Gmail OAuth (when provider: gmail)
 sellbird gmail test            # Verify the Gmail connection
 sellbird outbox                # Review queued emails; --approve <id> / --approve-all / --reject <id>
+sellbird evals                 # Eval loop: replies/positive/meetings by segment and step, reviewer edits (--edits), draft flags
 sellbird signals               # The signal vocabulary; --confirm / --reject CODES (or 'free' / 'all')
 sellbird discover              # Find businesses; --providers / --estimate / --provider <key>
 sellbird sending pause|resume  # Kill switch for all outbound

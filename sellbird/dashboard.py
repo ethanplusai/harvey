@@ -1223,7 +1223,8 @@ async def _with_context(items: list[dict]) -> list[dict]:
     people = {r["id"]: r for r in (await query_db(
         "SELECT p.id, p.first_name, p.last_name, p.title, p.source, p.email_status, "
         "p.score, p.personalization_notes, p.company_id, c.name AS company_name, "
-        "c.domain, c.website, c.description, c.industry AS found_by "
+        "c.domain, c.website, c.description, c.industry AS found_by, "
+        "COALESCE(c.location, '') AS location "
         "FROM prospects p LEFT JOIN companies c ON c.id = p.company_id "
         f"WHERE p.id IN ({_in(pids)})", tuple(pids)) if pids else [])}
     campaigns = {r["id"]: r["name"] for r in (await query_db(
@@ -1265,8 +1266,25 @@ async def _with_context(items: list[dict]) -> list[dict]:
         for (company_id, label), (_, values) in latest.items():
             signals.setdefault(company_id, {})[label] = ", ".join(v for v in values if v)
 
+    try:
+        from sellbird.config import load_config
+        from sellbird.draft_review import product_facts, review_item
+        from sellbird.send_window import country_for
+        config = load_config(str(_resolve_config_file()))
+        facts = product_facts(config)
+    except Exception:
+        config = None
+
     for item in items:
         p = people.get(item.get("prospect_id")) or {}
+        flags: list[str] = []
+        if config is not None:
+            try:
+                flags = review_item(item, config, facts=facts,
+                                    country=country_for(p.get("location", ""))[0])
+            except Exception:
+                flags = []
+        item["review_flags"] = flags
         item["context"] = {
             "campaign": campaigns.get(item.get("campaign_id"), ""),
             "company": p.get("company_name", ""),
@@ -1442,7 +1460,8 @@ async def outbox_edit(item_id: str, request: Request):
                                  "message": "The sender would have blocked this: "
                                             + "; ".join(gate.reasons)},
                                 status_code=400)
-        if not await state.edit_outbox_draft(item_id, subject, text):
+        reason = str(body.get("reason") or "").strip()
+        if not await state.edit_outbox_draft(item_id, subject, text, reason=reason):
             return JSONResponse({"success": False,
                                  "message": "Only drafts awaiting review can be edited."},
                                 status_code=409)

@@ -719,6 +719,11 @@ details[open] > summary::before { rotate: 45deg; }
   margin-top: var(--sp-4); padding: var(--sp-4); font-size: var(--fs-ui); line-height: 1.5;
   background: var(--surface-2); border-radius: var(--r-md);
 }
+.review-flags {
+  margin-top: var(--sp-4); padding: var(--sp-3) var(--sp-4); font-size: var(--fs-ui); line-height: 1.5;
+  color: var(--wait); background: var(--wait-bg); border: 1px solid var(--wait-line); border-radius: var(--r-md);
+}
+.review-flags ul { margin: 4px 0 0; padding-left: 18px; }
 .desk-context .k { color: var(--text-3); }
 .desk-context .v { overflow-wrap: anywhere; }
 .desk-edit-subject, .desk-edit-body {
