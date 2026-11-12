@@ -125,6 +125,9 @@ _CAREERS_ANCHOR = re.compile(r"^(careers?|jobs|join us|join (our|the) team|we['â
 # Roles recorded per company from a board. The first few say it; twenty rows
 # of "Account Executive, <city>" don't say more.
 MAX_BOARD_ROLES = 5
+# A sitemap index lists sitemaps, not pages. Count the pages in this many of
+# them; a bigger site reads as "at least" what these hold.
+MAX_INDEXED_SITEMAPS = 8
 CONTACT_PATHS = ("/contact", "/contact-us", "/get-a-quote", "/free-estimate",
                  "/request-estimate", "/quote")
 
@@ -1257,8 +1260,13 @@ class ProfileCollector:
             sm = await self._get(f"{site}/sitemap.xml")
             if sm:
                 locs = re.findall(r"<loc>\s*([^<]+)\s*</loc>", sm)
-                if self.wants("SITE_PAGE_COUNT") and locs:
-                    add("SITE_PAGE_COUNT", num=len(locs), url=f"{site}/sitemap.xml")
+                pages = len(locs)
+                if "<sitemapindex" in sm.lower():
+                    # An index of sitemaps (most WordPress sites): its entries
+                    # are sitemaps, not pages, so count the pages inside.
+                    pages = await self._pages_in_sitemaps(site, locs)
+                if self.wants("SITE_PAGE_COUNT") and pages:
+                    add("SITE_PAGE_COUNT", num=pages, url=f"{site}/sitemap.xml")
                 if self.wants("BLOG_STALE"):
                     dates = re.findall(r"<lastmod>\s*(\d{4}-\d{2}-\d{2})", sm)
                     if dates:
@@ -1305,6 +1313,21 @@ class ProfileCollector:
                             text=f"{label} â€” {person['title']}", url=turl)
 
         return obs
+
+    async def _pages_in_sitemaps(self, site: str, children: list[str]) -> int:
+        """Pages listed in the first few sitemaps of an index. Only the site's
+        own sitemaps are fetched; 0 when none can be read."""
+        host = (urlparse(site).hostname or "").removeprefix("www.")
+        total = 0
+        for url in children[:MAX_INDEXED_SITEMAPS]:
+            url = url.strip()
+            if (urlparse(url).hostname or "").removeprefix("www.") != host:
+                continue
+            xml = await self._get(url)
+            if not xml or "<sitemapindex" in xml.lower():
+                continue
+            total += len(re.findall(r"<loc>\s*([^<]+)\s*</loc>", xml))
+        return total
 
     async def _improve_name(self, company: dict, domain: str):
         """Replace a name the domain doesn't back up ("Denver, CO | HOA

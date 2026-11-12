@@ -7,6 +7,16 @@ minor versions can still change behaviour.
 
 ## [Unreleased]
 
+### Fixed
+
+- **`SITE_PAGE_COUNT` counts pages, not sitemaps.** Most sites (WordPress with an
+  SEO plugin, for one) publish `/sitemap.xml` as an index of sitemaps, and the
+  collector counted the index's entries, so a site of fifty pages in three
+  sitemaps read as three. It now follows the index into the site's own sitemaps
+  (the first eight) and counts their pages; an index it cannot read records
+  nothing. Observations already stored keep their old value until the site is
+  profiled again.
+
 ### Added
 
 - **`writer.require_tip: true` skips prospects with nothing to build a tip
