@@ -26,6 +26,8 @@ product:
     booking_url: ""                # Calendar link URL (if using calendar_link method)
     meeting_duration: "15 minutes" # How long the call is
     meeting_owner: ""              # Who takes the meeting (name or role)
+    call_hours: ""                 # When you take calls, e.g. "09:00-12:00"; drafts offering other times are flagged
+    call_hours_timezone: ""        # IANA zone for call_hours, e.g. "America/New_York"
 
 icp:
   industries:

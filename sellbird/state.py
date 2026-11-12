@@ -558,6 +558,32 @@ MIGRATIONS: list[str] = [
     ALTER TABLE conversations ADD COLUMN mailbox_id TEXT DEFAULT '';
     CREATE INDEX IF NOT EXISTS idx_outbox_mailbox_sent ON outbox(mailbox_id, status, sent_at);
     """,
+    # ── v17: every change a reviewer makes to a draft, for the eval loop ──
+    """
+    -- One row per edit to a draft awaiting review: what Sellbird wrote and
+    -- what the reviewer changed it to. A trigger records it, so an edit
+    -- from the dashboard, the CLI or a direct SQL update all count.
+    CREATE TABLE IF NOT EXISTS outbox_revisions (
+        id TEXT PRIMARY KEY,
+        outbox_id TEXT NOT NULL,
+        old_subject TEXT DEFAULT '',
+        old_body TEXT DEFAULT '',
+        new_subject TEXT DEFAULT '',
+        new_body TEXT DEFAULT '',
+        reason TEXT DEFAULT '',
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    );
+    CREATE INDEX IF NOT EXISTS idx_outbox_revisions_outbox ON outbox_revisions(outbox_id);
+
+    CREATE TRIGGER IF NOT EXISTS trg_outbox_revision
+    AFTER UPDATE OF subject, body ON outbox
+    WHEN OLD.status = 'pending_review' AND NEW.status = 'pending_review'
+         AND (OLD.subject IS NOT NEW.subject OR OLD.body IS NOT NEW.body)
+    BEGIN
+        INSERT INTO outbox_revisions (id, outbox_id, old_subject, old_body, new_subject, new_body)
+        VALUES (lower(hex(randomblob(6))), NEW.id, OLD.subject, OLD.body, NEW.subject, NEW.body);
+    END;
+    """,
 ]
 
 BRAIN_PROVIDERS = ("claude", "codex")
@@ -1287,12 +1313,14 @@ class StateManager:
             await db.commit()
             return cursor.rowcount
 
-    async def edit_outbox_draft(self, item_id: str, subject: str, body: str) -> int:
+    async def edit_outbox_draft(self, item_id: str, subject: str, body: str,
+                                reason: str = "") -> int:
         """Rewrite a draft's subject and body — only while it awaits review.
 
         Atomic on status, like approve: an item already approved, sent or
         rejected is never changed. Editing never approves; that stays a
-        separate, explicit step. Returns the number of rows changed (0/1).
+        separate, explicit step. The change is kept in outbox_revisions,
+        with ``reason`` when one is given. Returns rows changed (0/1).
         """
         async with self._connect() as db:
             cursor = await db.execute(
@@ -1300,8 +1328,28 @@ class StateManager:
                 "WHERE id = ? AND status = 'pending_review'",
                 (subject, body, _utcnow().isoformat(), item_id),
             )
+            if cursor.rowcount and reason.strip():
+                await db.execute(
+                    "UPDATE outbox_revisions SET reason = ? WHERE rowid = "
+                    "(SELECT MAX(rowid) FROM outbox_revisions WHERE outbox_id = ?)",
+                    (reason.strip()[:500], item_id),
+                )
             await db.commit()
             return cursor.rowcount
+
+    async def get_outbox_revisions(self, since: str | None = None, limit: int = 200) -> list[dict]:
+        """Reviewer edits to drafts, newest first, with the draft's kind and step."""
+        sql = ("SELECT r.*, o.kind, o.step, o.status, o.to_email FROM outbox_revisions r "
+               "LEFT JOIN outbox o ON o.id = r.outbox_id")
+        params: tuple = ()
+        if since:
+            sql += " WHERE datetime(r.created_at) >= datetime(?)"
+            params = (since,)
+        sql += " ORDER BY r.created_at DESC, r.rowid DESC LIMIT ?"
+        async with self._connect() as db:
+            db.row_factory = aiosqlite.Row
+            async with db.execute(sql, (*params, int(limit))) as cursor:
+                return [dict(r) for r in await cursor.fetchall()]
 
     async def restore_hand_cancelled_outbox(self, prospect_id: str, reason: str) -> int:
         """Undo a cancel made with `reason`: those items go back for review.

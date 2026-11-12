@@ -1727,6 +1727,12 @@ const CONTACT_SOURCES = {
 };
 
 // What the draft is built on, so every claim can be checked against it.
+function renderReviewFlags(flags) {
+  if (!flags || !flags.length) return '';
+  return '<div class="review-flags"><b>Read twice</b><ul>' +
+    flags.map(f => '<li>' + escHtml(f) + '</li>').join('') + '</ul></div>';
+}
+
 function renderDeskContext(ctx) {
   if (!ctx) return '';
   const row = (k, v) => v ? '<div class="k">' + k + '</div><div class="v">' + v + '</div>' : '';
@@ -1922,7 +1928,7 @@ function renderDesk(items, i) {
           '<div>' + escHtml(heldReason(cur)) + '. Read it before approving: text from a website or an ' +
           'email can try to steer what Sellbird writes.</div></div></div>'
         : '') +
-      draft + footer +
+      draft + footer + renderReviewFlags(cur.review_flags) +
       '<div class="desk-actions">' + actions +
         '<span class="muted" style="font-size:12px;margin-left:auto">' +
           (i + 1) + ' of ' + items.length + '</span>' +

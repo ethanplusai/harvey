@@ -522,6 +522,88 @@ def cmd_microsoft(args):
         asyncio.run(_test())
 
 
+async def _draft_flags(state, items: list[dict]) -> dict[str, list[str]]:
+    """Review flags for each draft; {} when the config can't be read."""
+    import aiosqlite
+    from sellbird.config import load_config
+    from sellbird.draft_review import product_facts, review_item
+    from sellbird.send_window import country_for
+    try:
+        config = load_config()
+    except Exception:
+        return {}
+    pids = sorted({i["prospect_id"] for i in items if i.get("prospect_id")})
+    places: dict[str, str] = {}
+    if pids:
+        marks = ",".join("?" * len(pids))
+        async with aiosqlite.connect(state.db_path) as db:
+            async with db.execute(
+                "SELECT p.id, COALESCE(c.location, '') FROM prospects p "
+                f"LEFT JOIN companies c ON c.id = p.company_id WHERE p.id IN ({marks})",
+                tuple(pids)) as cursor:
+                places = {pid: loc for pid, loc in await cursor.fetchall()}
+    facts = product_facts(config)
+    return {i["id"]: review_item(i, config, facts=facts,
+                                 country=country_for(places.get(i.get("prospect_id"), ""))[0])
+            for i in items}
+
+
+def cmd_evals(args):
+    """The eval loop: outcomes by segment and step, and reviewers' edits."""
+    from sellbird.evals import as_json, edit_diff, scoreboard, since_days, summarize_edits
+    from sellbird.config import load_config
+    from sellbird.state import StateManager
+
+    async def _evals():
+        state = StateManager()
+        await state.init_db()
+        config = load_config()
+        since = since_days(args.days)
+        report = await scoreboard(state.db_path, config, since)
+        revisions = await state.get_outbox_revisions(since=since)
+        report["edits"] = summarize_edits(revisions)
+        pending = await state.get_outbox(status="pending_review", limit=200)
+        flag_counts: dict[str, int] = {}
+        for item_flags in (await _draft_flags(state, pending)).values():
+            for flag in item_flags:
+                key = flag.split(":")[0] if flag.startswith("No sign-off") else flag
+                flag_counts[key] = flag_counts.get(key, 0) + 1
+        report["pending_flags"] = dict(sorted(flag_counts.items(), key=lambda kv: -kv[1]))
+        if args.json:
+            print(as_json(report))
+            return
+
+        t = report["total"]
+        print(f"\n  Eval loop — last {args.days} days")
+        print("  " + "=" * 60)
+        print(f"  {t['companies']} companies emailed, {t['bounced']} bounced, "
+              f"{t['replied']} replied ({t['reply_rate']}), {t['positive']} positive, "
+              f"{t['meetings']} meeting(s)\n")
+        print(f"  {'Segment':<34}{'Sent':>5}{'Bnc':>5}{'Repl':>6}{'Pos':>5}{'Mtg':>5}{'Rate':>7}")
+        for seg, s in report["segments"].items():
+            print(f"  {seg[:33]:<34}{s['companies']:>5}{s['bounced']:>5}{s['replied']:>6}"
+                  f"{s['positive']:>5}{s['meetings']:>5}{s['reply_rate']:>7}")
+        print(f"\n  {'Step':<8}{'Emails sent':>12}{'First reply after it':>24}")
+        for step, s in report["steps"].items():
+            print(f"  {step:<8}{s['sent']:>12}{s['replies_after']:>24}")
+        e = report["edits"]
+        print(f"\n  Reviewer edits: {e['edits']} edit(s) to {e['drafts_edited']} draft(s) "
+              + (f"({', '.join(f'{k}: {v}' for k, v in e['by_kind'].items())})" if e["by_kind"] else ""))
+        if report["pending_flags"]:
+            print("  Flags on drafts awaiting review:")
+            for flag, n in list(report["pending_flags"].items())[:10]:
+                print(f"    {n:>3} × {flag}")
+        if args.edits:
+            for r in revisions:
+                print(f"\n  [{r['outbox_id']}] {r.get('kind') or '?'} step {r.get('step')} "
+                      f"· {str(r['created_at'])[:16]}" + (f" · {r['reason']}" if r.get("reason") else ""))
+                for line in edit_diff(r).splitlines():
+                    print(f"    {line}")
+        print()
+
+    asyncio.run(_evals())
+
+
 def cmd_outbox(args):
     """Review and approve queued outgoing emails."""
     from sellbird.state import StateManager
@@ -555,6 +637,7 @@ def cmd_outbox(args):
 
         pending = await state.get_outbox(status="pending_review", limit=50)
         approved = await state.get_outbox(status="approved", limit=10)
+        flags = await _draft_flags(state, pending)
         print(f"\n  Outbox — {len(pending)} awaiting approval, "
               f"{len(approved)}+ approved/scheduled")
         print("  " + "=" * 60)
@@ -565,6 +648,8 @@ def cmd_outbox(args):
             body_preview = (item["body"][:200] + "...") if len(item["body"]) > 200 else item["body"]
             for line in body_preview.splitlines():
                 print(f"    {line}")
+            for flag in flags.get(item["id"], []):
+                print(f"  ⚠ {flag}")
         if pending:
             print("\n  Approve: sellbird outbox --approve <id>   |   all: sellbird outbox --approve-all")
             print("  Reject:  sellbird outbox --reject <id>\n")
@@ -1219,6 +1304,13 @@ def main():
     sub.add_argument("--approve-all", action="store_true", help="Approve all pending")
     sub.add_argument("--reject", metavar="ID", default="", help="Reject one item")
     sub.set_defaults(func=cmd_outbox)
+
+    # sellbird evals
+    sub = subparsers.add_parser("evals", help="Outcomes by segment and step, and reviewers' edits")
+    sub.add_argument("--days", type=int, default=30, help="Window in days (default 30)")
+    sub.add_argument("--edits", action="store_true", help="Show every reviewer edit as a diff")
+    sub.add_argument("--json", action="store_true", help="Machine-readable output")
+    sub.set_defaults(func=cmd_evals)
 
     # sellbird sending pause|resume|status
     sub = subparsers.add_parser("discover", help="Find businesses matching your ICP")

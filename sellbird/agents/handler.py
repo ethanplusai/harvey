@@ -21,7 +21,7 @@ from sellbird.config import (
     live_do_not_contact,
 )
 from sellbird.gate import autopilot_review, do_not_contact_match, pre_send_check
-from sellbird.email_style import style_problems, tidy
+from sellbird.email_style import style_problems, tidy, with_sign_off
 from sellbird.humanize import humanize, humanizer_enabled
 from sellbird.integrations.instantly import InstantlyClient
 from sellbird.integrations.mail_provider import (
@@ -1273,6 +1273,13 @@ class Handler:
             await self.state.set_setting(KILL_SWITCH_KEY, reason)
             logger.error(f"Handler: KILL SWITCH ENGAGED — {reason}")
 
+    def _signed(self, body: str) -> str:
+        """A reply signed like a cold email: the sender's first name under it.
+        Left alone when you write your own email rules (writer.email_rules),
+        which can carry their own sign-off, as the Writer does."""
+        rules = getattr(getattr(self.config, "writer", None), "email_rules", "")
+        return body if rules else with_sign_off(body, self.config.persona.name)
+
     async def _queue_native_reply(
         self, response: str, prospect, convo, reply_meta: dict, intent: str
     ):
@@ -1296,7 +1303,7 @@ class Handler:
             kind="reply",
             to_email=prospect.email,
             subject=subject or "Re: your note",
-            body=response,
+            body=self._signed(response),
             send_at=datetime.now(timezone.utc).replace(tzinfo=None).isoformat(),
             status="pending_review" if require_approval else "approved",
             provider=self.provider.name if self.provider else "",

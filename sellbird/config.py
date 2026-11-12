@@ -54,6 +54,10 @@ class OfferConfig(BaseModel):
     booking_url: str = ""
     meeting_duration: str = "15 minutes"
     meeting_owner: str = ""
+    # When the meeting owner takes calls, "07:00-10:00" in call_hours_timezone
+    # (an IANA zone). Drafts offering a time outside it are flagged for review.
+    call_hours: str = ""
+    call_hours_timezone: str = ""
 
 
 class ProductConfig(BaseModel):
