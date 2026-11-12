@@ -7,8 +7,36 @@ minor versions can still change behaviour.
 
 ## [Unreleased]
 
+### Fixed
+
+- **The dashboard no longer hangs under its own requests.** Every API call
+  opened and closed its own SQLite connection on its own thread, and under
+  that churn the dashboard process could lock up inside SQLite for good
+  (every request pending in the browser until the process was killed). The
+  dashboard and the heartbeat now keep one connection per database for the
+  life of the process (`storage.share_connections`), handed out one user at
+  a time; one-shot commands and tests open connections as before.
+
 ### Changed
 
+- **How many emails leave per cycle is yours to set.** The sender drained up
+  to 8 approved emails a cycle, a few seconds apart, which at 5 a day under a
+  warmup ramp meant the whole day's cold email left in one minute.
+  `channels.email.max_sends_per_cycle` (default 8, unchanged) sets it; 1 sends
+  one email per heartbeat cycle. The sender always looks through at least the
+  default page of due emails, so a few gate-blocked ones at the front of the
+  queue can't use up a small cycle.
+- **Gmail quota answers are retried.** A busy inbox's first full read (every
+  message of the week) can hit Gmail's per-user-per-minute quota; the 403 or
+  429 used to fail the read, which held every send that cycle. Such answers
+  are now retried with backoff (about a minute in all, honouring Retry-After)
+  before failing.
+- **The logo sits beside the sign-off.** With `channels.email.signature.logo`
+  set, an email that ends with `persona.name` on its own line gets the logo
+  next to those lines, with `persona.company` in them opening
+  `signature.link`; the compliance footer of a cold email (postal address
+  and opt-out line) follows in smaller grey type, instead of the logo
+  hanging under the footer.
 - Seeding the signal catalog writes only a signal that is missing or whose catalog text changed. The dashboard seeds on every Today load, so this was a write per signal on every page view.
 - **The opt-out line takes any wording.** `compliance.opt_out_line` no longer
   has to ask for a keyword: "Not interested? Just let me know and I won't email

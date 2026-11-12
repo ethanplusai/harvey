@@ -1,10 +1,12 @@
 """sellbird.storage: SQLite by default, other backends by locator prefix."""
 
+import asyncio
 import sqlite3
 from pathlib import Path
 
 import aiosqlite
 import pytest
+import pytest_asyncio
 
 from sellbird import storage
 from sellbird.state import StateManager
@@ -143,3 +145,105 @@ def test_entry_point_backends_load_on_first_use(monkeypatch, tmp_path):
 
 def test_integrity_error_is_sqlites():
     assert issubclass(storage.IntegrityError, sqlite3.IntegrityError)
+
+
+# ── Shared connections (one per process, for the dashboard and heartbeat) ──
+
+
+@pytest_asyncio.fixture
+async def shared(tmp_path):
+    storage.share_connections(True)
+    try:
+        yield str(tmp_path / "s.db")
+    finally:
+        await storage.close_shared()
+        storage.share_connections(False)
+
+
+@pytest.mark.asyncio
+async def test_sharing_hands_out_one_connection(shared):
+    async with storage.connect(shared) as a:
+        await a.execute("CREATE TABLE t (x)")
+        await a.commit()
+    async with storage.connect(shared) as b:
+        assert a is b                     # the same connection, not a new one
+    storage.share_connections(False)
+    async with storage.connect(shared) as c:
+        assert c is not a                 # sharing off: a fresh one again
+    storage.share_connections(True)
+
+
+@pytest.mark.asyncio
+async def test_sharing_serialises_users_and_cleans_up_after_each(shared):
+    import aiosqlite
+    async with storage.connect(shared) as db:
+        await db.execute("CREATE TABLE t (x)")
+        await db.commit()
+
+    order = []
+
+    async def user(name, sleep):
+        async with storage.connect(shared) as db:
+            order.append(name + ">")
+            db.row_factory = aiosqlite.Row
+            await db.execute("BEGIN")
+            await db.execute("INSERT INTO t VALUES (?)", (name,))
+            await asyncio.sleep(sleep)
+            order.append("<" + name)
+            # No commit: the shared connection must not leak this into the next user.
+
+    await asyncio.gather(user("a", 0.02), user("b", 0))
+    assert order in (["a>", "<a", "b>", "<b"], ["b>", "<b", "a>", "<a"])
+    async with storage.connect(shared) as db:
+        assert db.row_factory is None and not db.in_transaction
+        async with db.execute("SELECT COUNT(*) FROM t") as cur:
+            assert (await cur.fetchone())[0] == 0
+
+
+@pytest.mark.asyncio
+async def test_sharing_is_reentrant_for_the_holding_task(shared):
+    async with storage.connect(shared) as outer:
+        async with storage.connect(shared) as inner:   # a method calling another
+            assert inner is outer
+        assert outer.row_factory is None
+
+
+@pytest.mark.asyncio
+async def test_close_shared_closes_and_a_new_use_reopens(shared):
+    async with storage.connect(shared) as a:
+        pass
+    await storage.close_shared()
+    async with storage.connect(shared) as b:
+        assert b is not a
+        async with b.execute("SELECT 1") as cur:
+            assert (await cur.fetchone())[0] == 1
+
+
+@pytest.mark.asyncio
+async def test_state_manager_works_on_a_shared_connection(shared):
+    from sellbird.state import StateManager
+    sm = StateManager(shared)
+    await sm.init_db()
+    await sm.init_db()                     # idempotent on the same connection
+    assert await sm.get_signal_codes() == []
+    async with storage.connect(shared) as db:
+        async with db.execute("PRAGMA journal_mode") as cur:
+            assert (await cur.fetchone())[0] == "wal"
+
+
+def test_shared_connections_belong_to_their_loop(tmp_path):
+    """Each event loop gets its own connection: a test suite, or anything
+    else running loops back to back, must never get one bound to a dead loop."""
+    path = str(tmp_path / "loops.db")
+    storage.share_connections(True)
+    try:
+        async def use():
+            async with storage.connect(path) as db:
+                async with db.execute("SELECT 1") as cur:
+                    assert (await cur.fetchone())[0] == 1
+                return db
+        first = asyncio.run(use())
+        second = asyncio.run(use())
+        assert first is not second
+    finally:
+        storage.share_connections(False)

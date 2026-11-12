@@ -2814,10 +2814,14 @@ def start_dashboard(host: str = "127.0.0.1", port: int = 5555):
     if os.name == "nt":
         print("  Windows: the token file is protected by your folder's permissions,")
         print("  not POSIX file modes.\n")
-    from sellbird import dashboard_instance
+    from sellbird import dashboard_instance, storage
     dashboard_instance.write(DB_PATH.parent, host=bind, port=port, instance=INSTANCE_ID)
+    # One database connection for the whole server (see storage.share_connections).
+    storage.share_connections(True)
+    app.router.add_event_handler("shutdown", storage.close_shared)
     try:
         uvicorn.run(app, host=bind, port=port, log_level="warning",
                     proxy_headers=False, server_header=False, date_header=False)
     finally:
+        storage.share_connections(False)
         dashboard_instance.remove(DB_PATH.parent, instance=INSTANCE_ID)
