@@ -191,6 +191,64 @@ def cmd_mcp(args):
     run_stdio()
 
 
+def cmd_grok(args):
+    """Serve Sellbird's MCP tools to Grok Bot (or any cloud agent) through a tunnel."""
+    import uvicorn
+
+    from sellbird import dashboard_instance
+    from sellbird import mcp_remote
+    from sellbird.mcp_server import default_client
+
+    data_dir = default_client().data_dir
+    if dashboard_instance.read(data_dir) is None:
+        print("\n  Start Sellbird's dashboard first, in another terminal:\n\n"
+              "    sellbird dashboard\n\n  Then run `sellbird grok` again.\n")
+        sys.exit(1)
+    key = mcp_remote.new_key(data_dir) if args.new_key else mcp_remote.load_key(data_dir)
+    port = args.port
+    tunnel = None
+    if args.no_tunnel:
+        public = f"<your public https address for http://127.0.0.1:{port}>"
+    else:
+        if not mcp_remote.Tunnel.available():
+            print("\n  `sellbird grok` opens a free Cloudflare tunnel, which needs cloudflared:\n\n"
+                  "    brew install cloudflared      (macOS)\n"
+                  "    https://developers.cloudflare.com/cloudflare-one/connections/connect-networks/downloads/\n\n"
+                  "  Or bring your own tunnel: sellbird grok --no-tunnel\n")
+            sys.exit(1)
+        tunnel = mcp_remote.Tunnel(port)
+        print("\n  Opening a tunnel...", flush=True)
+        public = tunnel.start()
+        if not public:
+            tunnel.stop()
+            print("  The tunnel didn't come up. Check your connection and try again,\n"
+                  "  or bring your own: sellbird grok --no-tunnel\n")
+            sys.exit(1)
+    url = public + mcp_remote.MCP_PATH if public.startswith("https://") else public
+    print(f"""
+  Sellbird is ready for Grok Bot.
+
+  In Grok Bot, send this message:
+
+    Add a custom MCP server called sellbird at {url} with the header
+    Authorization: Bearer {key}
+
+  Then: "Use sellbird to tell me what needs me."
+
+  Keep this window open; Ctrl+C stops it. The address changes each time you
+  start it, so tell Grok the new one. The key stays the same until you run
+  `sellbird grok --new-key`. Treat it like a password.
+  Grok can read, plan, write drafts and pause sending. Approving emails and
+  spending stays yours, in the dashboard on this computer. Keep `sellbird run`
+  going so approved email goes out.
+""", flush=True)
+    try:
+        uvicorn.run(mcp_remote.build_app(key), host="127.0.0.1", port=port, log_level="warning")
+    finally:
+        if tunnel:
+            tunnel.stop()
+
+
 def cmd_dashboard(args):
     """Launch the local web dashboard."""
     from sellbird.dashboard import DashboardSetupError, dashboard_url, start_dashboard
@@ -1313,6 +1371,15 @@ def main():
                      help="Print the config to add by hand; change nothing")
     sub.add_argument("--yes", action="store_true", help="Apply without asking")
     sub.set_defaults(func=cmd_mcp)
+
+    sub = subparsers.add_parser(
+        "grok", help="Let Grok Bot (or another cloud agent) use Sellbird, through a tunnel")
+    sub.add_argument("--port", type=int, default=5590, help="Local port (default: 5590)")
+    sub.add_argument("--no-tunnel", action="store_true",
+                     help="Don't open a Cloudflare tunnel; bring your own public address")
+    sub.add_argument("--new-key", action="store_true",
+                     help="Replace the key Grok uses; the old one stops working")
+    sub.set_defaults(func=cmd_grok)
 
     from sellbird.inbox_cli import register as register_inboxes
     register_inboxes(subparsers)
