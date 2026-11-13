@@ -130,6 +130,9 @@ _SENIOR_KEYWORDS = (
     "pdg", "president", "presidente", "proprietaire", "coproprietaire", "fondateur",
     "fondatrice", "cofondateur", "cofondatrice", "associe", "associee", "vice-president",
     "vice-presidente", "directeur", "directrice",
+    # Portuguese (Brazil), matched with accents folded
+    "proprietario", "proprietaria", "socio", "socia", "fundador", "fundadora", "cofundador",
+    "cofundadora", "dono", "dona", "diretor", "diretora",
 )
 
 
@@ -2182,22 +2185,26 @@ Respond ONLY with the JSON array."""
             return ""
         t = fold_accents(title).lower()
         # "Directeur général adjoint", "Adjointe à la présidence": below the top.
-        deputy = re.search(r"\b(?:adjointe?|assistante?|sous-\w+)\b", t)
+        deputy = re.search(r"\b(?:adjointe?|assistante?|sous-\w+|adjunt[oa]|assistente|auxiliar|"
+                           r"sub-?(?:gerente|diretor(?:a)?))\b", t)
         vice = re.search(r"\bvice[- ]president", t)
         if any(kw in t for kw in ["ceo", "cto", "cfo", "cmo", "coo", "cro",
                                   "chief", "founder", "co-founder", "owner",
                                   "president", "pdg", "p.-d.g", "proprietaire",
-                                  "fondat"]) and not vice and not deputy:
+                                  "fondat", "proprietari", "fundador", "dono", "dona",
+                                  "socio-", "socia-"]) and not vice and not deputy:
             return "c_suite"
         # The directeur général runs a Québec small business.
-        if re.search(r"\bdirect(?:eur|rice) generale?\b", t) and not deputy:
+        if re.search(r"\bdirect(?:eur|rice) generale?\b|\bdiretor(?:a)? (?:geral|executiv[oa])\b", t) \
+                and not deputy:
             return "c_suite"
         if vice or any(kw in t for kw in ["vp", "svp", "evp", "head of"]):
             return "vp"
-        if any(kw in t for kw in ["director", "directeur", "directrice"]):
+        if any(kw in t for kw in ["director", "directeur", "directrice", "diretor", "diretora"]):
             return "director"
         if any(kw in t for kw in ["manager", "team lead", "lead ", "gerant", "gestionnaire",
-                                  "superviseur", "contremaitre", "chef d'equipe"]):
+                                  "superviseur", "contremaitre", "chef d'equipe", "gerente",
+                                  "coordenador", "supervisor", "encarregad"]):
             return "manager"
         return "individual"
 
