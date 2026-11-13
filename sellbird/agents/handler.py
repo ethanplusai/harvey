@@ -23,6 +23,7 @@ from sellbird.config import (
 from sellbird.gate import autopilot_review, do_not_contact_match, pre_send_check
 from sellbird.email_style import style_problems, tidy
 from sellbird.humanize import humanize, humanizer_enabled
+from sellbird.languages import LANGUAGES, reply_language_block
 from sellbird.integrations.instantly import InstantlyClient
 from sellbird.integrations.mail_provider import (
     NATIVE_PROVIDERS, get_mail_provider, strip_quoted_reply,
@@ -95,15 +96,22 @@ BARE_OPT_OUTS = {"stop", "unsubscribe", "remove", "remove me", "opt out",
                  "non merci", "arret", "arreter", "desabonner", "desabonnement",
                  "desabonnez-moi", "desinscrire", "desinscription", "desinscrivez-moi",
                  "retirer", "retirez-moi",
+                 # Portuguese (Brazil), compared without accents.
+                 "sair", "remover", "remova", "descadastrar", "descadastre", "descadastra",
+                 "descadastro", "descadastre-me", "remova-me", "pare", "parar", "nao obrigado",
+                 "nao obrigada", "nao muito obrigado", "sem interesse",
                  "הסר", "הסירו", "הסירי", "תסיר", "תסירו", "להסיר", "הסרה", "להסרה"}
 # Said around a bare opt-out without changing it ("הסר בבקשה", "הסר, תודה").
 _BARE_COURTESIES = {"בבקשה", "נא", "תודה", "רבה", "por", "favor", "gracias", "saludos",
-                    "merci", "svp", "sil", "vous", "plait"}
+                    "merci", "svp", "sil", "vous", "plait",
+                    "obrigado", "obrigada", "grato", "grata", "att", "atenciosamente", "abs",
+                    "abraco", "abracos", "pf", "pfv"}
 _MOBILE_SIGNATURE_RE = re.compile(
     r"^[ \t\u200e\u200f]*(?:sent from my \w[^\n]*|get outlook for \w[^\n]*"
     r"|sent from \w+ mail[^\n]*|נשלח מ[^\n]*|קבל(?:ו)? את outlook[^\n]*"
     r"|enviado desde mi \w[^\n]*|obt[eé]n outlook para \w[^\n]*"
-    r"|envoy[eé] de mon \w[^\n]*|obtenez outlook pour \w[^\n]*)$",
+    r"|envoy[eé] de mon \w[^\n]*|obtenez outlook pour \w[^\n]*"
+    r"|enviado d[eo] meu \w[^\n]*|obt(?:er|enha) o outlook para \w[^\n]*)$",
     re.IGNORECASE | re.MULTILINE)
 
 # Hebrew opt-outs. Each needs a verb aimed at the sender and its object
@@ -334,6 +342,126 @@ def _french_opt_out(text: str):
     return None
 
 
+# Portuguese (Brazil) opt-outs, matched like the Spanish and French ones:
+# accent-free, a line at a time, and only with the verb aimed at the sender.
+# "Me tira uma dúvida" asks a question, "ele não me escreve mais" is news,
+# "não me envie a proposta por e-mail" is about a proposal.
+_PT_FROM = r"(?:de|da|do|das|dos|dessa|desta|desse|deste|dessas|destas|desses|destes)"
+_PT_LIST = (r"(?:(?:sua|suas|seu|seus|a|as|o|os|nossa|nosso|vossa)\s+)*"
+            r"(?:lista|base|mailing|cadastro|envio|contato|newsletter|banco\s+de\s+dados|disparo"
+            r"|campanha)\w*")
+_PT_MY_ADDRESS = (r"(?:meus?|minhas?|nossos?|nossas?)\s+(?:dados|e-?mails?|enderecos?|contatos?"
+                  r"|cadastros?|informacoes|nomes?)")
+_PT_MAIL = (r"(?:mais(?!\s+de\s)|e-?mails?|mensage(?:m|ns)|propagandas?|publicidade|ofertas?"
+            r"|promocoes|nada|newsletters?|comunicacoes|spam)")
+_PT_WRITE = r"(?:escrever|mandar|enviar|contatar|procurar|incomodar|perturbar|ligar)"
+# Remove / take off, as a request: formal (subjunctive), the everyday
+# imperative that Brazilians write as the present, and the infinitive
+# ("favor me remover"). Not the past: "ele me removeu" is news.
+_PT_REMOVE = (r"(?:descadastr(?:em?|a|ar)|remov(?:am?|e|er)|retir(?:em?|a|ar)|tir(?:em?|a|ar)"
+              r"|exclu(?:am?|i|ir)|delet(?:em?|a|ar)|apag(?:uem?|a|ar)|elimin(?:em?|a|ar))")
+_PT_REMOVE_FORMAL = (r"(?:descadastrem?|remova(?:m)?|retirem?|tirem?|exclua(?:m)?|deletem?"
+                     r"|apaguem?|eliminem?)")
+# The thought ends here, as in Spanish: not ", mas", ", exceto", ", se".
+_PT_SAY_END = (r"(?=[ \t]*(?:[.!;]|$|,(?![ \t]*(?:mas|porem|contudo|entretanto|todavia|exceto|salvo"
+               r"|a[ \t]+menos|se|caso)(?!\w))))")
+PORTUGUESE_OPT_OUT_PATTERNS = (
+    # Unsubscribe / take me off.
+    r"(?:me|nos)\s+descadastr\w*|descadastr(?:em?|a|ar)[- ](?:me|nos)",
+    r"(?:me|nos)\s+" + _PT_REMOVE + r"(?:\s+(?:" + _PT_FROM + r"\s+" + _PT_LIST + r"|daqui)|"
+    + _PT_SAY_END + ")",
+    _PT_REMOVE_FORMAL + r"-(?:me|nos)(?:\s+(?:" + _PT_FROM + r"\s+" + _PT_LIST + r"|daqui)|"
+    + _PT_SAY_END + ")",
+    _PT_REMOVE + r"\s+" + _PT_MY_ADDRESS + r"(?:\s+" + _PT_FROM + r"\s+" + _PT_LIST + "|"
+    + _PT_SAY_END + ")",
+    r"(?:exclusao|remocao|eliminacao|retirada)\s+(?:de|dos|das|do|da)\s+" + _PT_MY_ADDRESS,
+    r"descadastrar" + _PT_SAY_END,
+    r"(?:quero|queremos|gostaria\s+de|gostariamos\s+de|desejo|desejamos)\s+sair\s+" + _PT_FROM
+    + r"\s+" + _PT_LIST,
+    r"cancelar\s+(?:a\s+|minha\s+|nossa\s+)?inscricao",
+    # Don't write to / contact me (any more). The formal imperative: the
+    # everyday one ("não me manda mais") is PORTUGUESE_PLAIN_IMPERATIVE_RE.
+    r"nao\s+(?:me|nos)\s+(?:escrevam?|mandem?|enviem?|contatem?|procurem?|incomodem?|perturbem?"
+    r"|liguem?)(?:\s+(?:mais|novamente|de\s+novo)(?!\s+de\s)|\s+" + _PT_MAIL + r"(?!\w)|"
+    + _PT_SAY_END + ")",
+    r"nao\s+entrem?\s+(?:mais\s+)?em\s+contato(?:\s+(?:comigo|conosco))?"
+    r"(?:\s+(?:novamente|de\s+novo|mais))?" + _PT_SAY_END,
+    # Stop writing / sending.
+    r"(?:parem?|para|deixem?|deixa)\s+de\s+(?:me|nos)\s+" + _PT_WRITE,
+    r"(?:parem?|para|deixem?|deixa)\s+de\s+" + _PT_WRITE + r"(?:\s+" + _PT_MAIL + r"(?!\w)|"
+    + _PT_SAY_END + ")",
+    r"(?:me|nos)\s+(?:deixem?|deixa)\s+em\s+paz",
+    r"chega\s+de\s+(?:e-?mails|mensagens|spam|propagandas?|publicidade)",
+    r"nao\s+(?:quero|queremos|desejo|desejamos)\s+(?:mais\s+)?receber\s+"
+    r"(?:(?:mais|nenhum|nenhuma|seus|suas|esses|essas|estes|estas|os|as)\s+)*" + _PT_MAIL,
+    r"nao\s+(?:quero|queremos|desejo|desejamos)\s+(?:mais\s+)?receber" + _PT_SAY_END,
+    r"nao\s+(?:quero|queremos|desejo|desejamos)\s+(?:mais\s+)?ser\s+(?:contatad|procurad|incomodad"
+    r"|perturbad)[oa]s?",
+    # Not interested, as the whole thought: not "não tenho interesse no plano anual".
+    r"(?:nao\s+(?:me|nos)\s+interessam?|nao\s+(?:tenho|temos)\s+(?:nenhum\s+)?interesse"
+    r"|nao\s+(?:estou|estamos|sou|somos)\s+interessad[oa]s?|sem\s+interesse)"
+    r"(?:\s+(?:no\s+momento|por\s+enquanto|agora|por\s+agora|neste\s+momento|nisso|obrigad[oa]))?"
+    + _PT_SAY_END,
+)
+PORTUGUESE_OPT_OUT_RE = re.compile(r"(?<![\w-])(?:" + "|".join(PORTUGUESE_OPT_OUT_PATTERNS)
+                                   + r")(?![\w-])", re.MULTILINE)
+# The everyday imperative is the present tense, so "Pedro não me manda mais
+# e-mail" is news. It counts only when it opens what they say (after a
+# greeting or a "por favor" at most) and asks for no more of it.
+PORTUGUESE_PLAIN_IMPERATIVE_RE = re.compile(
+    r"(?<![\w-])nao\s+(?:me|nos)\s+(?:escreve|manda|envia|contata|procura|incomoda|perturba|liga)"
+    r"\s+(?:mais(?!\s+de\s)|" + _PT_MAIL + r")(?![\w-])", re.MULTILINE)
+_PT_OPENING_WORDS = {"por", "favor", "pf", "pfv", "pls", "entao", "ok", "oi", "ola", "bom", "boa",
+                     "dia", "tarde", "noite", "e", "so", "apenas", "gentileza"}
+# The word before a match that conditions it or makes it a statement about
+# someone ("se não me interessar", "você me removeu", "ainda não tenho
+# interesse"), and a "não" a few words before one that doesn't start with its
+# own ("não quero me descadastrar", "não precisa me tirar da lista").
+_PT_NOT_FINAL_BEFORE = {"se", "caso", "quando", "porque", "ainda", "como", "voce", "voces", "ele",
+                        "ela", "eles", "elas", "ninguem", "nunca", "jamais", "nao"}
+_PT_NEGATIONS = {"nao", "nunca", "jamais", "nem"}
+_PT_NOT_FINAL_AFTER_RE = re.compile(
+    r"(?<![\w-])(?:ate|antes\s+d[aoe]|depois\s+d[aoe]|a\s+partir\s+d[aoe]|melhor|prefiro|whatsapp"
+    r"|zap|wpp|telefone|celular|sms|por\s+aqui|(?:me|nos)\s+(?:escrev|procur|lig|cham|mand|envi"
+    r"|contat)\w*|(?:escrev|procur|lig|cham|mand|envi|contat)\w*-(?:me|nos)|segunda|terca|quarta"
+    r"|quinta|sexta|sabado|domingo|semana|mes|ano|janeiro|fevereiro|marco|abril|maio|junho"
+    r"|julho|agosto|setembro|outubro|novembro|dezembro|depois|futuro|futuramente|proxim[oa]s?"
+    r"|mais\s+tarde|outra\s+hora|outro\s+momento)(?![\w-])")
+# "Não, obrigado": as with "no thanks". Not "sim ou não, obrigado", "se não,
+# obrigado", "ainda não, obrigado" (not yet), or "não, obrigado pelo contato"
+# / "obrigado a você", which the model reads.
+PORTUGUESE_NO_THANKS_RE = re.compile(
+    r"(?<!\bou )(?<!\bse )(?<!\bque )(?<!\bporque )(?<!\bainda )(?<!\bcomo )(?<!\bdizer )"
+    r"\bnao,?[ \t]+(?:muito[ \t]+)?obrigad[oa]s?\b(?![ \t]*(?:a|ao|pel[oa]s?|por|mesmo)\b)")
+
+
+def _pt_clause_before(text: str, start: int) -> list[str]:
+    """The words before ``start`` on its line, back to the last punctuation."""
+    line_start = text.rfind("\n", 0, start) + 1
+    clause = re.split(r"[.!?;,:]", text[max(line_start, start - 80):start])[-1]
+    return [w.strip("\"'()") for w in clause.split()]
+
+
+def _portuguese_opt_out(text: str):
+    """The first Portuguese opt-out phrase in _accent_free_lines text that means it."""
+    found = [m for m in PORTUGUESE_OPT_OUT_RE.finditer(text)]
+    found += [m for m in PORTUGUESE_PLAIN_IMPERATIVE_RE.finditer(text)
+              if set(_pt_clause_before(text, m.start())) <= _PT_OPENING_WORDS]
+    for m in sorted(found, key=lambda m: m.start()):
+        before = _pt_clause_before(text, m.start())
+        own_no = m.group(0).startswith(("nao ", "nao,"))
+        if before and before[-1] in _PT_NOT_FINAL_BEFORE and not (before[-1] == "nao" and own_no):
+            continue
+        if not own_no and _PT_NEGATIONS & set(before[-3:]):
+            continue
+        sentence_end = re.search(r"[.!?;\n]", text[m.end():])
+        after = text[m.end():m.end() + sentence_end.start()] if sentence_end else text[m.end():]
+        if _PT_NOT_FINAL_AFTER_RE.search(after):
+            continue
+        return m
+    return None
+
+
 def _no_accents(text: str) -> str:
     """Accents dropped, for matching Spanish typed with or without them. Only
     Latin letters: combining marks are what spell Hebrew and others' words."""
@@ -454,10 +582,15 @@ def _opt_out_reason(their_text: str, own_words: str) -> dict | None:
     if m:
         return {"rule": "phrase", "matched": m.group(0),
                 "why": f'Their reply contains "{m.group(0)}".'}
+    m = _portuguese_opt_out(_accent_free_lines(their_text))
+    if m:
+        return {"rule": "phrase", "matched": m.group(0),
+                "why": f'Their reply contains "{m.group(0)}".'}
     for line in their_text.split("\n"):
         line = _flat(line)
         m = (SPANISH_NO_THANKS_RE.search(_no_accents(line))
-             or FRENCH_NO_THANKS_RE.search(_no_accents(line)))
+             or FRENCH_NO_THANKS_RE.search(_no_accents(line))
+             or PORTUGUESE_NO_THANKS_RE.search(_no_accents(line)))
         if m:
             return {"rule": "no_thanks", "matched": m.group(0),
                     "why": f'Their reply says "{m.group(0)}" (no thanks).'}
@@ -759,7 +892,7 @@ class Handler:
             *await self.state.get_texts_for_prospect(prospect.id),
             *await self.state.get_footer_history(),
             compliance.postal_address, compliance.opt_out_line, DEFAULT_OPT_OUT_LINE,
-            PREVIOUS_DEFAULT_OPT_OUT_LINE,
+            PREVIOUS_DEFAULT_OPT_OUT_LINE, *(lang.opt_out_line for lang in LANGUAGES.values()),
         ])
 
     async def _suppress(self, email: str, reason: str, source: str) -> None:
@@ -1545,6 +1678,7 @@ Write a reply that:"""
 - Makes it easy for them to refer (one-line ask)
 - Under 50 words"""
 
+        prompt += reply_language_block(self.config)
         prompt += "\n\nWrite ONLY the email body. No subject line, no greeting label, no signature block, no markdown."
 
         response = await self.brain.think(
@@ -1560,7 +1694,8 @@ Write a reply that:"""
             return ""
         response = response.strip()
         # Guard against the model returning meta-text instead of an email
-        if response.lower().startswith(("i can't", "i cannot", "as an ai", "sorry,")):
+        if response.lower().startswith(("i can't", "i cannot", "as an ai", "sorry,",
+                                        "não posso", "nao posso", "como uma ia", "como ia,")):
             logger.warning("Handler: Model returned meta-text instead of an email. Discarding.")
             return ""
         polished = await humanize(
@@ -1583,8 +1718,8 @@ Write a reply that:"""
 {problems}
 
 Rewrite it so it breaks none of them. Keep what it says and every fact; add
-nothing. Make it shorter, never longer. Plain text, no dash between words (use a
-period or a comma), no exclamation marks.
+nothing. Keep it in the language it is written in. Make it shorter, never longer.
+Plain text, no dash between words (use a period or a comma), no exclamation marks.
 
 {fence(body, "reply draft")}
 

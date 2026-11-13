@@ -452,6 +452,12 @@ def write_trained_config(learned: dict, path: Path) -> dict:
     return config
 
 
+# A Brazilian site gets its product, customers and objections back in
+# Portuguese, the language its emails go out in; an English site in English.
+SITE_LANGUAGE_RULE = ("Write every text value in the language the website is written in "
+                      "(job titles as they appear on its business cards).")
+
+
 class Trainer:
     def __init__(self, brain_config: BrainConfig | None = None):
         # Without an explicit choice, train with whatever provider the
@@ -628,6 +634,8 @@ WEBSITE CONTENT ({len(self.scraped_pages)} pages):
 
 {UNTRUSTED_RULE}
 
+{SITE_LANGUAGE_RULE}
+
 Extract the following and return as JSON:
 {{
   "company_name": "the company name",
@@ -664,6 +672,8 @@ WEBSITE CONTENT ({len(self.scraped_pages)} pages):
 {all_content}
 
 {UNTRUSTED_RULE}
+
+{SITE_LANGUAGE_RULE}
 
 Return as JSON:
 {{
@@ -726,6 +736,8 @@ WEBSITE CONTENT:
 Look for comparison pages, "why us" messaging, feature differentiation,
 and any mentions of competitors or alternatives.
 
+{SITE_LANGUAGE_RULE}
+
 Return as JSON:
 {{
   "competitors": [
@@ -785,6 +797,8 @@ Generate 8-12 objections covering:
 
 Each response should be 1-2 sentences, consultative (not defensive), and end with
 a question or redirect that keeps the conversation going.
+
+{SITE_LANGUAGE_RULE}
 
 Return a JSON object where keys are objections and values are non-empty responses."""
 

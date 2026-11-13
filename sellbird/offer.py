@@ -19,6 +19,7 @@ from pathlib import Path
 
 import yaml
 
+from sellbird.languages import write_in
 from sellbird.textio import read_user_text
 from sellbird.untrusted import UNTRUSTED_RULE, fence
 
@@ -88,6 +89,7 @@ async def suggest_offers(brain, config) -> list[dict]:
     prompt = SUGGEST_PROMPT.format(
         product=fence(_product_text(config), "product info"), icp=_icp_text(config),
         n=SUGGESTIONS, rule=UNTRUSTED_RULE)
+    prompt += write_in(config)   # offers end emails written in persona.language
     result = await brain.think_json(prompt, session_id="sellbird-offer", agent="writer",
                                     task="suggest_offers")
     if isinstance(result, dict):

@@ -39,6 +39,7 @@ from bs4 import BeautifulSoup
 from sellbird.brain import Brain
 from sellbird.collectors import people as people_mod
 from sellbird.collectors.discover import site_name_from_html
+from sellbird.languages import accept_language
 from sellbird.collectors.profile import _reads_like_title, fold_accents, looks_like_challenge
 from sellbird.config import SellbirdConfig, EnvConfig, live_do_not_contact
 from sellbird.gate import do_not_contact_domain_match
@@ -286,7 +287,8 @@ class Scout:
         headers = {
             "User-Agent": random.choice(USER_AGENTS),
             "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
-            "Accept-Language": "en-US,en;q=0.9",
+            # A site in two languages serves the one you'll write in.
+            "Accept-Language": accept_language(self.config, "en-US,en;q=0.9"),
         }
         if extra:
             headers.update(extra)

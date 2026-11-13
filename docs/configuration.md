@@ -9,7 +9,7 @@ Two files, both plain text.
 **`sellbird.yaml`** — who Sellbird is and who it sells to:
 
 ```yaml
-persona:      { name, company, role, email, tone }
+persona:      { name, company, role, email, tone, language }
 product:      { name, description, pricing, key_benefits, objection_responses, offer }
 icp:          { industries, titles, company_size, geography, hiring_signals, geo_coordinates }
 channels:
@@ -28,6 +28,8 @@ writer:       { humanizer, site_facts, require_tip }   # optional; humanizer tru
               # them as "Nothing to write about yet"; `sellbird retry-writes --no-tip` puts them back in line.
               # email_rules: your own markdown rules for the emails' shape (see The skills library)
 ```
+
+`persona.language` (default blank) is the language every email and reply is written in, as a code like `pt-BR` (`pt`, `pt_br` and `Português` work too). Blank leaves it to the model, which writes English. Any language works; Brazilian Portuguese also brings a Portuguese opt-out line (unless you set `compliance.opt_out_line` yourself), writing notes for the Writer, and Scout asks websites for their Portuguese pages. A reply is answered in the language the prospect wrote in. Opt-outs in Portuguese, English, Spanish, French and Hebrew are honoured whatever this says.
 
 `min_write_score` (0-100, default 0) is the lowest Scout fit score the writer
 drafts for: a prospect below it keeps its deliverable address but gets no
