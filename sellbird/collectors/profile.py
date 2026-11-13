@@ -176,11 +176,16 @@ entretien reparation reparations urgence soumission soumissions estimation
 residentiel residentielle commercial commerciale industriel industrielle
 produits produit garantie garanties financement subventions subvention
 realisations accueil equipe equipes propos joindre contactez
+encanamento eletrica eletricista telhado telhados climatizacao refrigeracao manutencao instalacao
+instalacoes reforma reformas orcamento orcamentos gratis emergencia residencial produtos garantia
+financiamento inicio sobre contato servicos servico odontologia implantes ortodontia clareamento
+estetica advocacia contabilidade consultoria agendamento agende whatsapp unidades
 """.split())
 
 # Tokens that are words, not names, whatever the vertical: abstract nouns
 # ("Scope Alignment", "Board Communication") and shouted acronyms ("HOA").
-_NOUN_SUFFIX = re.compile(r"(tion|tions|sion|sions|ness)$")
+# Portuguese: "-ção" and "-ções" ("Manutenção", "Soluções"), accent folded.
+_NOUN_SUFFIX = re.compile(r"(tion|tions|sion|sions|ness|cao|coes)$")
 
 
 def _is_name_token(token: str) -> bool:
@@ -197,7 +202,8 @@ def _is_name_token(token: str) -> bool:
 # Block-level tags separate a name, its title, and the bio that follows; the
 # first text chunk after the name heading is the title, nothing further.
 _BLOCK_BREAK = re.compile(r"(?i)<(?:/?(?:p|div|li|ul|ol|section|article|td|tr)\b[^>]*|br\s*/?)>")
-_CONNECTORS = frozenset("of and the for & to in at de du des la le et en au aux a".split())
+_CONNECTORS = frozenset("of and the for & to in at de du des la le et en au aux a "
+                        "da do das dos e em na no com para".split())
 
 
 def _title_chunks(raw_after: str) -> list[str]:
@@ -236,6 +242,9 @@ DECISION_MAKER_TITLES = (
     # fondateur/fondatrice, directeur/directrice, gérant(e), associé(e).
     "proprietaire", "president", "pdg", "fondat", "directeur", "directrice",
     "gerant", "associe",
+    # Portuguese (Brazil), accents folded: proprietário(a), sócio(a), fundador(a),
+    # diretor(a), gerente, dono(a).
+    "proprietari", "socio", "socia", "fundador", "diretor", "gerente", "dono", "dona",
 )
 
 
@@ -253,7 +262,12 @@ ROLE_HINT = re.compile(
     r"estimat(?:eur|rice)|representante?|conseill(?:er|ere)|coordonnat(?:eur|rice)|contremaitre|"
     r"superviseure?|responsable|chargee?|ventes|comptable|administrat(?:eur|rice)|ingenieure?|"
     r"frigoriste|mecanicien(?:ne)?|installat(?:eur|rice)|repartit(?:eur|rice)|secretaire|"
-    r"receptionniste)\b", re.I)
+    r"receptionniste|"
+    # Portuguese (Brazil), matched with accents folded
+    r"co-?proprietari[oa]|proprietari[oa]|soci[oa]|co-?fundador(?:a)?|fundador(?:a)?|diretor(?:a)?|"
+    r"gerente|don[oa]|administrador(?:a)?|coordenador(?:a)?|supervisor(?:a)?|responsavel|tecnic[oa]|"
+    r"vendedor(?:a)?|consultor(?:a)?|advogad[oa]|dentista|ortodontista|contador(?:a)?|secretari[oa]|"
+    r"recepcionista|assistente|auxiliar|analista|engenheir[oa]|arquitet[oa]|medic[oa])\b", re.I)
 
 
 def title_looks_like_role(text: str) -> bool:

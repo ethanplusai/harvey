@@ -9,6 +9,17 @@ minor versions can still change behaviour.
 
 ### Added
 
+- **Owners on Brazilian sites.** Finding the decision maker reads Brazilian
+  titles (proprietário(a), sócio(a)-proprietário(a), sócio-fundador, dono(a),
+  fundador(a), diretor(a)-presidente, diretor(a) geral), names with particles
+  in the middle ("João da Silva Santos"), honorifics (Dr., Dra., Sra., Dona)
+  and council registrations ("CRO-SP 12345"), sentences ("fundada em 1998
+  por", "comandada por", "é a proprietária da clínica", "Eu fundei"), and the
+  pages they sit on (Quem somos, Nossa equipe, Corpo clínico, Fale conosco).
+  Assistente, auxiliar, adjunto(a), subgerente, ex-, antigo(a) and falecido(a)
+  make a title someone else's. The free OpenStreetMap source knows Brazilian
+  business terms (clínica odontológica, advocacia, contabilidade, padaria,
+  imobiliária, salão de beleza...).
 - **`writer.require_tip: true` skips prospects with nothing to build a tip
   on.** A first email is meant to name one concrete thing the sender would
   change; with no finding about the company, the draft could only say it had no
