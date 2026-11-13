@@ -74,8 +74,11 @@ Don't dump the whole list on them. Do what you can yourself, then send one tap a
 3. **Health.** `sending_status` and `health_summary`. Bounces climbing or an inbox paused:
    tell them first, and don't queue more mail.
 4. **New buyers.** If the pipeline is thin (`prospects_list`, status new), find more:
-   `find_companies` / `find_people` (or `discover_estimate` then `discover_run_free`).
-   Paid searches go through `discover_request_paid`, which they approve.
+   `discovery_companies` / `discovery_people` (previews, five at a time; they need the
+   owner to have switched on discovery research, and revealing a person's details is a
+   paid step they approve), or the free engine search: `discover_estimate`, then
+   `discover_run_free`. Paid searches go through `discover_request_paid`, which they
+   approve.
 5. **The next batch.** Check room with `sending_pace` and `inboxes_list`. Write a 2 to 3
    step sequence and give each person their own first email where you have something real
    to say about them. `campaigns_create` (500 people a call), `campaigns_add_prospects`
