@@ -21,6 +21,7 @@ from sellbird.email_style import (
     style_problems, tidy, with_sign_off,
 )
 from sellbird.humanize import humanize, humanizer_enabled
+from sellbird.languages import language_block
 from sellbird.integrations.mail_provider import NATIVE_PROVIDERS
 from sellbird.models.campaign import Campaign, EmailStep
 from sellbird.state import WRITABLE_EMAIL_STATUSES, StateManager
@@ -582,6 +583,7 @@ class Writer:
         rules = getattr(self, "email_rules", "")
         prompt += offer_block(self.config)
         prompt += operator_rules_block(rules)
+        prompt += language_block(self.config)
         if rules:
             shape = (
                 "- Follow the OPERATOR'S EMAIL RULES above for this first email: its length,\n"
@@ -680,6 +682,7 @@ Pricing: {self.config.product.pricing}"""
         rules = getattr(self, "email_rules", "")
         prompt += offer_block(self.config)
         prompt += operator_rules_block(rules)
+        prompt += language_block(self.config)
         if rules:
             shape = (
                 "- Email 1 is the first touch, email 2 a follow-up 3 days later, email 3 a\n"
@@ -792,6 +795,7 @@ Return ONLY a JSON array (no markdown fences, no commentary):
 
 Rewrite it so it breaks none of them. Keep its facts, its one question and every
 merge variable such as {{{{first_name}}}} exactly as written; add no fact, name or claim.
+Keep it in the language it is written in.
 Make it shorter, never longer: cut words instead of adding them. Plain text, no
 dash between words (use a period or a comma), no exclamation marks, no sign-off
 and no name at the end.

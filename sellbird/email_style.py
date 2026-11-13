@@ -76,16 +76,43 @@ AI_TELLS = (
     # staged contrasts
     "it's not about", "it is not about", "isn't about", "this isn't just",
     "it's not just", "it isn't just", "not just a",
+    # Portuguese (Brazil): openers and filler
+    "espero que esteja bem", "espero que você esteja bem", "espero que este e-mail",
+    "espero que esta mensagem", "espero encontrá-lo bem", "espero encontrá-la bem",
+    "estou entrando em contato", "venho por meio deste", "venho por meio desta",
+    "gostaria de apresentar", "gostaria de me apresentar", "só passando", "passando aqui para",
+    "só queria", "dando sequência ao meu", "retomando meu último", "sei que você é ocupado",
+    "sei que você está ocupado", "sei que sua agenda", "no mundo de hoje", "nos dias de hoje",
+    "cada vez mais competitivo", "imagine se", "e se eu te dissesse", "a verdade é que",
+    # weak asks
+    "pergunta rápida", "sem compromisso", "sem pressão", "estaria aberto a",
+    "estaria aberta a", "você é a pessoa certa",
+    # inflated words
+    "revolucionar", "revolucionário", "revolucionária", "alavancar", "alavanque",
+    "potencializar", "potencialize", "turbinar", "inovador", "inovadora", "disruptivo",
+    "disruptiva", "de ponta", "de última geração", "sinergia", "solução completa",
+    "solução ideal", "transforme seu", "transforme sua", "transformar seu", "transformar sua",
+    "próximo nível", "divisor de águas", "ponto de dor", "pontos de dor", "líder de mercado",
+    "de classe mundial",
+    # staged contrasts
+    "não é apenas", "não é só", "não se trata de", "não se trata apenas",
 )
 _TELL_RES = tuple(
     (phrase, re.compile(r"(?<![\w-])" + re.escape(phrase).replace("'", "['’]") + r"(?![\w-])"))
     for phrase in AI_TELLS
 )
-_NOT_ONLY_BUT_RE = re.compile(r"\bnot (?:only|just|merely) [^.?!\n]{1,60}?\bbut\b", re.IGNORECASE)
+_NOT_ONLY_BUT_RE = re.compile(r"\bnot (?:only|just|merely) [^.?!\n]{1,60}?\bbut\b"
+                              r"|\bnão (?:só|apenas|somente) [^.?!\n]{1,60}?\bmas\b", re.IGNORECASE)
 
-_GREETING_RE = re.compile(r"^(?:hi|hey|hello|dear|good (?:morning|afternoon))\b[^\n]{0,40}$|^\w[\w .'-]{0,30},$",
+_GREETING_RE = re.compile(r"^(?:hi|hey|hello|dear|good (?:morning|afternoon)"
+                          r"|oi|olá|ola|bom dia|boa tarde|boa noite|prezad[oa]s?|car[oa]s?)\b[^\n]{0,40}$"
+                          r"|^\w[\w .'-]{0,30},$",
                           re.IGNORECASE)
-_SELF_OPENING_RE = re.compile(r"^(?:i|we|i'm|we're|i've|we've|i'd|we'd|my|our)\b", re.IGNORECASE)
+_SELF_OPENING_RE = re.compile(r"^(?:i|we|i'm|we're|i've|we've|i'd|we'd|my|our"
+                              # Portuguese (Brazil)
+                              r"|eu|nós|nosso|nossa|nossos|nossas|meu|minha|meus|minhas|sou|somos"
+                              r"|trabalho|trabalhamos|ajudo|ajudamos|estou|estamos|gostaria"
+                              r"|gostaríamos|queria|quero|represento)\b", re.IGNORECASE)
 
 _TIDY = str.maketrans({
     "‘": "'", "’": "'", "‚": "'", "‛": "'", "′": "'",
@@ -181,7 +208,11 @@ def style_problems(subject: str, body: str, *, kind: str = "cold", step: int = 1
 
 _SIGN_OFF_RE = re.compile(
     r"^(?:best|best wishes|thanks|thank you|thanks again|many thanks|cheers|regards|best regards|"
-    r"kind regards|warm regards|warmly|talk soon|speak soon|all the best|sincerely|take care)[,.]?$",
+    r"kind regards|warm regards|warmly|talk soon|speak soon|all the best|sincerely|take care|"
+    # Portuguese (Brazil)
+    r"abraço|abraços|um abraço|grande abraço|forte abraço|abs|att|atenciosamente|cordialmente|"
+    r"obrigado|obrigada|muito obrigado|muito obrigada|até mais|até breve|saudações|grato|grata|"
+    r"valeu)[,.]?$",
     re.IGNORECASE)
 
 

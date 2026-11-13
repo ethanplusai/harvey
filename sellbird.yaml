@@ -5,6 +5,7 @@ persona:
   email: "alex@yourcompany.com"
   linkedin: "linkedin.com/in/alex-yourcompany"
   tone: "professional, consultative, confident"
+  # language: "pt-BR"   # the language every email is written in; blank = English
 
 product:
   name: "Your Product"

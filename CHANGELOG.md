@@ -9,6 +9,18 @@ minor versions can still change behaviour.
 
 ### Added
 
+- **Brazilian Portuguese.** `persona.language: pt-BR` writes every email in
+  Brazilian Portuguese and answers replies in the language the prospect wrote
+  in, with a Portuguese opt-out line by default ("Não tem interesse? É só me
+  avisar que não envio mais e-mails.") and Scout asking sites for their
+  Portuguese pages. Any other language can be named too; the prompts then ask
+  for it. Portuguese opt-outs are honoured by rule, like the English, Spanish,
+  French and Hebrew ones ("Não, obrigado", "SAIR", "me tira da lista", "não
+  tenho interesse", "exclua meus dados"), Portuguese opt-out lines pass
+  validation, and the writing checks know Portuguese clichés, greetings and
+  sign-offs and the gate its spam phrases. Training on a site writes the
+  product, customers and objections in the site's own language, and offer
+  suggestions come in `persona.language`.
 - **`writer.require_tip: true` skips prospects with nothing to build a tip
   on.** A first email is meant to name one concrete thing the sender would
   change; with no finding about the company, the draft could only say it had no

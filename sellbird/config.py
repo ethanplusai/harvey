@@ -18,6 +18,7 @@ from pydantic import (
     BaseModel, PrivateAttr, TypeAdapter, ValidationError, field_validator, model_validator,
 )
 
+from sellbird.languages import LANGUAGES, canonical_language
 from sellbird.paths import PROJECT_ROOT
 
 logger = logging.getLogger("sellbird.config")
@@ -39,6 +40,14 @@ class PersonaConfig(BaseModel):
     email: str
     linkedin: str
     tone: str
+    # The language every email is written in (BCP 47, e.g. "pt-BR"). Blank
+    # leaves it to the model, which writes English. See sellbird.languages.
+    language: str = ""
+
+    @field_validator("language", mode="before")
+    @classmethod
+    def _canonical_language(cls, v) -> str:
+        return canonical_language(v)
 
 
 class OfferConfig(BaseModel):
@@ -481,6 +490,11 @@ HEBREW_OPT_OUT_WORDS = ("הסר", "הסירו", "הסרה", "לא תודה", "ה
 SPANISH_OPT_OUT_WORDS = ("no gracias", "baja", "darme de baja")
 FRENCH_OPT_OUT_WORDS = ("non merci", "non, merci", "arrêt", "désabonner", "désabonnement",
                         "désabonnez-moi", "retirez-moi")
+PORTUGUESE_OPT_OUT_WORDS = ("não, obrigado", "não, obrigada", "não obrigado", "sair", "SAIR",
+                            "remover", "descadastrar", "descadastre-me", "pare")
+# The opt-out line for emails written in Brazilian Portuguese
+# (persona.language: pt-BR) when compliance.opt_out_line isn't set.
+PORTUGUESE_DEFAULT_OPT_OUT_LINE = "Não tem interesse? É só me avisar que não envio mais e-mails."
 # Wording that tells people the emails can stop, in any phrasing. An
 # opt_out_line must say so somehow: one that reads like a sign-off ("Cheers!")
 # gives nobody a way out, which is worse than leaving the line off on purpose.
@@ -524,6 +538,24 @@ _SAYS_IT_STOPS_FR_RE = re.compile(
     re.IGNORECASE)
 # "Click" in French: "cliquez ici pour vous désabonner".
 _FRENCH_CLICK_RE = re.compile(r"\bcliqu(?:ez|er|e)\b", re.IGNORECASE)
+# Portuguese (Brazil), matched with accents removed: "Não tem interesse? É
+# só me avisar que não envio mais e-mails", "Responda SAIR para não receber
+# mais mensagens", "Se preferir, respondo tirando você da minha lista".
+_SAYS_IT_STOPS_PT_RE = re.compile(
+    r"(?:descadastr|\bsair\b|\bremov(?:er|o|emos|erei|eremos)\b|\bexclu(?:ir|o|imos|irei)\b"
+    r"|\bnao,?\s+obrigad[oa]\b|\b(?:nao|sem)\s+(?:\w+\s+){0,2}?interesse"
+    r"|\bnao\s+(?:\w+\s+){0,2}?(?:envio|enviarei|enviaremos|escrevo|escreverei|escreveremos|mando"
+    r"|mandarei|incomodo|incomodarei|procuro|procurarei|entro|entrarei)\b"
+    r"|\bnao\s+(?:vou|vamos|irei)\s+(?:mais\s+)?(?:enviar|escrever|mandar|incomodar|procurar"
+    r"|entrar\s+em\s+contato)"
+    r"|\bnao\s+(?:quer|queira|deseja|desejar|quiser)\s+(?:mais\s+)?receber"
+    r"|\bpara\s+nao\s+receber|\bdeixa(?:r)?\s+de\s+receber|\bparar?\s+de\s+receber"
+    r"|\b(?:paro|pararei|paramos|deixo|deixarei|deixamos)\s+de\s+(?:\w+\s+)?(?:enviar|escrever|mandar)"
+    r"|\b(?:tir|retir)\w*\s+(?:\w+\s+){0,3}?(?:da|de|do|das|dos)\s+(?:(?:minha|nossa|sua)\s+)?"
+    r"(?:lista|base|mailing|envios))",
+    re.IGNORECASE)
+# "Click" in Portuguese: "clique aqui para se descadastrar".
+_PORTUGUESE_CLICK_RE = re.compile(r"\bcli(?:que|quem|car|ca)\b", re.IGNORECASE)
 
 
 def _fold_accents(text: str) -> str:
@@ -597,14 +629,15 @@ class ComplianceConfig(BaseModel):
             return v
         folded = _fold_accents(v)
         if (any(bit in lowered for bit in ("http", "www.", "click", "@"))
-                or _HEBREW_CLICK_RE.search(v) or _FRENCH_CLICK_RE.search(folded)):
+                or _HEBREW_CLICK_RE.search(v) or _FRENCH_CLICK_RE.search(folded)
+                or _PORTUGUESE_CLICK_RE.search(folded)):
             raise ValueError(
                 "opt_out_line can't contain a link or an email address: cold email "
                 "allows one link, and opting out must be as simple as replying."
             )
         if not (_SAYS_IT_STOPS_RE.search(v) or _SAYS_IT_STOPS_HE_RE.search(v)
                 or _SAYS_IT_STOPS_ES_RE.search(v) or _SAYS_IT_STOPS_IT_RE.search(v)
-                or _SAYS_IT_STOPS_FR_RE.search(folded)):
+                or _SAYS_IT_STOPS_FR_RE.search(folded) or _SAYS_IT_STOPS_PT_RE.search(folded)):
             raise ValueError(
                 "opt_out_line doesn't tell people they can stop these emails. Say so in "
                 "any words (\"Not interested? Just let me know and I won't email you "
@@ -843,6 +876,16 @@ class SellbirdConfig(BaseModel):
     # The file it was loaded from, so a running Sellbird can re-read the
     # sending mode from that same file (refresh_sending_mode).
     _source_path: str | None = PrivateAttr(default=None)
+
+    @model_validator(mode="after")
+    def _opt_out_line_in_its_language(self):
+        """An email in Portuguese gets the Portuguese opt-out line unless
+        the operator wrote their own (or set it to "")."""
+        known = LANGUAGES.get(self.persona.language)
+        if (known and "opt_out_line" not in self.compliance.model_fields_set
+                and self.compliance.opt_out_line == DEFAULT_OPT_OUT_LINE):
+            self.compliance = self.compliance.model_copy(update={"opt_out_line": known.opt_out_line})
+        return self
 
 
 class EnvConfig(BaseModel):

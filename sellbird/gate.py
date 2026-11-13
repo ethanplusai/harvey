@@ -25,6 +25,14 @@ BANNED_PHRASES = (
     "cutting-edge solution", "revolutionize your", "unlock your",
     "supercharge your", "as an ai", "i'm an ai", "i am an ai",
     "as a language model",
+    # Portuguese (Brazil)
+    "clique aqui", "clique abaixo", "compre agora", "compre já", "oferta imperdível",
+    "oferta exclusiva", "promoção imperdível", "por tempo limitado", "últimas vagas",
+    "100% grátis", "totalmente grátis", "ganhe dinheiro", "dinheiro fácil", "renda extra",
+    "resultados garantidos", "garantia de resultados", "parabéns", "você foi selecionado",
+    "você foi selecionada", "espero que este e-mail o encontre bem",
+    "espero que esta mensagem o encontre bem", "no mundo acelerado de hoje",
+    "e se eu te dissesse", "como uma ia", "sou uma ia", "como um modelo de linguagem",
 )
 
 MAX_SUBJECT_LEN = 90

@@ -111,6 +111,7 @@ a short plain-text business email, so return email text only.
 Hard limits on the rewrite, on top of the instructions above:
 - Keep every merge variable such as {{{{first_name}}}} or {{{{company}}}} exactly as written.
 - Add no fact, name, number or claim that is not already in the draft.
+- Keep it in the language it is written in.
 - No em dashes, no bullets, no bold, no exclamation marks.
 - Do not make the email longer. Keep exactly one question.
 - The subject stays lowercase, 2-5 words. An empty subject stays empty.
