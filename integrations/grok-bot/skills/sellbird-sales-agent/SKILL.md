@@ -82,7 +82,8 @@ Don't dump the whole list on them. Do what you can yourself, then send one tap a
 
 ## Every session (and every scheduled run)
 
-1. **What's waiting.** `what_needs_me`, then `attention`. Work through it in order.
+1. **What's waiting.** `what_needs_me`, then `attention`. Work through it in order. Its `cards`
+   are what to put in front of the customer: send each card's title and url, one line each.
 2. **Replies first.** `replies_list`. For each: read the thread, then
    - asked to stop: `suppressions_add` + `outcome_record` `not_interested`, no reply;
    - anything else: write the answer with `replies_draft` and record what happened with
@@ -137,7 +138,8 @@ You can phone people, but only someone who asked for it.
 
 ## When they ask in plain words
 
-- "How's it going?" `what_needs_me` + `health_summary`, answered in two lines.
+- "How's it going?" Two lines from `what_needs_me` + `health_summary`, plus the `glance`
+  link (the numbers and who replied, on one page). Don't paste tables into chat.
 - "Find me 50 dentists in Austin." Propose the signals, show `cohort_preview`, ask once,
   then run it.
 - "Pause everything." `sending_pause`, and tell them how to resume (their tap).
