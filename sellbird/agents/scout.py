@@ -907,6 +907,9 @@ class Scout:
                     title=title,
                     seniority=self._infer_seniority(title),
                     industry=industry,
+                    # The search was scoped to this place, so this is where
+                    # the contact was found — the same rule discovery uses.
+                    location=geo,
                     source="web_search",
                     source_url=url,
                 )
@@ -979,6 +982,7 @@ class Scout:
                 website=company.get("website", f"https://{domain}"),
                 description=company.get("description", ""),
                 industry=company.get("industry", default_industry),
+                location=company.get("location", ""),
                 source=company.get("source", "web_search"),
                 source_url=company.get("source_url", ""),
             )
@@ -1031,7 +1035,7 @@ class Scout:
         """Find ICP-matching companies via web search."""
         companies = []
 
-        for query in self._build_company_search_queries():
+        for query, place in self._build_company_search_queries():
             if self._queries_this_cycle >= MAX_QUERIES_PER_CYCLE:
                 break
 
@@ -1051,6 +1055,11 @@ class Scout:
                 info["domain"] = domain
                 info["source"] = "web_search"
                 info["source_url"] = url
+                # The place the search was scoped to: what discovery would
+                # have stamped on the result, and what lets the Writer put
+                # the priority places first.
+                if place and not info.get("location"):
+                    info["location"] = place
                 if not info.get("name"):
                     info["name"] = self._domain_to_name(domain)
 
@@ -1195,9 +1204,15 @@ class Scout:
         seen = set()
         return [d for d in domains if not (d in seen or seen.add(d))][:5]
 
-    def _build_company_search_queries(self) -> list[str]:
-        """Build search queries to find ICP-matching companies."""
-        queries = []
+    def _build_company_search_queries(self) -> list[tuple[str, str]]:
+        """(search query, the place it searches) for ICP-matching companies.
+
+        The place travels with the query, not just inside it: a company found
+        by a "Nashik" search is a Nashik company, and the Writer needs to know
+        that to work through the priority places first. Queries without a
+        place come back with "" — nothing is guessed.
+        """
+        queries: list[tuple[str, str]] = []
         industries = self.config.icp.industries or [""]
         geos = list(getattr(self.config.icp, "priority_geography", None) or []) \
             or list(self.config.icp.geography or [""])
@@ -1214,19 +1229,19 @@ class Scout:
             if size:
                 parts.append(f'"{size}"')
             parts.append("company")
-            queries.append(" ".join(parts))
+            queries.append((" ".join(parts), geo))
 
             if geo and industry:
-                queries.append(f'top "{industry}" companies {geo}')
+                queries.append((f'top "{industry}" companies {geo}', geo))
 
         # Drop empties / dupes, cap to budget.
         seen = set()
-        out = []
-        for q in queries:
+        out: list[tuple[str, str]] = []
+        for q, place in queries:
             q = q.strip()
             if q and q != "company" and q not in seen:
                 seen.add(q)
-                out.append(q)
+                out.append((q, place))
         return out[:3]
 
     async def _resolve_email(
@@ -1399,6 +1414,11 @@ Respond ONLY with the JSON array."""
         try:
             existing = await self.state.get_company_by_domain(domain)
             if existing:
+                # A company that entered the pipeline before its place was
+                # known (an early Scout run) is filled in now, and so are its
+                # prospects, so the Writer's priority order can see it.
+                if location and not (getattr(existing, "location", "") or "").strip():
+                    await self.state.set_company_location(existing.id, location)
                 return existing.id
         except Exception as e:
             logger.debug(f"get_company_by_domain failed for {domain}: {e}")
@@ -1931,7 +1951,9 @@ Respond ONLY with the JSON array."""
         if not keywords:
             return 0
         search_term = keywords[0]
-        geo = self.config.icp.geography[0] if self.config.icp.geography else ""
+        geos = list(getattr(self.config.icp, "priority_geography", None) or []) \
+            or list(self.config.icp.geography or [])
+        geo = geos[0] if geos else ""
 
         logger.info(f"Scout: Searching job boards for '{search_term}' roles...")
         loop = asyncio.get_event_loop()
@@ -2000,6 +2022,7 @@ Respond ONLY with the JSON array."""
                 website=info.get("website", f"https://{domain}"),
                 description=info.get("description", ""),
                 industry=default_industry,
+                location=geo,
                 source="job_board",
                 source_url=str(row.get("job_url") or ""),
             )

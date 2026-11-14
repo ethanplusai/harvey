@@ -2349,6 +2349,32 @@ class StateManager:
             ) as cursor:
                 return {r[0] for r in await cursor.fetchall()}
 
+    async def set_company_location(self, company_id: str, location: str) -> None:
+        """Record where a company is, and pass it on to its prospects.
+
+        Discovery stamps the place it searched onto the company it found; a
+        company that arrived another way (a Scout web search before this was
+        recorded) may have none. Filling it in later fills in the prospects
+        that predate the column too, so priority ordering needs no second
+        migration. An existing location is never overwritten.
+        """
+        value = (location or "").strip()
+        if not value:
+            return
+        now = _utcnow().isoformat()
+        async with self._connect() as db:
+            await db.execute(
+                "UPDATE companies SET location = ?, updated_at = ? "
+                "WHERE id = ? AND (location IS NULL OR location = '')",
+                (value, now, company_id),
+            )
+            await db.execute(
+                "UPDATE prospects SET location = ?, updated_at = ? "
+                "WHERE company_id = ? AND (location IS NULL OR location = '')",
+                (value, now, company_id),
+            )
+            await db.commit()
+
 
     async def mark_prospects_checked(self, company_id: str):
         """Record that a prospect-backfill pass looked at this company,
