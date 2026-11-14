@@ -11,11 +11,12 @@ Two files, both plain text.
 ```yaml
 persona:      { name, company, role, email, tone }
 product:      { name, description, pricing, key_benefits, objection_responses, offer }
-icp:          { industries, titles, company_size, geography, hiring_signals, geo_coordinates }
+icp:          { industries, titles, company_size, geography, priority_geography,
+                hiring_signals, geo_coordinates, excluded_industries, excluded_keywords }
 channels:
   email:      { provider: gmail | microsoft | smtp | instantly, max_daily_sends, per_inbox_daily_cap,
                 require_approval, send_to_risky, min_write_score, max_bounce_rate, follow_ups, warmup, send_window, signature }
-usage:        { max_daily_claude_percent, heartbeat_interval_minutes, quiet_hours }
+usage:        { max_daily_claude_percent, heartbeat_interval_minutes, quiet_hours, unusable_backlog_limit }
 brain:        { provider: claude | codex, model, reasoning_effort }   # optional; claude by default
 writer:       { humanizer, site_facts, require_tip }   # optional; humanizer true adds one editing pass per batch using ~/.claude/skills/humanizer/SKILL.md
               # site_facts (default true): the Writer sees what the free homepage signals found (no structured data,
@@ -37,6 +38,27 @@ sequence, so Claude calls and sends go to the best matches first.
 
 `max_daily_claude_percent` caps whichever subscription `brain.provider` uses (the name predates Codex support).
 
+`icp.priority_geography` (default empty) lists places to work through first:
+discovery searches them before the rest of `geography`, and the Writer drafts
+for them first, so the first wave of mail lands where you want it. It changes
+the order, not the set — a place not in `geography` is not added. Empty keeps
+the Writer's newest-first order.
+
+`icp.excluded_industries` and `icp.excluded_keywords` (default empty) keep
+businesses you know are not buyers out of the pipeline: an industry label, a
+name or a description that matches is skipped before a company row is created.
+The built-in rules already skip ERP and IT vendors, trading houses, retail and
+pages that are articles or directories rather than companies;
+`sellbird cleanup --audit` shows what they would remove from what you already
+have. `sellbird cleanup` marks those companies excluded (kept on file, with the
+reason, so `restore_company` can put one back), stops the Writer drafting for
+their prospects, and cancels any draft already waiting for approval.
+
+`usage.unusable_backlog_limit` (default 20) is how many unusable prospects in
+the last day pause prospecting — a guessed, invalid or missing address costs a
+verifier credit and can't be written to. `0` never pauses, which is what an
+install with no verifier key configured wants.
+
 If `sellbird.local.yaml` exists it wins. It's gitignored, so a fork can carry real product configuration while the tracked `sellbird.yaml` stays a template — nobody publishes their positioning and pricing by accident.
 
 ### Commands
@@ -52,6 +74,8 @@ sellbird status                # pipeline summary
 sellbird usage                 # active provider's quota + per-agent tokens
 sellbird outbox                # review queued email
 sellbird export                # deliverable prospects → CSV
+sellbird cleanup               # take ERP vendors, IT companies and trading houses out of the pipeline
+sellbird reverify              # give guessed addresses a second look with your verifier
 sellbird precleared-key        # free key for the cold-email check, saved to .env
 sellbird companies             # company register → CSV: every company, fit, and why it wasn't contacted
 sellbird sending pause|resume  # kill switch

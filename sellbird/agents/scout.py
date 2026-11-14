@@ -26,6 +26,7 @@ Hardening notes:
 """
 
 import asyncio
+import base64
 import json
 import logging
 import random
@@ -42,6 +43,7 @@ from sellbird.collectors.discover import site_name_from_html
 from sellbird.collectors.profile import _reads_like_title, fold_accents, looks_like_challenge
 from sellbird.config import SellbirdConfig, EnvConfig, live_do_not_contact
 from sellbird.gate import do_not_contact_domain_match
+from sellbird.icp_filter import exclusion_reason
 from sellbird.integrations.email_finder import (
     DEFAULT_PATTERN, SMALL_BUSINESS_PATTERN, find_email, site_email_evidence,
     verify_published_address,
@@ -535,6 +537,42 @@ class Scout:
             logger.debug(f"DuckDuckGo returned {len(results)} results")
         return results[:MAX_RESULTS_PER_QUERY]
 
+    _BING_REDIRECT = re.compile(r"^https?://(?:www\.)?bing\.com/ck/a\?", re.I)
+
+    @classmethod
+    def _unwrap_bing_redirect(cls, href: str) -> str:
+        """Recover the real URL from a Bing click-tracking link.
+
+        Bing's HTML results link to ``/ck/a?...&u=a1<base64url>``, not to the
+        destination. Kept as-is, the whole result set reads as pages on
+        bing.com, and every candidate is thrown away for not being a company
+        site — the search looks like it found nothing when it found plenty.
+        The ``u`` parameter carries the destination base64url-encoded, behind
+        an ``a1`` marker.
+
+        Anything that does not unwrap cleanly comes back unchanged: a result
+        we can't decode is no worse than the redirect we started with, so this
+        never costs a result, it only recovers one.
+        """
+        if not cls._BING_REDIRECT.match(href or ""):
+            return href
+        try:
+            target = (parse_qs(urlparse(href).query).get("u") or [""])[0]
+        except Exception:
+            return href
+        if target.startswith("http"):
+            # Some links carry the destination unencoded.
+            return target
+        if not target.startswith("a1"):
+            return href
+        encoded = target[2:]
+        try:
+            padded = encoded + "=" * (-len(encoded) % 4)
+            decoded = base64.urlsafe_b64decode(padded).decode("utf-8", "replace")
+        except Exception:
+            return href
+        return decoded if decoded.startswith("http") else href
+
     async def _search_bing(self, query: str) -> list[tuple[str, str]]:
         """Search via Bing HTML scraping — less aggressive than Google."""
         url = f"https://www.bing.com/search?q={quote_plus(query)}&count={MAX_RESULTS_PER_QUERY}"
@@ -552,7 +590,8 @@ class Scout:
             snippet_el = item.select_one(".b_caption p")
             if not (link and link.get("href")):
                 continue
-            href = self._attr_str(link.get("href"))
+            # Bing hands back its own click-tracking URL; the real one is inside.
+            href = self._unwrap_bing_redirect(self._attr_str(link.get("href")))
             snippet = snippet_el.get_text().strip() if snippet_el else ""
             if href.startswith("http"):
                 results.append((href, snippet))
@@ -727,6 +766,17 @@ class Scout:
             if await self._skip_listed_company(company, domain):
                 continue
 
+            # Companies on file before the ICP filter existed may be
+            # vendors or trading houses. Don't spend a scrape, or a
+            # verification credit, on one.
+            if self._excluded_company(
+                company.get("name") or self._domain_to_name(domain),
+                company.get("industry") or default_industry,
+                company.get("description") or "",
+                company.get("source_url") or "",
+            ):
+                continue
+
             contacts = await self._contacts_from_company(
                 company_id=company["id"],
                 domain=domain,
@@ -806,6 +856,9 @@ class Scout:
                                     industry=industry,
                                     source="linkedin_search",
                                 )
+                                if not company_id:
+                                    # Excluded company: not a prospect.
+                                    continue
 
                         email = ""
                         email_status = ""
@@ -860,7 +913,9 @@ class Scout:
         logger.info("Scout: Searching for LinkedIn profiles...")
         count = 0
 
-        geo = self.config.icp.geography[0] if self.config.icp.geography else ""
+        geos = list(getattr(self.config.icp, "priority_geography", None) or []) \
+            or list(self.config.icp.geography or [])
+        geo = geos[0] if geos else ""
         industry = self.config.icp.industries[0] if self.config.icp.industries else ""
 
         for title in self.config.icp.titles:
@@ -890,6 +945,9 @@ class Scout:
                     title=title,
                     seniority=self._infer_seniority(title),
                     industry=industry,
+                    # The search was scoped to this place, so this is where
+                    # the contact was found — the same rule discovery uses.
+                    location=geo,
                     source="web_search",
                     source_url=url,
                 )
@@ -962,9 +1020,13 @@ class Scout:
                 website=company.get("website", f"https://{domain}"),
                 description=company.get("description", ""),
                 industry=company.get("industry", default_industry),
+                location=company.get("location", ""),
                 source=company.get("source", "web_search"),
                 source_url=company.get("source_url", ""),
             )
+            if not company_id:
+                # Excluded company: not a prospect, so nothing to scrape.
+                continue
 
             # Buying signals: what they run, and whether they're hiring for
             # roles that suggest they're in-market. Signals are gold for
@@ -1011,7 +1073,7 @@ class Scout:
         """Find ICP-matching companies via web search."""
         companies = []
 
-        for query in self._build_company_search_queries():
+        for query, place in self._build_company_search_queries():
             if self._queries_this_cycle >= MAX_QUERIES_PER_CYCLE:
                 break
 
@@ -1031,6 +1093,11 @@ class Scout:
                 info["domain"] = domain
                 info["source"] = "web_search"
                 info["source_url"] = url
+                # The place the search was scoped to: what discovery would
+                # have stamped on the result, and what lets the Writer put
+                # the priority places first.
+                if place and not info.get("location"):
+                    info["location"] = place
                 if not info.get("name"):
                     info["name"] = self._domain_to_name(domain)
 
@@ -1175,11 +1242,18 @@ class Scout:
         seen = set()
         return [d for d in domains if not (d in seen or seen.add(d))][:5]
 
-    def _build_company_search_queries(self) -> list[str]:
-        """Build search queries to find ICP-matching companies."""
-        queries = []
+    def _build_company_search_queries(self) -> list[tuple[str, str]]:
+        """(search query, the place it searches) for ICP-matching companies.
+
+        The place travels with the query, not just inside it: a company found
+        by a "Nashik" search is a Nashik company, and the Writer needs to know
+        that to work through the priority places first. Queries without a
+        place come back with "" — nothing is guessed.
+        """
+        queries: list[tuple[str, str]] = []
         industries = self.config.icp.industries or [""]
-        geos = self.config.icp.geography or [""]
+        geos = list(getattr(self.config.icp, "priority_geography", None) or []) \
+            or list(self.config.icp.geography or [""])
         size = self.config.icp.company_size or ""
 
         for industry in industries[:2]:
@@ -1193,19 +1267,19 @@ class Scout:
             if size:
                 parts.append(f'"{size}"')
             parts.append("company")
-            queries.append(" ".join(parts))
+            queries.append((" ".join(parts), geo))
 
             if geo and industry:
-                queries.append(f'top "{industry}" companies {geo}')
+                queries.append((f'top "{industry}" companies {geo}', geo))
 
         # Drop empties / dupes, cap to budget.
         seen = set()
-        out = []
-        for q in queries:
+        out: list[tuple[str, str]] = []
+        for q, place in queries:
             q = q.strip()
             if q and q != "company" and q not in seen:
                 seen.add(q)
-                out.append(q)
+                out.append((q, place))
         return out[:3]
 
     async def _resolve_email(
@@ -1365,10 +1439,24 @@ Respond ONLY with the JSON array."""
         source: str = "",
         source_url: str = "",
     ) -> str:
-        """Get or create a company record. Returns company_id."""
+        """Get or create a company record. Returns company_id.
+
+        A company that fails the ICP filter is not created at all, and an
+        empty id comes back — the caller treats that as "skip this one".
+        An ERP vendor or a trading house is not a buyer, so it must not
+        become a company the rest of the pipeline keeps working on.
+        """
+        if self._excluded_company(name, industry, description, source_url):
+            return ""
+
         try:
             existing = await self.state.get_company_by_domain(domain)
             if existing:
+                # A company that entered the pipeline before its place was
+                # known (an early Scout run) is filled in now, and so are its
+                # prospects, so the Writer's priority order can see it.
+                if location and not (getattr(existing, "location", "") or "").strip():
+                    await self.state.set_company_location(existing.id, location)
                 return existing.id
         except Exception as e:
             logger.debug(f"get_company_by_domain failed for {domain}: {e}")
@@ -1385,6 +1473,43 @@ Respond ONLY with the JSON array."""
             source_url=source_url,
         )
         return await self.state.add_company(company)
+
+    def _excluded_company(
+        self, name: str, industry: str = "", description: str = "",
+        source_url: str = "",
+    ) -> bool:
+        """Is this company one we should never contact?
+
+        The built-in rules catch the obvious cases — a blog post, an ERP
+        vendor, a trading house. The operator's own lists in
+        ``icp.excluded_industries`` and ``icp.excluded_keywords`` add to
+        them, so a business they know is wrong never enters the pipeline
+        even if it looks fine to the generic rules.
+        """
+        icp = self.config.icp
+
+        # The operator's exclusions come first: they know their market.
+        for excluded in getattr(icp, "excluded_industries", None) or []:
+            if excluded and excluded.strip().lower() == (industry or "").strip().lower():
+                logger.info(f"Scout: skipping {name!r} — excluded industry {excluded!r}")
+                return True
+
+        haystack = " ".join(x for x in (name or "", description or "") if x).lower()
+        for keyword in getattr(icp, "excluded_keywords", None) or []:
+            if keyword and keyword.strip().lower() in haystack:
+                logger.info(f"Scout: skipping {name!r} — excluded keyword {keyword!r}")
+                return True
+
+        reason = exclusion_reason({
+            "name": name,
+            "industry": industry,
+            "description": description,
+            "source_url": source_url,
+        })
+        if reason:
+            logger.info(f"Scout: skipping {name!r} — {reason}")
+            return True
+        return False
 
     async def _resolve_base_url(
         self, domain: str, retries: int = 1
@@ -1864,7 +1989,9 @@ Respond ONLY with the JSON array."""
         if not keywords:
             return 0
         search_term = keywords[0]
-        geo = self.config.icp.geography[0] if self.config.icp.geography else ""
+        geos = list(getattr(self.config.icp, "priority_geography", None) or []) \
+            or list(self.config.icp.geography or [])
+        geo = geos[0] if geos else ""
 
         logger.info(f"Scout: Searching job boards for '{search_term}' roles...")
         loop = asyncio.get_event_loop()
@@ -1933,9 +2060,13 @@ Respond ONLY with the JSON array."""
                 website=info.get("website", f"https://{domain}"),
                 description=info.get("description", ""),
                 industry=default_industry,
+                location=geo,
                 source="job_board",
                 source_url=str(row.get("job_url") or ""),
             )
+            if not company_id:
+                # Excluded company: not a prospect, so nothing to scrape.
+                continue
 
             signal = {"type": "hiring", "detail": job_title, "found_at": today}
             try:

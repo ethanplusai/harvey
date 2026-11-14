@@ -215,8 +215,16 @@ class Writer:
         if await self.state.get_setting(EMAIL_RULES_PROBLEM_KEY):
             await self.state.delete_setting(EMAIL_RULES_PROBLEM_KEY)
 
-        # Get prospects that haven't been contacted yet
-        new_prospects = await self.state.get_prospects_by_status("new")
+        # Get prospects that haven't been contacted yet, in the order we
+        # want to reach them: the priority places (icp.priority_geography)
+        # first, then elsewhere. Companies that fail the ICP filter — ERP
+        # vendors, software houses, trading companies — are left out here,
+        # so no draft is ever written for one.
+        new_prospects = await self.state.get_prospects_to_write(
+            priority_locations=getattr(
+                getattr(self.config, "icp", None), "priority_geography", None
+            )
+        )
         if not new_prospects:
             logger.info("Writer: No new prospects to write for.")
             return
@@ -431,6 +439,15 @@ class Writer:
                 continue
             if draft:
                 pending.append((prospect, draft))
+            else:
+                # No exception, nothing usable back from the model: say so,
+                # or a prospect silently keeps the merge-tag template and
+                # nobody can tell a bad model reply from a good one.
+                logger.warning(
+                    f"Writer: no personal draft for {prospect.email} "
+                    "(model returned nothing usable); the campaign template "
+                    "will be used for their first email."
+                )
 
         # One Humanizer pass over the whole batch before anything is staged.
         polished = await humanize(
@@ -616,10 +633,20 @@ Return ONLY JSON: {{"subject": "...", "body": "..."}}"""
             agent="writer", task="personal_email",
         )
         if not isinstance(result, dict):
+            # The model answered, but not as JSON — say what came back, or
+            # a run of unusable replies looks like a silent success.
+            logger.warning(
+                f"Writer: personal email for {prospect.email} returned "
+                f"{type(result).__name__}, not JSON: {str(result)[:300]!r}"
+            )
             return None
         subject = str(result.get("subject") or "").strip()
         body = str(result.get("body") or "").strip()
         if not subject or not body:
+            logger.warning(
+                f"Writer: personal email for {prospect.email} came back "
+                f"without a subject and/or body: {str(result)[:300]!r}"
+            )
             return None
         return {"subject": subject[:120], "body": body[:2000]}
 

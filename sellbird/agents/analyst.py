@@ -29,6 +29,7 @@ class Analyst:
             "campaigns": await self._campaign_performance(),
             "intents": await self._intent_breakdown(),
             "stages": await self._stage_breakdown(),
+            "outbox": await self.state.count_outbox_by_status(),
             "insights": [],
         }
 
@@ -171,10 +172,29 @@ class Analyst:
                 "CLOSING guidance to propose specific meeting times earlier (by message 2)."
             )
         if total_queued > 0 and total_contacted == 0:
-            insights.append(
-                f"BLOCKED: {total_queued} prospects are queued but nothing has been sent. "
-                "Check the Instantly API key and Sender logs — campaigns may be failing to deploy."
-            )
+            # Nothing sent is not the same as something broken. With manual
+            # approval on, drafts wait for a human — that is the design, not
+            # a fault, and calling it BLOCKED sends people hunting for an
+            # API key that was never the problem.
+            outbox = report.get("outbox") or {}
+            waiting = outbox.get("pending_review", 0)
+            approved = outbox.get("approved", 0)
+            if waiting:
+                insights.append(
+                    f"HUMAN NEEDED: {waiting} draft(s) are waiting for approval in the "
+                    "dashboard's outbox, so nothing has been sent — manual approval is on. "
+                    "Approve them there and they go out on the next cycle."
+                )
+            elif approved:
+                insights.append(
+                    f"BLOCKED: {approved} email(s) are approved but nothing has been sent. "
+                    "Check the Sender logs and the send window in sellbird.yaml."
+                )
+            else:
+                insights.append(
+                    f"BLOCKED: {total_queued} prospects are queued but nothing has been sent "
+                    "and no draft is waiting for approval. Check the Sender logs."
+                )
         if total_new < 10 and total_queued == 0:
             insights.append(
                 f"ACTION: Prospect pool is nearly empty ({total_new} new). Scout should run "

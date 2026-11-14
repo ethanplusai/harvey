@@ -2449,10 +2449,13 @@ async def get_today():
 
         hold = await state.current_sends_held()
         if hold:
-            from sellbird.sending_mode import held_message
+            from sellbird.sending_mode import held_message, quiet_hours_hold
             title, detail = held_message(hold, waiting=len(approved))
             items.append({
-                "key": "sends-held", "tone": "bad", "title": title, "detail": detail,
+                # Quiet hours are an expected pause, not a fault: warn, don't alarm.
+                "key": "sends-held",
+                "tone": "warn" if quiet_hours_hold(hold) else "bad",
+                "title": title, "detail": detail,
                 "action": "Open the log", "tab": "controls",
             })
 

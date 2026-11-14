@@ -415,6 +415,18 @@ class Brain:
                     last_error = response
                     continue
 
+                if not response.strip():
+                    # Exit 0 with no text at all: the model returned nothing
+                    # (a thinking-only reply, a free-tier drop, a truncated
+                    # run). "" is not an answer, so treat it as a failed
+                    # attempt rather than handing silence back to a caller
+                    # that will read it as the model having nothing to say.
+                    logger.warning(
+                        f"Claude returned no text (attempt {attempt + 1}); retrying."
+                    )
+                    last_error = "empty response"
+                    continue
+
                 logger.debug(f"Brain response: {response[:200]}...")
                 return response
 

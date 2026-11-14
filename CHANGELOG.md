@@ -9,6 +9,30 @@ minor versions can still change behaviour.
 
 ### Added
 
+- **Sellbird stops working on businesses that are not buyers.** A search
+  result is often an ERP vendor's blog post, a directory listing or a trading
+  house rather than the manufacturer it looked like. A filter
+  (`sellbird/icp_filter.py`) reads the name, industry, description and landed
+  URL and says why a result is not a company to sell to, and the Scout asks it
+  before creating a company, before re-scraping one on file, and before a
+  discovered row exists. `icp.excluded_industries` and
+  `icp.excluded_keywords` add your own. `sellbird cleanup [--audit|--dry-run]`
+  applies the same rules to what you already have: the company is kept on file
+  as excluded with the reason, its new prospects stop being drafted for, and
+  any draft waiting for approval is cancelled rather than sent.
+- **Guessed addresses get a second look.** A contact found before a verifier
+  key existed stays a guess forever otherwise, and the Writer can't use one.
+  The heartbeat now re-verifies a small batch when guesses are waiting,
+  inside a daily budget that checks the verifier's own balance first because
+  the Scout spends the same credits; `sellbird reverify` runs a batch by hand.
+- **`icp.priority_geography` works through places in your order.** Discovery
+  searches those places before the rest of `geography`, and the Writer drafts
+  for them first — best fit, then oldest, within a place. It reorders, it
+  doesn't add: a place you haven't put in `geography` is not searched. Empty
+  keeps the Writer's newest-first order.
+- **`usage.unusable_backlog_limit` decides when a bad verifier run pauses
+  prospecting** (default 20 in a day, `0` never pauses), so an install with no
+  verifier key can keep prospecting.
 - **`writer.require_tip: true` skips prospects with nothing to build a tip
   on.** A first email is meant to name one concrete thing the sender would
   change; with no finding about the company, the draft could only say it had no
@@ -30,6 +54,25 @@ minor versions can still change behaviour.
 
 ### Changed
 
+- **Quiet hours hold sending, not the night's work.** Prospecting, profiling,
+  writing and reply reading carry on through quiet hours, and the outbox
+  drains again once they end; before, the whole heartbeat slept. Today says so
+  as a warning rather than an alarm, and the hold message names quiet hours
+  instead of leaving you to look for an inbox problem. With send windows in
+  recipients' own time zones nothing changes: a cycle still reads replies and
+  sends what's due.
+- **A cycle has 900 seconds instead of 600.** Profiling 25 companies beside a
+  Scout run was overrunning 600s, and the cancelled gather held sending with
+  "replies couldn't all be read" even though the mailbox was fine.
+- **The Analyst tells "waiting for your approval" apart from "blocked".** With
+  manual approval on, queued drafts that haven't gone out are the design, not a
+  fault; only approved mail that hasn't left points at a real problem.
+- **A Writer run that gets nothing usable back from the model logs it.** An
+  unusable draft no longer looks like a silent success, whether the model
+  answered with nothing, with non-JSON, or without a subject or body.
+- **An empty Claude response is retried instead of returned.** Exit 0 with no
+  text at all — a thinking-only reply, a free-tier drop, a truncated run — used
+  to reach the caller as the model having nothing to say.
 - **The writer sees what Sellbird read off a company's own site.** The free
   homepage signals (no structured data, a site untouched for six months, a very
   small sitemap, AI crawlers blocked) were collected but

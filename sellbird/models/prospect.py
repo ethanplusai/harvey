@@ -36,6 +36,9 @@ class Prospect(BaseModel):
     personalization_notes: str = ""
     # IANA time zone for the send window ("Europe/Oslo"), once known.
     timezone: str = ""
+    # Where the company is ("Pune, India"). Used to work through the
+    # operator's priority places before the rest.
+    location: str = ""
     # legacy fields kept for backwards compat with existing code
     company: str = ""
     industry: str = ""

@@ -249,8 +249,8 @@ def cmd_status(args):
             # Status must still print when sellbird.yaml is broken; that's
             # when people run it. The --check path reports config errors.
             notice = address_notice = ""
-        from sellbird.main import unusable_backlog_notice
-        backlog = unusable_backlog_notice(summary)
+        from sellbird.main import backlog_limit, unusable_backlog_notice
+        backlog = unusable_backlog_notice(summary, backlog_limit(loaded))
         if backlog:
             print("  Prospecting:          PAUSED")
             print(textwrap.fill(backlog, width=72, initial_indent="                        ",
@@ -476,6 +476,78 @@ def cmd_export(args):
             print("  The CSV imports directly into Instantly, Smartlead, or any sequencer.\n")
 
     asyncio.run(_export())
+
+
+def cmd_reverify(args):
+    """Give guessed addresses a second look with the configured verifier."""
+    from sellbird.config import load_env
+    from sellbird.reverify import DAILY_BUDGET, reverify_batch, spent_today
+    from sellbird.state import StateManager
+
+    env = load_env()
+
+    async def _run():
+        state = StateManager()
+        await state.init_db()
+        spent = await spent_today(state)
+        report = await reverify_batch(
+            state, env, limit=args.limit, daily_budget=args.daily_budget)
+        if report.get("skipped"):
+            print(f"\n  Nothing done: {report['skipped']}.\n")
+            return
+        print(f"\n  Checked {report['checked']} address(es):")
+        print(f"    verified {report.get('verified', 0)}")
+        print(f"    risky    {report.get('risky', 0)}")
+        print(f"    invalid  {report.get('invalid', 0)}")
+        print(f"    no verdict {report.get('undecided', 0)}")
+        print(f"  Verifier spend today: {spent} → {report.get('spent_today')}"
+              f" of {args.daily_budget}\n")
+
+    asyncio.run(_run())
+
+
+def cmd_cleanup(args):
+    """Take the wrong companies out of the pipeline."""
+    from sellbird.cleanup import audit, cleanup
+    from sellbird.state import StateManager
+
+    async def _run():
+        state = StateManager()
+        await state.init_db()
+        if args.audit:
+            report = await audit(state)
+            print(f"\n  {report['excluded_count']} of {report['total']} "
+                  f"companies would be taken out of the pipeline.")
+            if not report["excluded_count"]:
+                print("  Nothing to do.\n")
+                return
+            print(f"  They carry {report['prospects_affected']} prospect(s).\n")
+            for reason, n in sorted(report["by_reason"].items(),
+                                    key=lambda kv: -kv[1]):
+                print(f"    {n:>4}  {reason}")
+            print("\n  First 25:")
+            for row in report["excluded"][:25]:
+                print(f"    {row['name'][:44]:<44} "
+                      f"{str(row['prospects']):>3} prospect(s) — {row['reason']}")
+            if report["excluded_count"] > 25:
+                print(f"    ... and {report['excluded_count'] - 25} more")
+            print()
+            return
+
+        report = await cleanup(state, dry_run=args.dry_run,
+                               include_retail=not args.skip_retail)
+        verb = "Would exclude" if args.dry_run else "Excluded"
+        print(f"\n  {verb} {report['excluded']} of {report['total_companies']} "
+              f"companies.")
+        print(f"    prospects taken out:  {report['prospects']}")
+        if not args.dry_run:
+            print(f"    drafts cancelled:     {report['cancelled_drafts']}")
+        for reason, n in sorted(report["by_reason"].items(),
+                                key=lambda kv: -kv[1]):
+            print(f"    {n:>4}  {reason}")
+        print()
+
+    asyncio.run(_run())
 
 
 def cmd_gmail(args):
@@ -1200,6 +1272,31 @@ def main():
     )
     sub.add_argument("--out", default="", help="Output file (default: data/exports/company-register-<date>.csv)")
     sub.set_defaults(func=cmd_companies)
+
+    # sellbird reverify
+    sub = subparsers.add_parser(
+        "reverify",
+        help="Re-verify guessed addresses with the configured email verifier",
+    )
+    sub.add_argument("--limit", type=int, default=3,
+                     help="How many addresses to check in this run (default: 3)")
+    sub.add_argument("--daily-budget", type=int, default=40,
+                     help="Maximum verifier calls per day (default: 40)")
+    sub.set_defaults(func=cmd_reverify)
+
+    # sellbird cleanup
+    sub = subparsers.add_parser(
+        "cleanup",
+        help="Take ERP vendors, IT companies, trading houses and content pages "
+             "out of the pipeline",
+    )
+    sub.add_argument("--audit", action="store_true",
+                     help="Show what would be removed, and change nothing")
+    sub.add_argument("--dry-run", action="store_true",
+                     help="Report what would be removed, and change nothing")
+    sub.add_argument("--skip-retail", action="store_true",
+                     help="Leave trading houses and retailers on file")
+    sub.set_defaults(func=cmd_cleanup)
 
     # sellbird gmail auth|test
     sub = subparsers.add_parser("gmail", help="Gmail provider setup")

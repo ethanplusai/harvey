@@ -20,6 +20,7 @@ from sellbird.pidfile import (
     LOCK_FILE, hold_loop_lock, read_pid, release_loop_lock, remove_pid_file, write_pid_file,
 )
 from sellbird.pipeline import run_profile_stage
+from sellbird.reverify import reverify_batch
 from sellbird.state import StateManager
 
 logging.basicConfig(
@@ -55,13 +56,12 @@ ERROR_BACKOFF_CAP = 900
 # heartbeat loop down silently with it. This is the only thing standing
 # between one stuck agent and Sellbird freezing for hours with no agent
 # knowing it's dead — found in production after exactly that happened.
-CYCLE_TIMEOUT_SECONDS = 600
-
-# Cap on a single quiet-hours sleep chunk. See the quiet-hours block in
-# heartbeat() for why this exists — a system sleep/wake cycle during one
-# multi-hour asyncio.wait_for left Sellbird silently stalled well past when
-# quiet hours actually ended.
-QUIET_HOURS_POLL_SECONDS = 300
+# 900s (not 600s): profiling 25 companies (3 HTTP requests each) runs beside
+# Scout scraping ~10 sites, and a slow batch was blowing past 600s every
+# cycle. The overrun cancelled the whole gather — including handle_replies —
+# which held sending with "replies couldn't all be read" even though the
+# mailbox was fine. The bound still caps a genuinely hung agent at 15 min.
+CYCLE_TIMEOUT_SECONDS = 900
 
 # Phase-1 tasks that read replies; sending waits for all of them to succeed.
 REPLY_READERS = ("handle_replies", "read_replies")
@@ -88,7 +88,9 @@ def sends_through_quiet_hours(config: SellbirdConfig) -> bool:
 
     With a send window in each recipient's time zone, the operator's night
     can be a recipient's morning. Prospecting and writing still sleep, and
-    replies wait for the operator's hours as before. A heartbeat wakes only
+    replies wait for the operator's hours as before. (Without a send window
+    there is nothing to wake for: quiet hours hold only sending, and the
+    rest of the pipeline keeps running through them.) A heartbeat wakes only
     when a cold email can go now (Sender.cold_due_in_window): it reads and
     handles replies first (so stop-on-reply has run; reading a reply is what
     consumes it, so it can't be left for the morning), then runs the sender,
@@ -124,7 +126,23 @@ def seconds_until_quiet_hours_end(config: SellbirdConfig) -> int:
 # guess, and prospecting every cycle would spend search and verifier credits
 # on people Sellbird can never email. Nothing re-checks a guess, so the window
 # is a day, never all time: an all-time count would stop Scout for good.
+# usage.unusable_backlog_limit in the config overrides this default; 0 means
+# never pause (prospecting runs around the clock whatever the verifier says).
 PROSPECT_BACKLOG = 20
+
+
+def backlog_limit(config) -> int:
+    """Unusable prospects in a day that pause prospecting, from the config.
+
+    Falls back to PROSPECT_BACKLOG for a config without usage (a test
+    config, or a status command whose config file couldn't be read).
+    """
+    usage = getattr(config, "usage", None)
+    value = getattr(usage, "unusable_backlog_limit", PROSPECT_BACKLOG)
+    try:
+        return max(int(value), 0)
+    except (TypeError, ValueError):
+        return PROSPECT_BACKLOG
 
 
 def _new_counts(summary: dict) -> tuple[int, int]:
@@ -136,11 +154,15 @@ def _new_counts(summary: dict) -> tuple[int, int]:
     return new, writable
 
 
-def unusable_backlog_notice(summary: dict) -> str:
-    """Why Sellbird paused prospecting for the day, or ""."""
+def unusable_backlog_notice(summary: dict, limit: int = PROSPECT_BACKLOG) -> str:
+    """Why Sellbird paused prospecting for the day, or "".
+
+    ``limit`` is how many unusable prospects in a day pause it; 0 disables
+    the pause entirely (usage.unusable_backlog_limit in the config).
+    """
     _, writable = _new_counts(summary)
     recent = summary.get("recent_unusable_prospects", 0) or 0
-    if writable or recent < PROSPECT_BACKLOG:
+    if not limit or writable or recent < limit:
         return ""
     return (
         f"Sellbird found {recent} prospects in the last day, but none has a verified "
@@ -156,6 +178,8 @@ async def decide_next_action(
     state: StateManager,
     config: SellbirdConfig,
     summary: dict | None = None,
+    *,
+    sending_held: bool = False,
 ) -> str:
     """Decide what Sellbird should do next based on current state.
 
@@ -168,6 +192,10 @@ async def decide_next_action(
     there is a mailbox or an open conversation to read. Making an open
     conversation the top priority starved everything else for as long as it
     stayed open, and one waiting on the prospect can stay open for weeks.
+
+    ``sending_held`` covers sending that is held for a reason this function
+    can't see from config — quiet hours. A draft that can't go out must not
+    win the cycle, or the night would be spent doing nothing but waiting.
     """
     if summary is None:
         summary = await state.get_state_summary()
@@ -187,17 +215,19 @@ async def decide_next_action(
                      and getattr(email, "provider", "") != "instantly")
     held = (legacy_sending_held(config) or native_paused
             or not getattr(email, "enabled", True))
-    deployable = 0 if held else draft_campaigns
+    deployable = 0 if held or sending_held else draft_campaigns
 
     if deployable > 0:
         action, reason = "send_campaign", f"{draft_campaigns} draft campaign(s) ready to deploy"
     elif writable > 0:
         action, reason = "write_campaign", f"{writable} new prospect(s) with no drafts ready"
-    elif unusable_backlog_notice(summary):
-        action, reason = "idle", "a day's worth of prospects with no usable email"
-        logger.warning(unusable_backlog_notice(summary))
     else:
-        action, reason = "prospect", f"{new_prospects} new prospect(s), none ready to write for"
+        notice = unusable_backlog_notice(summary, backlog_limit(config))
+        if notice:
+            action, reason = "idle", "a day's worth of prospects with no usable email"
+            logger.warning(notice)
+        else:
+            action, reason = "prospect", f"{new_prospects} new prospect(s), none ready to write for"
 
     logger.info(f"Decision: {action} ({reason})")
     return action
@@ -328,30 +358,22 @@ async def heartbeat(stop_event: asyncio.Event | None = None):
             # dashboard can switch it while Sellbird runs.
             await sync_sending_mode(config, state)
 
-            # 1. Check quiet hours. With send windows in recipients' own time
-            # zones, quiet hours only stop prospecting and writing: a cycle
-            # still reads replies and sends what's due (sends_through_quiet_hours).
+            # 1. Check quiet hours. Quiet hours hold sending, not the work:
+            # Sellbird keeps discovering, profiling and drafting through the
+            # night — prospecting must not pause just because it is late —
+            # and the outbox drains again once they end. With send windows
+            # in recipients' own time zones the reverse is true of cold
+            # email: a cycle still reads replies and sends what's due
+            # (sends_through_quiet_hours), and only that happens.
             quiet = in_quiet_hours(config)
             send_only = quiet and sender.is_native and sends_through_quiet_hours(config)
-            if quiet and not send_only:
-                sleep_for = seconds_until_quiet_hours_end(config)
-                logger.info(f"Quiet hours. Sleeping for {sleep_for // 60} minutes.")
-                # Sleep in short polled chunks rather than one multi-hour
-                # wait: found in production that a system sleep/wake cycle
-                # during a long asyncio.wait_for left the process silently
-                # stalled for the rest of the quiet-hours window (11+ hours
-                # in one case) instead of resuming once the Mac woke up.
-                # Re-checking wall-clock quiet hours every few minutes
-                # bounds the worst case to QUIET_HOURS_POLL_SECONDS instead
-                # of however long the missed timer would have run.
-                shutting_down = False
-                while in_quiet_hours(config):
-                    if await _interruptible_sleep(QUIET_HOURS_POLL_SECONDS, stop_event):
-                        shutting_down = True
-                        break
-                if shutting_down:
-                    break
-                continue
+            quiet_hold = quiet and not send_only
+            if quiet_hold:
+                logger.info(
+                    f"Quiet hours: sending holds for "
+                    f"{seconds_until_quiet_hours_end(config) // 60} minutes. "
+                    "Prospecting, writing and reply reading continue."
+                )
             # Quiet hours wake only for cold email that can go now: due,
             # inside its recipient's window, not held by a cap or a pause.
             # Replies wait for the operator's hours, as they always have.
@@ -393,7 +415,9 @@ async def heartbeat(stop_event: asyncio.Event | None = None):
                     break
                 continue
 
-            # 4. Decide what to do (in quiet hours: only read replies and send)
+            # 4. Decide what to do (in send-window quiet hours: only read
+            # replies and send; otherwise the normal decision, with sending
+            # held when quiet hours say so)
             if send_only:
                 logger.info("Quiet hours: reading replies, then sending what's due "
                             "in recipients' own time zones.")
@@ -402,7 +426,9 @@ async def heartbeat(stop_event: asyncio.Event | None = None):
             else:
                 logger.info("Checking pipeline state...")
                 summary = await state.get_state_summary()
-                action = await decide_next_action(brain, state, config, summary=summary)
+                action = await decide_next_action(
+                    brain, state, config, summary=summary, sending_held=quiet_hold
+                )
 
             # 5. Execute — run independent agents in parallel where possible
             # Handler is always safe to run alongside other agents
@@ -425,12 +451,13 @@ async def heartbeat(stop_event: asyncio.Event | None = None):
             # people who just replied before anything is sent. Native mail
             # providers drain the outbox every cycle, so their mailbox is
             # read every cycle too; any provider is read while a conversation
-            # is open.
+            # is open. Quiet hours hold that second phase for every provider.
             send_tasks = []
-            if action == "send_campaign":
-                send_tasks.append(("send_campaign", sender.run))
-            elif sender.is_native:
-                send_tasks.append(("send_outbox", sender.run))
+            if not quiet_hold:
+                if action == "send_campaign":
+                    send_tasks.append(("send_campaign", sender.run))
+                elif sender.is_native:
+                    send_tasks.append(("send_outbox", sender.run))
             if sender.is_native or has_open_convos:
                 tasks.append(("handle_replies", handler.run()))
 
@@ -441,6 +468,13 @@ async def heartbeat(stop_event: asyncio.Event | None = None):
             if summary.get("unprofiled", 0):
                 tasks.append(("profile", run_profile_stage(state, limit=25, config=config)))
 
+            # Guessed addresses get their second look here, on the same
+            # heartbeat: a contact found before a verifier key existed is a
+            # guess forever otherwise, and the Writer cannot use a guess.
+            # It spends verifier credits, so it keeps to a day's budget.
+            if summary.get("guessed_prospects", 0):
+                tasks.append(("reverify", reverify_batch(state, env)))
+
             outcomes = await _run_agents(tasks)
 
             # Phase 2: send — only after every reply-reading task this cycle
@@ -448,7 +482,12 @@ async def heartbeat(stop_event: asyncio.Event | None = None):
             # failure, exception or timeout doesn't), and only if the brain
             # didn't stop being usable meanwhile. Otherwise a reply may be
             # unread, so its stop-on-reply hasn't run: queued emails wait.
-            if send_tasks:
+            # Quiet hours are their own hold: say so instead of sending.
+            if quiet_hold:
+                await record_send_phase(
+                    state, "Quiet hours: no email goes out until they end."
+                )
+            elif send_tasks:
                 unread = [n for n, _ in tasks
                           if n in REPLY_READERS and outcomes.get(n) is not True]
                 paused = brain.paused_reason

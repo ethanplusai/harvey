@@ -558,6 +558,41 @@ async def verify_reoon(email: str, api_key: str) -> Optional[dict]:
     return {"status": status, "catch_all": is_catch_all}
 
 
+async def reoon_balance(api_key: str) -> Optional[dict]:
+    """Reoon's remaining credits: today's renewal and the never-expiring stash.
+
+    The balance endpoint is free — it doesn't spend a verification credit —
+    so a budget can be checked before anything is spent.
+    """
+    try:
+        async with httpx.AsyncClient(timeout=API_TIMEOUT) as client:
+            resp = await client.get(
+                "https://emailverifier.reoon.com/api/v1/check-account-balance/",
+                params={"key": api_key},
+            )
+    except httpx.HTTPError as e:
+        logger.debug(f"Reoon balance check failed: {e}")
+        return None
+    if resp.status_code != 200:
+        return None
+    try:
+        data = resp.json()
+    except ValueError:
+        return None
+    if not isinstance(data, dict):
+        return None
+    try:
+        daily = int(data.get("remaining_daily_credits") or 0)
+        instant = int(data.get("remaining_instant_credits") or 0)
+    except (TypeError, ValueError):
+        return None
+    return {
+        "daily": daily,
+        "instant": instant,
+        "active": str(data.get("api_status") or "").lower() == "active",
+    }
+
+
 async def verify_zerobounce(email: str, api_key: str) -> Optional[dict]:
     """ZeroBounce — its 2026 engine is the reliable one for M365/Workspace catch-alls."""
     try:
