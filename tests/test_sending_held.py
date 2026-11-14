@@ -15,7 +15,7 @@ from unittest.mock import AsyncMock
 import pytest
 import pytest_asyncio
 
-from sellbird.sending_mode import held_message
+from sellbird.sending_mode import held_message, quiet_hours_hold
 from sellbird.state import SENDS_HELD_KEY, StateManager
 from tests.test_dashboard_signals import client  # noqa: F401  (fixture)
 
@@ -95,6 +95,27 @@ def test_the_message_names_the_fix(reason, fix):
     title, detail = held_message({"reason": reason, "since": "2026-10-24T08:00:00"}, waiting=3)
     assert "isn't sending" in title
     assert fix in detail and "3 emails are waiting" in detail and "opt-out" in detail
+
+
+def test_quiet_hours_is_named_as_quiet_hours_not_an_inbox_failure():
+    # An overnight hold is expected behaviour; blaming the inbox would send
+    # the operator to debug a mailbox that is perfectly fine.
+    hold = {"reason": "Quiet hours: no email goes out until they end.",
+            "since": "2026-11-07T18:47:00"}
+    title, detail = held_message(hold, waiting=2)
+    assert "quiet hours" in title and "inbox" not in title
+    assert "2 emails are waiting" in detail and "once they end" in detail
+    assert quiet_hours_hold(hold) and not quiet_hours_hold(
+        {"reason": "Gmail: not signed in to Gmail."})
+
+
+def test_today_calls_quiet_hours_a_warning_not_an_alarm(client):
+    st = StateManager(str(client.db_path))
+    asyncio.run(st.init_db())
+    asyncio.run(st.note_sends_held("Quiet hours: no email goes out until they end."))
+    held = [i for i in client.get("/api/today").json()["items"] if i["key"] == "sends-held"]
+    assert held and held[0]["tone"] == "warn" and "quiet hours" in held[0]["title"]
+    asyncio.run(st.clear_sends_held())
 
 
 # ── where it shows ──

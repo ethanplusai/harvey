@@ -558,6 +558,30 @@ MIGRATIONS: list[str] = [
     ALTER TABLE conversations ADD COLUMN mailbox_id TEXT DEFAULT '';
     CREATE INDEX IF NOT EXISTS idx_outbox_mailbox_sent ON outbox(mailbox_id, status, sent_at);
     """,
+    # ── v17: where the prospect's company is, so mail can be ordered by
+    # geography — the operator's priority places first ──
+    """
+    ALTER TABLE prospects ADD COLUMN location TEXT DEFAULT '';
+
+    -- Backfill from the company the prospect belongs to. Discovery stamps
+    -- the searched place onto the company, so this is the same place the
+    -- company was found — not a guess made here.
+    UPDATE prospects
+    SET location = COALESCE(
+        (SELECT c.location FROM companies c WHERE c.id = prospects.company_id),
+        '')
+    WHERE location = '' OR location IS NULL;
+    """,
+    # ── v18: companies taken out of the pipeline, and why ──
+    """
+    -- A company that is not a prospect at all — an ERP vendor, a trading
+    -- house, a blog post mistaken for a business — is kept on file with a
+    -- marker rather than deleted, so the operator can see what was removed
+    -- and put it back if the call was wrong.
+    ALTER TABLE companies ADD COLUMN status TEXT DEFAULT 'active';
+    ALTER TABLE companies ADD COLUMN excluded_reason TEXT DEFAULT '';
+    CREATE INDEX IF NOT EXISTS idx_companies_status ON companies(status);
+    """,
 ]
 
 BRAIN_PROVIDERS = ("claude", "codex")
@@ -661,14 +685,15 @@ class StateManager:
                    (id, name, domain, website, description, industry,
                     company_size, location, phone, source, source_url,
                     external_id, notes, tech_stack_json, signals_json,
-                    created_at, updated_at)
-                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                    status, excluded_reason, created_at, updated_at)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
                 (
                     company.id, company.name, company.domain, company.website,
                     company.description, company.industry, company.company_size,
                     company.location, company.phone, company.source,
                     company.source_url, company.external_id, company.notes,
                     json.dumps(company.tech_stack), json.dumps(company.signals),
+                    company.status or "active", company.excluded_reason or "",
                     company.created_at.isoformat(),
                     company.updated_at.isoformat(),
                 ),
@@ -809,6 +834,18 @@ class StateManager:
             prospect.id = _new_id()
         prospect.email = _norm(prospect.email)
         prospect.linkedin_url = (prospect.linkedin_url or "").strip()
+        # Where the company is, so the Writer can work through the operator's
+        # priority places first. Taken from the company the prospect belongs
+        # to — the place discovery found it — rather than guessed.
+        if not prospect.location and prospect.company_id:
+            async with self._connect() as db:
+                async with db.execute(
+                    "SELECT location FROM companies WHERE id = ?",
+                    (prospect.company_id,),
+                ) as cursor:
+                    row = await cursor.fetchone()
+            if row:
+                prospect.location = row[0] or ""
         async with self._connect() as db:
             cursor = await db.execute(
                 """INSERT OR IGNORE INTO prospects
@@ -816,8 +853,8 @@ class StateManager:
                     email_status, phone, phone_verified, linkedin_url, title,
                     seniority, department, source, source_url, status, score,
                     personalization_notes, company, industry, company_size,
-                    created_at, updated_at)
-                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                    location, created_at, updated_at)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
                 (
                     prospect.id, prospect.company_id,
                     prospect.first_name, prospect.last_name,
@@ -830,6 +867,7 @@ class StateManager:
                     prospect.status, prospect.score,
                     prospect.personalization_notes,
                     prospect.company, prospect.industry, prospect.company_size,
+                    prospect.location,
                     prospect.created_at.isoformat(),
                     prospect.updated_at.isoformat(),
                 ),
@@ -871,6 +909,117 @@ class StateManager:
             ) as cursor:
                 rows = await cursor.fetchall()
                 return [self._prospect_from_row(r) for r in rows]
+
+    async def get_prospects_to_write(
+        self, priority_locations: list[str] | None = None
+    ) -> list[Prospect]:
+        """Prospects the Writer may draft for, in the order it should reach them.
+
+        Eligibility first. A prospect whose company is an ERP vendor, a
+        software house, a trading company or a blog post is not a prospect,
+        however good its address looks — so those are left out here entirely,
+        whatever status they carry. A company the operator excluded by hand
+        stays out too.
+
+        Then order. With ``priority_locations`` set, the prospects in those
+        places come first (so the first wave of mail lands where the operator
+        wants it), best ICP score first within a place, then oldest. Without
+        one, the order is the newest first, as ``get_prospects_by_status``.
+        """
+        from sellbird.icp_filter import (
+            exclusion_reason, is_list_title, location_matches_priority,
+        )
+
+        async with self._connect() as db:
+            db.row_factory = aiosqlite.Row
+            async with db.execute(
+                """SELECT p.*, c.name AS c_name, c.description AS c_description,
+                          c.source_url AS c_source_url, c.industry AS c_industry,
+                          c.location AS c_location, c.status AS c_status
+                   FROM prospects p
+                   LEFT JOIN companies c ON c.id = p.company_id
+                   WHERE p.status = 'new'"""
+            ) as cursor:
+                rows = await cursor.fetchall()
+
+        eligible: list[tuple[str, dict]] = []
+        for row in rows:
+            d = dict(row)
+            # A company the operator took out of the pipeline stays out,
+            # whatever the generic rules say about it today.
+            if (d.get("c_status") or "") == "excluded":
+                continue
+            company = {
+                "name": d.get("c_name") or d.get("company") or "",
+                "industry": d.get("c_industry") or d.get("industry") or "",
+                "description": d.get("c_description") or "",
+                "source_url": d.get("c_source_url") or "",
+            }
+            if exclusion_reason(company):
+                continue
+            # Nothing on record about the page, and the name reads like a
+            # list: it is a page about companies, not one of them.
+            if not company["source_url"] and is_list_title(company["name"]):
+                continue
+            # The prospect's own location, or the company's when the
+            # prospect predates the column.
+            location = d.get("location") or d.get("c_location") or ""
+            eligible.append((location, d))
+
+        priority = [p.strip() for p in (priority_locations or []) if p.strip()]
+        if priority:
+            eligible.sort(key=lambda item: (
+                0 if location_matches_priority(item[0], priority) else 1,
+                -int(item[1].get("score") or 0),      # best ICP score first
+                str(item[1].get("created_at") or ""),  # then oldest
+            ))
+        else:
+            eligible.sort(key=lambda item: str(item[1].get("created_at") or ""),
+                          reverse=True)
+        return [self._prospect_from_row(row) for _, row in eligible]
+
+    async def get_guessed_prospects(self, limit: int = 20) -> list[Prospect]:
+        """Addresses that are still a guess, best prospects first.
+
+        A contact found before a verifier key existed stays a guess until
+        something looks at it again — this is the queue for that second
+        look. Ordered by ICP score, so scarce verifier credits go to the
+        contacts most worth having, then by age.
+
+        Companies taken out of the pipeline are skipped: verifying an
+        address at an ERP vendor or a trading house spends a credit for a
+        contact nobody will ever write to.
+        """
+        async with self._connect() as db:
+            db.row_factory = aiosqlite.Row
+            async with db.execute(
+                """SELECT p.* FROM prospects p
+                   LEFT JOIN companies c ON c.id = p.company_id
+                   WHERE p.email_status = 'guess' AND p.email != ''
+                     AND p.status NOT IN ('excluded', 'opted_out', 'lost')
+                     AND (c.status IS NULL OR c.status != 'excluded')
+                   ORDER BY COALESCE(p.score, 0) DESC, p.created_at ASC
+                   LIMIT ?""",
+                (limit,),
+            ) as cursor:
+                rows = await cursor.fetchall()
+                return [self._prospect_from_row(r) for r in rows]
+
+    async def count_guessed_prospects(self) -> int:
+        """How many addresses are still waiting for a second look.
+
+        Counted exactly as ``get_guessed_prospects`` selects them, so the
+        heartbeat never runs a reverify pass that finds nothing to do.
+        """
+        async with self._connect() as db:
+            async with db.execute(
+                """SELECT COUNT(*) FROM prospects p
+                   LEFT JOIN companies c ON c.id = p.company_id
+                   WHERE p.email_status = 'guess' AND p.email != ''
+                     AND p.status NOT IN ('excluded', 'opted_out', 'lost')
+                     AND (c.status IS NULL OR c.status != 'excluded')"""
+            ) as cursor:
+                return (await cursor.fetchone())[0]
 
     async def set_prospect_timezone(self, prospect_id: str, zone: str):
         """Remember a recipient's time zone. Leaves updated_at alone: it
@@ -2101,14 +2250,19 @@ class StateManager:
         instead of retrying the same top-N-by-created_at companies every
         cycle — a company a team page didn't exist for last time is worth
         another look after ``stale_days``, not a permanent skip.
+
+        Companies taken out of the pipeline are never offered: a scrape and
+        a verification credit spent on an ERP vendor is a credit wasted.
         """
         async with self._connect() as db:
             db.row_factory = aiosqlite.Row
             async with db.execute(
-                """SELECT c.id, c.name, c.domain, c.industry
+                """SELECT c.id, c.name, c.domain, c.industry,
+                          c.description, c.source_url, c.location
                    FROM companies c
                    LEFT JOIN prospects p ON p.company_id = c.id
                    WHERE c.domain != ''
+                     AND c.status != 'excluded'
                      AND (c.prospects_checked_at IS NULL
                           OR c.prospects_checked_at < datetime('now', ?))
                    GROUP BY c.id
@@ -2118,6 +2272,83 @@ class StateManager:
                 (f"-{int(stale_days)} days", int(limit)),
             ) as cursor:
                 return [dict(r) for r in await cursor.fetchall()]
+
+    async def exclude_company(self, company_id: str, reason: str) -> dict:
+        """Take a company out of the pipeline, and its prospects with it.
+
+        An ERP vendor, a software house, a trading company or a blog post
+        mistaken for a business is not a prospect. The company is kept on
+        file with the reason recorded — so the operator can see what was
+        removed and put it back if the call was wrong — but nothing working
+        on the pipeline touches it again:
+
+        - its prospects stop being offered to the Writer;
+        - the Scout does not go looking for contacts at it;
+        - any draft already waiting for approval is cancelled;
+        - it is left out of outreach exports.
+        """
+        async with self._connect() as db:
+            await db.execute(
+                "UPDATE companies SET status = 'excluded', excluded_reason = ?, "
+                "updated_at = CURRENT_TIMESTAMP WHERE id = ?",
+                (reason, company_id),
+            )
+            await db.execute(
+                "UPDATE prospects SET status = 'excluded', "
+                "updated_at = CURRENT_TIMESTAMP WHERE company_id = ? AND status = 'new'",
+                (company_id,),
+            )
+            await db.execute(
+                "UPDATE outbox SET status = 'cancelled', error = ?, "
+                "updated_at = CURRENT_TIMESTAMP WHERE status IN "
+                "('pending_review', 'approved') AND prospect_id IN "
+                "(SELECT id FROM prospects WHERE company_id = ?)",
+                (f"excluded: {reason}", company_id),
+            )
+            await db.commit()
+
+            async with db.execute(
+                "SELECT COUNT(*) FROM prospects WHERE company_id = ?", (company_id,)
+            ) as cursor:
+                (prospects,) = await cursor.fetchone()
+            async with db.execute(
+                "SELECT COUNT(*) FROM outbox WHERE status = 'cancelled' AND error = ?",
+                (f"excluded: {reason}",),
+            ) as cursor:
+                (cancelled,) = await cursor.fetchone()
+        return {"company_id": company_id, "prospects": prospects,
+                "cancelled_drafts": cancelled}
+
+    async def restore_company(self, company_id: str) -> bool:
+        """Undo an exclusion: the company is active again.
+
+        Its prospects go back to 'new' so the Writer can pick them up, and
+        the reason is cleared. A draft cancelled by the exclusion is not
+        resurrected — a draft is re-drafted rather than re-approved, so
+        nothing can be sent on a stale approval.
+        """
+        async with self._connect() as db:
+            await db.execute(
+                "UPDATE companies SET status = 'active', excluded_reason = '', "
+                "updated_at = CURRENT_TIMESTAMP WHERE id = ? AND status = 'excluded'",
+                (company_id,),
+            )
+            await db.execute(
+                "UPDATE prospects SET status = 'new', updated_at = CURRENT_TIMESTAMP "
+                "WHERE company_id = ? AND status = 'excluded'",
+                (company_id,),
+            )
+            await db.commit()
+        return True
+
+    async def excluded_company_ids(self) -> set[str]:
+        """The ids of every company taken out of the pipeline."""
+        async with self._connect() as db:
+            async with db.execute(
+                "SELECT id FROM companies WHERE status = 'excluded'"
+            ) as cursor:
+                return {r[0] for r in await cursor.fetchall()}
+
 
     async def mark_prospects_checked(self, company_id: str):
         """Record that a prospect-backfill pass looked at this company,
@@ -2300,11 +2531,28 @@ class StateManager:
         async with self._connect() as db:
             async with db.execute(
                 f"""SELECT COUNT(*) FROM prospects p
-                    WHERE status = 'new' AND email != ''
-                      AND email_status IN ({marks}) AND NOT {_company_answered('p')}""",
+                    LEFT JOIN companies c ON c.id = p.company_id
+                    WHERE p.status = 'new' AND p.email != ''
+                      AND p.email_status IN ({marks})
+                      AND NOT {_company_answered('p')}
+                      AND (c.status IS NULL OR c.status != 'excluded')""",
                 WRITABLE_EMAIL_STATUSES,
             ) as cursor:
                 return (await cursor.fetchone())[0]
+
+    async def count_outbox_by_status(self) -> dict[str, int]:
+        """How many emails sit in each outbox state.
+
+        The difference between "waiting for a human" and "stuck" is the
+        point: a draft in pending_review is waiting for approval, while an
+        approved email that hasn't gone out is a problem.
+        """
+        async with self._connect() as db:
+            async with db.execute(
+                "SELECT status, COUNT(*) FROM outbox GROUP BY status"
+            ) as cursor:
+                rows = await cursor.fetchall()
+                return {row[0]: row[1] for row in rows}
 
     async def count_recent_unusable_prospects(self, hours: int = 24) -> int:
         """New prospects found in the last ``hours`` that the Writer can't use."""
@@ -2796,6 +3044,9 @@ class StateManager:
             # Unusable ones found in the last day: the heartbeat pauses
             # prospecting for the day when these alone fill the backlog.
             "recent_unusable_prospects": await self.count_recent_unusable_prospects(),
+            # Addresses still waiting for their second look. A contact found
+            # before a verifier key existed is a guess forever otherwise.
+            "guessed_prospects": await self.count_guessed_prospects(),
             "draft_campaigns": draft_campaigns,
             "active_campaigns": active_campaigns,
             # The kill switch: native sending stages nothing while it's set.

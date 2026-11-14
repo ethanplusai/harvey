@@ -42,6 +42,7 @@ from sellbird.collectors.discover import site_name_from_html
 from sellbird.collectors.profile import _reads_like_title, fold_accents, looks_like_challenge
 from sellbird.config import SellbirdConfig, EnvConfig, live_do_not_contact
 from sellbird.gate import do_not_contact_domain_match
+from sellbird.icp_filter import exclusion_reason
 from sellbird.integrations.email_finder import (
     DEFAULT_PATTERN, SMALL_BUSINESS_PATTERN, find_email, site_email_evidence,
     verify_published_address,
@@ -727,6 +728,17 @@ class Scout:
             if await self._skip_listed_company(company, domain):
                 continue
 
+            # Companies on file before the ICP filter existed may be
+            # vendors or trading houses. Don't spend a scrape, or a
+            # verification credit, on one.
+            if self._excluded_company(
+                company.get("name") or self._domain_to_name(domain),
+                company.get("industry") or default_industry,
+                company.get("description") or "",
+                company.get("source_url") or "",
+            ):
+                continue
+
             contacts = await self._contacts_from_company(
                 company_id=company["id"],
                 domain=domain,
@@ -806,6 +818,9 @@ class Scout:
                                     industry=industry,
                                     source="linkedin_search",
                                 )
+                                if not company_id:
+                                    # Excluded company: not a prospect.
+                                    continue
 
                         email = ""
                         email_status = ""
@@ -860,7 +875,9 @@ class Scout:
         logger.info("Scout: Searching for LinkedIn profiles...")
         count = 0
 
-        geo = self.config.icp.geography[0] if self.config.icp.geography else ""
+        geos = list(getattr(self.config.icp, "priority_geography", None) or []) \
+            or list(self.config.icp.geography or [])
+        geo = geos[0] if geos else ""
         industry = self.config.icp.industries[0] if self.config.icp.industries else ""
 
         for title in self.config.icp.titles:
@@ -965,6 +982,9 @@ class Scout:
                 source=company.get("source", "web_search"),
                 source_url=company.get("source_url", ""),
             )
+            if not company_id:
+                # Excluded company: not a prospect, so nothing to scrape.
+                continue
 
             # Buying signals: what they run, and whether they're hiring for
             # roles that suggest they're in-market. Signals are gold for
@@ -1179,7 +1199,8 @@ class Scout:
         """Build search queries to find ICP-matching companies."""
         queries = []
         industries = self.config.icp.industries or [""]
-        geos = self.config.icp.geography or [""]
+        geos = list(getattr(self.config.icp, "priority_geography", None) or []) \
+            or list(self.config.icp.geography or [""])
         size = self.config.icp.company_size or ""
 
         for industry in industries[:2]:
@@ -1365,7 +1386,16 @@ Respond ONLY with the JSON array."""
         source: str = "",
         source_url: str = "",
     ) -> str:
-        """Get or create a company record. Returns company_id."""
+        """Get or create a company record. Returns company_id.
+
+        A company that fails the ICP filter is not created at all, and an
+        empty id comes back — the caller treats that as "skip this one".
+        An ERP vendor or a trading house is not a buyer, so it must not
+        become a company the rest of the pipeline keeps working on.
+        """
+        if self._excluded_company(name, industry, description, source_url):
+            return ""
+
         try:
             existing = await self.state.get_company_by_domain(domain)
             if existing:
@@ -1385,6 +1415,43 @@ Respond ONLY with the JSON array."""
             source_url=source_url,
         )
         return await self.state.add_company(company)
+
+    def _excluded_company(
+        self, name: str, industry: str = "", description: str = "",
+        source_url: str = "",
+    ) -> bool:
+        """Is this company one we should never contact?
+
+        The built-in rules catch the obvious cases — a blog post, an ERP
+        vendor, a trading house. The operator's own lists in
+        ``icp.excluded_industries`` and ``icp.excluded_keywords`` add to
+        them, so a business they know is wrong never enters the pipeline
+        even if it looks fine to the generic rules.
+        """
+        icp = self.config.icp
+
+        # The operator's exclusions come first: they know their market.
+        for excluded in getattr(icp, "excluded_industries", None) or []:
+            if excluded and excluded.strip().lower() == (industry or "").strip().lower():
+                logger.info(f"Scout: skipping {name!r} — excluded industry {excluded!r}")
+                return True
+
+        haystack = " ".join(x for x in (name or "", description or "") if x).lower()
+        for keyword in getattr(icp, "excluded_keywords", None) or []:
+            if keyword and keyword.strip().lower() in haystack:
+                logger.info(f"Scout: skipping {name!r} — excluded keyword {keyword!r}")
+                return True
+
+        reason = exclusion_reason({
+            "name": name,
+            "industry": industry,
+            "description": description,
+            "source_url": source_url,
+        })
+        if reason:
+            logger.info(f"Scout: skipping {name!r} — {reason}")
+            return True
+        return False
 
     async def _resolve_base_url(
         self, domain: str, retries: int = 1
@@ -1936,6 +2003,9 @@ Respond ONLY with the JSON array."""
                 source="job_board",
                 source_url=str(row.get("job_url") or ""),
             )
+            if not company_id:
+                # Excluded company: not a prospect, so nothing to scrape.
+                continue
 
             signal = {"type": "hiring", "detail": job_title, "found_at": today}
             try:

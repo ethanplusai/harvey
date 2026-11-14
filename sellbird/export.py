@@ -51,6 +51,10 @@ async def collect_prospects(
         # preserves legacy NULL statuses; only known opt-outs are suppressed.
         where.append("status IS NOT ?")
         params.append("opted_out")
+        # A company taken out of the pipeline is not a prospect either — it
+        # is a vendor, a trading house, or a page that was not a business.
+        where.append("status IS NOT ?")
+        params.append("excluded")
         wanted = email_statuses if email_statuses is not None else DEFAULT_EMAIL_STATUSES
         if wanted:
             placeholders = ",".join("?" for _ in wanted)

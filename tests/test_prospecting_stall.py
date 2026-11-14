@@ -91,6 +91,21 @@ async def test_the_pause_never_becomes_permanent(state):
 
 
 @pytest.mark.asyncio
+async def test_the_pause_can_be_turned_off_for_round_the_clock_prospecting(state):
+    # The operator wants prospecting to run all night, with or without a
+    # verifier key: usage.unusable_backlog_limit: 0 opts out of the pause.
+    from sellbird.main import PROSPECT_BACKLOG, backlog_limit, unusable_backlog_notice
+    for n in range(PROSPECT_BACKLOG):
+        await add(state, n, f"p{n}@co{n}.test", "guess")
+    summary = await state.get_state_summary()
+    never = SimpleNamespace(channels=CONFIG.channels,
+                            usage=SimpleNamespace(unusable_backlog_limit=0))
+    assert backlog_limit(never) == 0 and backlog_limit(CONFIG) == PROSPECT_BACKLOG
+    assert unusable_backlog_notice(summary, backlog_limit(never)) == ""
+    assert await decide_next_action(None, state, never, summary=summary) == "prospect"
+
+
+@pytest.mark.asyncio
 async def test_old_guesses_do_not_stop_a_mixed_setup_returning_to_prospecting(state):
     for n in range(25):
         await add(state, n, f"p{n}@co{n}.test", "guess")

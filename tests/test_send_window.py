@@ -781,6 +781,11 @@ def _patch_heartbeat(monkeypatch, cfg, state, calls, stop):
     monkeypatch.setattr(main_mod, "Brain", _Brain)
     monkeypatch.setattr(main_mod, "in_quiet_hours", lambda c: True)
     monkeypatch.setattr(main_mod, "_interruptible_sleep", stop_instead_of_sleeping)
+
+    async def profile(*a, **k):  # the real stage is HTTP; it has its own tests
+        calls.append("profile")
+        return None, None, None
+    monkeypatch.setattr(main_mod, "run_profile_stage", profile)
     monkeypatch.setattr(sellbird.agents.scout, "Scout", agent("prospect"))
     monkeypatch.setattr(sellbird.agents.writer, "Writer", agent("write"))
     monkeypatch.setattr(sender_mod, "Sender", agent("send"))
@@ -810,14 +815,34 @@ async def test_quiet_hours_with_nothing_due_do_nothing(state, monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_without_recipient_zones_quiet_hours_hold_everything(state, monkeypatch):
+async def test_quiet_hours_hold_sending_but_keep_the_pipeline_running(state, monkeypatch):
+    # Without a send window there is nothing to wake for: quiet hours hold
+    # sending only. Discovery, profiling and reply reading carry on, so
+    # prospecting never stops for the night.
     cfg = SellbirdConfig(**BASE, channels={"email": {"provider": "gmail"}})
     pid = await seed_at(state, "Tokyo, Japan", "aiko@tokyo-acme.jp")
     await approved(state, pid, "aiko@tokyo-acme.jp")
     calls, stop = [], asyncio.Event()
     main_mod = _patch_heartbeat(monkeypatch, cfg, state, calls, stop)
     await asyncio.wait_for(main_mod.heartbeat(stop), timeout=30)
-    assert calls == []
+    assert "send" not in calls  # nothing goes out while it is quiet hours
+    assert {"prospect", "analyze", "replies", "profile"} <= set(calls)
+    held = await state.current_sends_held()
+    assert held and "Quiet hours" in held["reason"]  # the Today card says why
+
+
+@pytest.mark.asyncio
+async def test_quiet_hours_dont_sit_on_a_ready_campaign_all_night(state, monkeypatch):
+    # A draft waiting to deploy must not win the night: sending is held, so
+    # the cycle goes back to prospecting instead of doing nothing until dawn.
+    from sellbird.models.campaign import Campaign
+    cfg = SellbirdConfig(**BASE, channels={"email": {"provider": "gmail"}})
+    await state.add_campaign(Campaign(id="", name="ready to send"))
+    calls, stop = [], asyncio.Event()
+    main_mod = _patch_heartbeat(monkeypatch, cfg, state, calls, stop)
+    await asyncio.wait_for(main_mod.heartbeat(stop), timeout=30)
+    assert "send" not in calls
+    assert "prospect" in calls
 
 
 def _patch_heartbeat_real_sender(monkeypatch, cfg, state, calls, stop, provider):

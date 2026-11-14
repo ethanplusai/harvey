@@ -84,6 +84,19 @@ class ICPConfig(BaseModel):
     # Each variant runs in every city alongside the industry itself, so the
     # estimate grows with it. Empty → each industry is its own one search.
     keyword_variants: dict[str, list[str]] = {}
+    # Places to work through FIRST, before the rest of `geography`.
+    # Discovery searches these first and the Writer drafts for them first,
+    # so the first wave of mail goes where the operator wants it. Empty →
+    # `geography` order decides.
+    priority_geography: list[str] = []
+    # Industries that must never become prospects, even when a search turns
+    # them up. An ERP vendor or a software house does not buy a manufacturing
+    # ERP. Matching is case-insensitive substring on the industry label.
+    excluded_industries: list[str] = []
+    # Company names or descriptions containing any of these are kept out of
+    # the pipeline — vendors, trading houses, directories. Matched
+    # case-insensitively.
+    excluded_keywords: list[str] = []
 
 
 class WarmupConfig(BaseModel):
@@ -680,6 +693,11 @@ class UsageConfig(BaseModel):
     max_daily_claude_percent: float = 80.0
     heartbeat_interval_minutes: int = 15
     quiet_hours: QuietHoursConfig = QuietHoursConfig()
+    # Unusable prospects (a guessed, invalid or missing email) found in the
+    # last 24 hours that pause prospecting — see PROSPECT_BACKLOG in main.py.
+    # 0 never pauses: prospecting runs around the clock even before a
+    # verifier key is configured.
+    unusable_backlog_limit: int = 20
 
     @field_validator("max_daily_claude_percent")
     @classmethod
@@ -693,6 +711,16 @@ class UsageConfig(BaseModel):
     def _valid_interval(cls, v: int) -> int:
         if v < 1:
             raise ValueError("heartbeat_interval_minutes must be at least 1")
+        return v
+
+    @field_validator("unusable_backlog_limit")
+    @classmethod
+    def _valid_backlog_limit(cls, v: int) -> int:
+        if v < 0:
+            raise ValueError(
+                "unusable_backlog_limit must be 0 or more "
+                "(0 keeps prospecting running whatever the verifier says)"
+            )
         return v
 
 

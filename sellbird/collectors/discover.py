@@ -33,6 +33,7 @@ from urllib.parse import urlparse
 
 import httpx
 
+from sellbird.icp_filter import exclusion_reason, place_key
 from sellbird.models import Company
 
 logger = logging.getLogger("sellbird.collectors.discover")
@@ -1680,6 +1681,8 @@ def build_queries(config, cities: list[str] | None = None,
         terms = list(dict.fromkeys(
             v.strip() for t in terms for v in [t, *variants.get(t, [])] if v.strip()))
         places = cities if cities is not None else list(icp.geography) or [""]
+    if cities is None:
+        places = prioritize_places(places, getattr(icp, "priority_geography", []) or [])
     coords = getattr(icp, "geo_coordinates", {}) or {}
 
     return [
@@ -1688,6 +1691,35 @@ def build_queries(config, cities: list[str] | None = None,
         for term in terms
         for place in places
     ]
+
+
+def prioritize_places(places: list[str], priority: list[str]) -> list[str]:
+    """Put the priority places first, keeping every place exactly once.
+
+    The priority list wins on *order*, not on membership: a place named in
+    ``priority`` moves to the front, and every other place keeps its original
+    relative order behind it. A place in ``priority`` that is not in ``places``
+    is not added — the set of places to search is the operator's ``geography``
+    list, and priority only says which of them to reach for first.
+
+    Places are matched by city name, so "Pune" and "Pune, India" are the same
+    place.
+    """
+    if not priority:
+        return list(places)
+    wanted = [p for p in priority if p and p.strip()]
+    if not wanted:
+        return list(places)
+
+    remaining = list(places)
+    head: list[str] = []
+    for want in wanted:
+        key = place_key(want)
+        for i, place in enumerate(remaining):
+            if place_key(place) == key:
+                head.append(remaining.pop(i))
+                break
+    return head + remaining
 
 
 def estimate_cost(provider_key: str, queries: list[DiscoveryQuery]) -> float:
@@ -1823,6 +1855,19 @@ async def run_discovery(
                     # credits to enrich and sits in every cohort until somebody
                     # notices it by eye.
                     if do_not_contact_domain_match(biz.domain, do_not_contact):
+                        report.excluded += 1
+                        continue
+                    # Is this a company we would actually sell to? Google
+                    # ranks a vendor's blog post and a directory listing right
+                    # alongside real businesses. Those are not prospects, and
+                    # the cheapest place to notice is here — before the row
+                    # exists, before profiling spends requests on it, and
+                    # before it reaches the Writer.
+                    if exclusion_reason({
+                        "name": biz.name,
+                        "industry": biz.category or query.term,
+                        "source_url": biz.source_url,
+                    }):
                         report.excluded += 1
                         continue
                     ident = biz.identity()

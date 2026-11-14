@@ -31,12 +31,26 @@ async def sync_sending_mode(config, state) -> bool:
 SIGNATURE_HOLD_PREFIX = "email signature: "
 
 
+def quiet_hours_hold(hold: dict) -> bool:
+    """True when sending is held by quiet hours — an expected pause, not a fault."""
+    return str((hold or {}).get("reason") or "").lower().startswith("quiet hours")
+
+
 def held_message(hold: dict, waiting: int) -> tuple[str, str]:
-    """What Today and `sellbird status` say while sending is held because
-    replies couldn't all be read or handled: (title, detail)."""
+    """What Today and `sellbird status` say while sending is held: (title, detail).
+
+    Covers replies that couldn't be read or handled, a broken signature, and
+    quiet hours — each named as itself rather than as an inbox problem.
+    """
     reason = str(hold.get("reason") or "replies couldn't all be read").strip().rstrip(".")
     low = reason.lower()
     emails = "1 email is waiting" if waiting == 1 else f"{waiting} emails are waiting"
+    if low.startswith("quiet hours"):
+        # Not a fault: the inbox is fine, the operator's night is on.
+        since = str(hold.get("since", "?"))[:16].replace("T", " ")
+        return ("Sellbird isn't sending: it's quiet hours",
+                f"{reason}. Nothing goes out while they last; the Outbox drains "
+                f"again once they end. {emails}. Held since {since} UTC.")
     if low.startswith(SIGNATURE_HOLD_PREFIX):
         return ("Sellbird isn't sending: your email logo can't be used",
                 f"{reason[len(SIGNATURE_HOLD_PREFIX):]}. Fix the file, or clear "

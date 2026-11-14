@@ -27,6 +27,11 @@ class Company(BaseModel):
     # best prospects for anyone selling one.
     external_id: str = ""
     notes: str = ""
+    # 'active' or 'excluded'. An excluded company is not a prospect at all
+    # — an ERP vendor, a trading house, a blog post mistaken for a
+    # business — and is kept on file so the operator can put it back.
+    status: str = "active"
+    excluded_reason: str = ""
     # Buying signals: detected tools on their site, and timely triggers
     # (hiring, funding, ...) as [{"type": ..., "detail": ..., "found_at": ...}]
     tech_stack: list[str] = Field(default_factory=list)
