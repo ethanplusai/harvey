@@ -26,6 +26,7 @@ Hardening notes:
 """
 
 import asyncio
+import base64
 import json
 import logging
 import random
@@ -536,6 +537,42 @@ class Scout:
             logger.debug(f"DuckDuckGo returned {len(results)} results")
         return results[:MAX_RESULTS_PER_QUERY]
 
+    _BING_REDIRECT = re.compile(r"^https?://(?:www\.)?bing\.com/ck/a\?", re.I)
+
+    @classmethod
+    def _unwrap_bing_redirect(cls, href: str) -> str:
+        """Recover the real URL from a Bing click-tracking link.
+
+        Bing's HTML results link to ``/ck/a?...&u=a1<base64url>``, not to the
+        destination. Kept as-is, the whole result set reads as pages on
+        bing.com, and every candidate is thrown away for not being a company
+        site — the search looks like it found nothing when it found plenty.
+        The ``u`` parameter carries the destination base64url-encoded, behind
+        an ``a1`` marker.
+
+        Anything that does not unwrap cleanly comes back unchanged: a result
+        we can't decode is no worse than the redirect we started with, so this
+        never costs a result, it only recovers one.
+        """
+        if not cls._BING_REDIRECT.match(href or ""):
+            return href
+        try:
+            target = (parse_qs(urlparse(href).query).get("u") or [""])[0]
+        except Exception:
+            return href
+        if target.startswith("http"):
+            # Some links carry the destination unencoded.
+            return target
+        if not target.startswith("a1"):
+            return href
+        encoded = target[2:]
+        try:
+            padded = encoded + "=" * (-len(encoded) % 4)
+            decoded = base64.urlsafe_b64decode(padded).decode("utf-8", "replace")
+        except Exception:
+            return href
+        return decoded if decoded.startswith("http") else href
+
     async def _search_bing(self, query: str) -> list[tuple[str, str]]:
         """Search via Bing HTML scraping — less aggressive than Google."""
         url = f"https://www.bing.com/search?q={quote_plus(query)}&count={MAX_RESULTS_PER_QUERY}"
@@ -553,7 +590,8 @@ class Scout:
             snippet_el = item.select_one(".b_caption p")
             if not (link and link.get("href")):
                 continue
-            href = self._attr_str(link.get("href"))
+            # Bing hands back its own click-tracking URL; the real one is inside.
+            href = self._unwrap_bing_redirect(self._attr_str(link.get("href")))
             snippet = snippet_el.get_text().strip() if snippet_el else ""
             if href.startswith("http"):
                 results.append((href, snippet))
